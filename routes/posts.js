@@ -9,25 +9,30 @@ const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
 const { notify } = require('../notify');
 const { areFriends, canViewPost, canInteractPost } = require('../visibility');
-const { decoratePost, reactionSummary } = require('../postview');
+const { decoratePost, voteTally, reactionSummary } = require('../postview');
+const { wilson, controversy, rankPosts } = require('../ranking');
 
 const router = express.Router();
 
-function commentScore(id) {
-  return db.prepare("SELECT COALESCE(SUM(value), 0) s FROM votes WHERE target_type = 'comment' AND target_id = ?").get(id).s;
-}
 function myCommentVote(id, userId) {
   const v = db.prepare("SELECT value FROM votes WHERE target_type = 'comment' AND target_id = ? AND user_id = ?").get(id, userId);
   return v ? v.value : 0;
 }
 function decorateComment(c, viewerId) {
+  const tally = voteTally('comment', c.id);
   return {
     id: c.id,
     parent_id: c.parent_id || null,
     content: c.content,
     created_at: c.created_at,
     author: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(c.user_id)),
-    score: commentScore(c.id),
+    score: tally.score,
+    up: tally.up,
+    down: tally.down,
+    // ranking signals: "best" (Wilson lower bound on effective votes) is the
+    // default comment sort; controversy powers the Controversial sort.
+    best: wilson(tally.effUp, tally.effDown),
+    controversy: controversy(tally.effUp, tally.effDown),
     myVote: myCommentVote(c.id, viewerId),
     reactions: reactionSummary('comment', c.id, viewerId),
   };
@@ -54,6 +59,70 @@ router.get('/feed', requireAuth, (req, res) => {
     )
     .all(uid, uid, uid, uid);
   res.json({ posts: rows.map((p) => decoratePost(p, uid)) });
+});
+
+// Combined home feed (SPEC section 8): blends your network's personal posts
+// (yourself plus accepted friends, the stand-in for one-directional follows until
+// Phase 6 adds them) with posts from communities you have joined, ranked by the
+// shared formula times the author's reach_score. Sorts: hot (default), new, top.
+router.get('/feed/home', requireAuth, (req, res) => {
+  const uid = req.user.id;
+
+  // Both subqueries require visibility = 'visible' so hard-shadowed content
+  // (the floor tier sets this flag) never reaches another user's feed on ANY
+  // sort. Candidate limits are kept modest because ranking rarely promotes a
+  // very old post over fresher ones, and each decoratePost is several queries.
+  const personal = db
+    .prepare(
+      `SELECT p.* FROM posts p
+       WHERE p.group_id IS NULL AND p.community_id IS NULL AND p.visibility = 'visible'
+         AND (
+           p.user_id = ?
+           OR p.user_id IN (
+             SELECT CASE WHEN requester_id = ? THEN addressee_id ELSE requester_id END
+             FROM friendships
+             WHERE status = 'accepted' AND (requester_id = ? OR addressee_id = ?)
+           )
+         )
+       ORDER BY p.created_at DESC, p.id DESC LIMIT 80`
+    )
+    .all(uid, uid, uid, uid);
+
+  const community = db
+    .prepare(
+      `SELECT p.* FROM posts p
+       WHERE p.community_id IN (SELECT community_id FROM community_members WHERE user_id = ?)
+         AND p.visibility = 'visible'
+       ORDER BY p.created_at DESC, p.id DESC LIMIT 80`
+    )
+    .all(uid);
+
+  const decorated = personal.concat(community).map((p) => decoratePost(p, uid));
+
+  // Author reach multiplier (the graduated shadowban). Looked up here and folded
+  // into the ranking only, never attached to the post, so reach stays invisible
+  // to other users. Phase 4 adds the appeal flow on top of this.
+  const reachCache = {};
+  function reachOf(p) {
+    const aid = p.author.id;
+    if (reachCache[aid] === undefined) {
+      const u = db.prepare('SELECT reach_score FROM users WHERE id = ?').get(aid);
+      reachCache[aid] = u && u.reach_score != null ? u.reach_score : 1;
+    }
+    return reachCache[aid];
+  }
+
+  // Fully floored authors (reach at the shadowban floor) are excluded outright so
+  // they cannot resurface by toggling the sort; the viewer still sees their OWN
+  // posts (no obvious tell). Quarantined authors stay but are downranked in
+  // rankPosts. SHADOW_FLOOR mirrors trust.js reachFromStanding's floor (0.05).
+  const SHADOW_FLOOR = 0.05;
+  const visible = decorated.filter((p) => p.author.id === uid || reachOf(p) > SHADOW_FLOOR);
+
+  const sort = ['hot', 'new', 'top'].indexOf(req.query.sort) >= 0 ? req.query.sort : 'hot';
+  const window = req.query.t || 'all';
+  const ranked = rankPosts(visible, sort, window, reachOf).slice(0, 100);
+  res.json({ posts: ranked, sort, window });
 });
 
 // A user's wall (their plain posts only).

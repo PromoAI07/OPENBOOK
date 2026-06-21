@@ -9,7 +9,8 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../auth');
 const { canInteractPost } = require('../visibility');
-const { recordKarmaEvent } = require('../trust');
+const { recordKarmaEvent, refreshTrustLevel } = require('../trust');
+const { trustWeight } = require('../ranking');
 
 const router = express.Router();
 
@@ -55,15 +56,21 @@ router.post('/', requireAuth, (req, res) => {
   const oldValue = existing ? existing.value : 0;
   const effective = value === oldValue ? 0 : value; // same arrow again = clear
 
+  // The vote carries the voter's current trust weight so ranking can resist
+  // brigades (a new account's vote barely moves the rank). Recompute the level
+  // first so the weight is fresh; standing is never touched by voting.
+  const tl = refreshTrustLevel(req.user.id);
+  const weight = trustWeight(tl);
+
   if (effective === 0) {
     db.prepare('DELETE FROM votes WHERE user_id = ? AND target_type = ? AND target_id = ?')
       .run(req.user.id, targetType, targetId);
   } else if (existing) {
-    db.prepare("UPDATE votes SET value = ?, created_at = datetime('now') WHERE user_id = ? AND target_type = ? AND target_id = ?")
-      .run(effective, req.user.id, targetType, targetId);
+    db.prepare("UPDATE votes SET value = ?, weight = ?, created_at = datetime('now') WHERE user_id = ? AND target_type = ? AND target_id = ?")
+      .run(effective, weight, req.user.id, targetType, targetId);
   } else {
-    db.prepare('INSERT INTO votes (user_id, target_type, target_id, value) VALUES (?, ?, ?, ?)')
-      .run(req.user.id, targetType, targetId, effective);
+    db.prepare('INSERT INTO votes (user_id, target_type, target_id, value, weight) VALUES (?, ?, ?, ?, ?)')
+      .run(req.user.id, targetType, targetId, effective, weight);
   }
 
   if (authorId !== req.user.id) {

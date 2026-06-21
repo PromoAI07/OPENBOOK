@@ -46,6 +46,12 @@ const API = {
 
   // Posts
   feed() { return this.get('/api/posts/feed'); },
+  homeFeed(sort, t) {
+    const params = [];
+    if (sort) params.push('sort=' + encodeURIComponent(sort));
+    if (t) params.push('t=' + encodeURIComponent(t));
+    return this.get('/api/posts/feed/home' + (params.length ? '?' + params.join('&') : ''));
+  },
   userPosts(id) { return this.get('/api/posts/user/' + id); },
   createPost(content, file) {
     const f = new FormData();
@@ -153,7 +159,12 @@ const API = {
   joinCommunity(id) { return this.post('/api/communities/' + id + '/join'); },
   leaveCommunity(id) { return this.post('/api/communities/' + id + '/leave'); },
   communityMembers(id) { return this.get('/api/communities/' + id + '/members'); },
-  communityPosts(id, sort) { return this.get('/api/communities/' + id + '/posts' + (sort ? '?sort=' + sort : '')); },
+  communityPosts(id, sort, t) {
+    const params = [];
+    if (sort) params.push('sort=' + encodeURIComponent(sort));
+    if (t) params.push('t=' + encodeURIComponent(t));
+    return this.get('/api/communities/' + id + '/posts' + (params.length ? '?' + params.join('&') : ''));
+  },
   createCommunityPost(id, fields, file) {
     const f = new FormData();
     Object.keys(fields).forEach((k) => f.append(k, fields[k] == null ? '' : fields[k]));

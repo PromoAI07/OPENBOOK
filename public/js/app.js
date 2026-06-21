@@ -27,6 +27,18 @@
     return escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
   }
 
+  // Only let http(s) URLs become a real href. Anything else (javascript:, data:,
+  // etc.) collapses to '#', so a hostile link-post URL cannot run script when
+  // clicked. The visible link text still shows the raw URL via esc().
+  function safeHref(u) {
+    try {
+      const x = new URL(u, window.location.origin);
+      return x.protocol === 'http:' || x.protocol === 'https:' ? x.href : '#';
+    } catch (e) {
+      return '#';
+    }
+  }
+
   const AVATAR_COLORS = ['#4f46e5', '#0ea5a4', '#e0245e', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#3b82f6'];
   function colorFor(name) {
     const s = name || '?';
@@ -242,16 +254,53 @@
     view.innerHTML =
       '<div class="card" id="storiesCard"><div class="stories" id="storiesRow"><div class="empty" style="padding:10px">Loading stories...</div></div></div>' +
       composerHtml() +
+      '<div class="card"><div class="mk-head"><div class="tabs">' +
+        '<button class="tab" data-feed="latest">Latest</button>' +
+        '<button class="tab" data-feed="hot">Hot</button>' +
+        '<button class="tab" data-feed="top">Top</button>' +
+      '</div><span style="flex:1"></span><span class="muted" id="feedHint" style="font-size:12px;align-self:center"></span></div></div>' +
       '<div id="feedPosts"><div class="card"><div class="empty">Loading your feed...</div></div></div>';
     wireComposer('feedPosts');
     loadStories();
-    try {
-      const r = await API.feed();
-      renderPosts(document.getElementById('feedPosts'), r.posts, 'Your feed is quiet for now. Add some friends or write your first post above.');
-    } catch (e) {
-      document.getElementById('feedPosts').innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>';
+    const hint = document.getElementById('feedHint');
+    function syncFeedUI() {
+      view.querySelectorAll('.tab[data-feed]').forEach((t) => t.classList.toggle('active', t.getAttribute('data-feed') === feedMode));
+      hint.textContent = feedMode === 'latest' ? 'Friends, newest first' : 'Friends + your communities, ranked';
     }
+    view.querySelectorAll('.tab[data-feed]').forEach((t) => {
+      t.onclick = () => { feedMode = t.getAttribute('data-feed'); syncFeedUI(); loadFeedPosts(); };
+    });
+    syncFeedUI();
+    loadFeedPosts();
     renderRightRail();
+  }
+
+  async function loadFeedPosts() {
+    const container = document.getElementById('feedPosts');
+    if (!container) return;
+    container.innerHTML = '<div class="card"><div class="empty">Loading your feed...</div></div>';
+    try {
+      if (feedMode === 'latest') {
+        const r = await API.feed();
+        renderPosts(container, r.posts, 'Your feed is quiet for now. Add some friends or write your first post above.');
+      } else {
+        const r = await API.homeFeed(feedMode);
+        renderMixedFeed(container, r.posts, 'Nothing ranked yet. Join a community or add some friends to fill your feed.');
+      }
+    } catch (e) {
+      container.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>';
+    }
+  }
+
+  // The combined feed mixes plain Facebook-style posts with community posts, so
+  // each renders in its native card (reactions vs vote arrows).
+  function renderMixedFeed(container, posts, emptyMsg) {
+    container.innerHTML = '';
+    if (!posts.length) {
+      container.innerHTML = '<div class="card"><div class="empty">' + esc(emptyMsg) + '</div></div>';
+      return;
+    }
+    posts.forEach((p) => container.appendChild(p.community_id ? communityPostCard(p) : renderPostNode(p)));
   }
 
   function composerHtml() {
@@ -1442,7 +1491,10 @@
     };
   }
 
-  let communitySort = 'top';
+  let communitySort = 'hot';
+  let communityWindow = 'all';
+  let commentSort = 'best';
+  let feedMode = 'latest';
 
   async function renderCommunity(id) {
     view.innerHTML = '<div class="card card-pad-0"><div class="empty" style="padding:40px">Loading community...</div></div>';
@@ -1456,7 +1508,15 @@
       (c.description ? '<div style="margin-top:4px">' + esc(c.description) + '</div>' : '') + '</div>' +
       '<div class="comm-act"></div></div></div>' +
       (c.rules ? '<div class="card"><div class="section-title">Rules</div><div style="white-space:pre-wrap">' + esc(c.rules) + '</div></div>' : '') +
-      '<div class="card"><div class="mk-head"><div class="tabs"><button class="tab" data-sort="top">Top</button><button class="tab" data-sort="new">New</button></div>' +
+      '<div class="card"><div class="mk-head"><div class="tabs">' +
+        '<button class="tab" data-sort="hot">Hot</button>' +
+        '<button class="tab" data-sort="new">New</button>' +
+        '<button class="tab" data-sort="top">Top</button>' +
+        '<button class="tab" data-sort="controversial">Controversial</button>' +
+      '</div>' +
+      '<select class="input hidden" id="commWindow" style="width:auto;margin-left:8px;padding:4px 8px">' +
+        '<option value="all">All time</option><option value="week">This week</option><option value="day">Today</option>' +
+      '</select>' +
       '<span style="flex:1"></span><button class="btn btn-primary btn-sm" id="newCommPost">&#10010; Create post</button></div></div>' +
       '<div id="commPosts"><div class="card"><div class="empty">Loading posts...</div></div></div>';
 
@@ -1469,10 +1529,17 @@
       const join = el('<button class="btn btn-primary btn-sm">Join</button>'); join.onclick = async () => { try { await API.joinCommunity(c.id); toast('Joined'); renderCommunity(c.id); } catch (e) { toast(e.message); } }; act.appendChild(join);
     }
     document.getElementById('newCommPost').onclick = () => openCommunityPostModal(c);
+    const winSel = document.getElementById('commWindow');
+    function syncSortUI() {
+      view.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.getAttribute('data-sort') === communitySort));
+      winSel.classList.toggle('hidden', communitySort !== 'top');
+    }
     view.querySelectorAll('.tab').forEach((t) => {
-      t.classList.toggle('active', t.getAttribute('data-sort') === communitySort);
-      t.onclick = () => { communitySort = t.getAttribute('data-sort'); renderCommunity(c.id); };
+      t.onclick = () => { communitySort = t.getAttribute('data-sort'); syncSortUI(); loadCommunityPosts(c); };
     });
+    winSel.value = communityWindow;
+    winSel.onchange = () => { communityWindow = winSel.value; loadCommunityPosts(c); };
+    syncSortUI();
     loadCommunityPosts(c);
     renderRightRail();
   }
@@ -1481,7 +1548,7 @@
     const cont = document.getElementById('commPosts');
     if (!cont) return;
     try {
-      const r = await API.communityPosts(c.id, communitySort);
+      const r = await API.communityPosts(c.id, communitySort, communityWindow);
       if (r.locked) { cont.innerHTML = '<div class="card"><div class="empty">Join this private community to see its posts.</div></div>'; return; }
       if (!r.posts.length) { cont.innerHTML = '<div class="card"><div class="empty">No posts yet. Be the first to post.</div></div>'; return; }
       cont.innerHTML = '';
@@ -1496,7 +1563,7 @@
     const thumb = p.image ? '<div class="cpost-thumb"><img src="' + esc(p.image) + '" alt=""></div>' : '';
     body.innerHTML =
       '<div class="cpost-title">' + esc(p.title || (p.content || '').slice(0, 120)) + '</div>' +
-      (p.type === 'link' && p.url ? '<a class="cpost-link" href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.url) + '</a>' : '') +
+      (p.type === 'link' && p.url ? '<a class="cpost-link" href="' + esc(safeHref(p.url)) + '" target="_blank" rel="noopener">' + esc(p.url) + '</a>' : '') +
       (p.content && p.type !== 'link' ? '<div class="cpost-snippet">' + esc((p.content || '').slice(0, 160)) + ((p.content || '').length > 160 ? '...' : '') + '</div>' : '') +
       thumb +
       '<div class="cpost-meta">' + (p.community ? 'o/' + esc(p.community.name) + ' &#183; ' : '') + 'by ' + esc(p.author.name) + ' &#183; ' + timeAgo(p.created_at) + ' &#183; &#128172; ' + p.commentCount + '</div>';
@@ -1569,15 +1636,26 @@
       'by <span class="link" data-profile="' + p.author.id + '">' + esc(p.author.name) + '</span> &#183; ' + timeAgo(p.created_at) +
       (p.edited ? ' &#183; <span class="edited-link" data-history>edited</span>' : '') + '</div>' +
       (p.title ? '<div class="cpost-title" style="font-size:22px;cursor:default">' + esc(p.title) + '</div>' : '') +
-      (p.type === 'link' && p.url ? '<a href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.url) + '</a>' : '') +
+      (p.type === 'link' && p.url ? '<a href="' + esc(safeHref(p.url)) + '" target="_blank" rel="noopener">' + esc(p.url) + '</a>' : '') +
       (p.content ? '<div class="post-body">' + linkify(esc(p.content)) + '</div>' : '') +
       (p.image ? '<div class="post-image" style="margin:10px 0"><img src="' + esc(p.image) + '" alt="" style="border-radius:10px"></div>' : '') +
       (canDelete ? '<div style="margin-top:8px"><button class="btn btn-sm" data-editpost>Edit</button> <button class="btn btn-danger btn-sm" data-delpost>Delete post</button></div>' : '');
     card.appendChild(pbody);
     view.appendChild(card);
 
-    const csec = el('<div class="card"><div class="section-title">Comments</div><div class="comment-form" id="rootCommentForm"></div><div id="commentTree"><div class="empty" style="padding:8px">Loading comments...</div></div></div>');
+    const csec = el('<div class="card"><div class="mk-head" style="margin-bottom:6px">' +
+      '<div class="section-title" style="margin:0">Comments</div><span style="flex:1"></span>' +
+      '<select class="input" id="commentSortSel" style="width:auto;padding:4px 8px">' +
+        '<option value="best">Best</option><option value="new">New</option>' +
+        '<option value="top">Top</option><option value="controversial">Controversial</option>' +
+      '</select></div>' +
+      '<div class="comment-form" id="rootCommentForm"></div>' +
+      '<div id="commentTree"><div class="empty" style="padding:8px">Loading comments...</div></div></div>');
     view.appendChild(csec);
+
+    const csortSel = document.getElementById('commentSortSel');
+    csortSel.value = commentSort;
+    csortSel.onchange = () => { commentSort = csortSel.value; loadCommentTree(p.id); };
 
     document.getElementById('postBack').onclick = () => { if (p.community) go('community', p.community.id); else go('feed'); };
     pbody.querySelectorAll('[data-profile]').forEach((x) => (x.onclick = () => go('profile', Number(x.getAttribute('data-profile')))));
@@ -1601,6 +1679,13 @@
     renderRightRail();
   }
 
+  function commentCompare(a, b) {
+    if (commentSort === 'new') return b.id - a.id;
+    if (commentSort === 'top') return (b.score - a.score) || (a.id - b.id);
+    if (commentSort === 'controversial') return ((b.controversy || 0) - (a.controversy || 0)) || (a.id - b.id);
+    return ((b.best || 0) - (a.best || 0)) || (b.score - a.score) || (a.id - b.id); // best
+  }
+
   async function loadCommentTree(postId) {
     const box = document.getElementById('commentTree');
     if (!box) return;
@@ -1612,7 +1697,9 @@
     comments.forEach((c) => { const k = c.parent_id || 0; (byParent[k] = byParent[k] || []).push(c); });
     function render(parentId, depth) {
       const kids = byParent[parentId] || [];
-      if (parentId === 0) kids.sort((a, b) => b.score - a.score || a.id - b.id);
+      // Top-level comments follow the chosen sort; replies stay chronological so
+      // a conversation reads in order.
+      if (parentId === 0) kids.sort(commentCompare);
       else kids.sort((a, b) => a.id - b.id);
       const frag = document.createDocumentFragment();
       kids.forEach((c) => frag.appendChild(commentTreeNode(c, postId, depth, render)));

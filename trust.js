@@ -71,12 +71,14 @@ function refreshTrustLevel(userId) {
   return tl;
 }
 
-// The self-facing trust snapshot returned to a logged-in user.
+// The self-facing trust snapshot returned to a logged-in user. It deliberately
+// OMITS reach_score: the graduated shadowban must be silent, so even the account
+// owner must not be able to read their own reach multiplier (SPEC section 4,
+// "no obvious tell"). reach_score stays server-side, used only at ranking time.
 function trustSnapshot(user) {
   return {
     karma: user.karma || 0,
     standing: user.standing == null ? STANDING_BASELINE : user.standing,
-    reachScore: user.reach_score == null ? 1.0 : user.reach_score,
     trustLevel: user.trust_level || 0,
   };
 }

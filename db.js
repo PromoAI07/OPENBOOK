@@ -298,6 +298,14 @@ db.exec(`
 addColumn('posts', 'edit_count INTEGER NOT NULL DEFAULT 0', 'edit_count');
 addColumn('posts', 'edited_at TEXT', 'edited_at');
 
+// --- Phase 2: feeds + ranking (see SPEC.md section 7, ranking.js) ---
+// Each vote stores the voter's trust weight at cast time, so ranking can use
+// trust-weighted "effective" votes (a brand-new account barely moves the rank)
+// while the raw count still drives the visible score and karma. Pre-Phase-2
+// votes default to full weight (1), which is the right neutral behaviour.
+addColumn('votes', 'weight REAL NOT NULL DEFAULT 1', 'weight');
+db.exec('CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at)');
+
 // Carry existing likes over as 'like' reactions (idempotent; safe every boot).
 try {
   db.exec("INSERT OR IGNORE INTO reactions (user_id, target_type, target_id, type, created_at) SELECT user_id, 'post', post_id, 'like', created_at FROM likes");

@@ -9,6 +9,7 @@ const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
 const { decoratePost } = require('../postview');
+const { rankPosts, SORTS } = require('../ranking');
 
 const router = express.Router();
 
@@ -114,7 +115,8 @@ router.get('/:id/members', requireAuth, (req, res) => {
   res.json({ members: rows.map((u) => Object.assign(publicUser(u), { role: u.role })) });
 });
 
-// Posts in a community, sorted Top (by score) or New.
+// Posts in a community, sorted Hot (default), New, Top (day/week/all), or
+// Controversial. The ranking math is shared and published in ranking.js.
 router.get('/:id/posts', requireAuth, (req, res) => {
   const id = Number(req.params.id);
   const c = db.prepare('SELECT * FROM communities WHERE id = ?').get(id);
@@ -122,13 +124,17 @@ router.get('/:id/posts', requireAuth, (req, res) => {
   if (c.privacy !== 'public' && !isMember(req.user.id, id)) {
     return res.json({ posts: [], locked: true });
   }
+  // Pull a candidate set newest-first, then rank in code and trim. The limit is
+  // modest because each post costs several queries to decorate and ranking
+  // rarely promotes a very old post over fresher, higher-scoring ones.
   const rows = db
-    .prepare("SELECT * FROM posts WHERE community_id = ? AND visibility = 'visible' ORDER BY created_at DESC LIMIT 200")
+    .prepare("SELECT * FROM posts WHERE community_id = ? AND visibility = 'visible' ORDER BY created_at DESC, id DESC LIMIT 150")
     .all(id);
-  const posts = rows.map((p) => decoratePost(p, req.user.id));
-  const sort = req.query.sort === 'new' ? 'new' : 'top';
-  if (sort === 'top') posts.sort((a, b) => b.score - a.score || b.id - a.id);
-  res.json({ posts, locked: false, sort });
+  const decorated = rows.map((p) => decoratePost(p, req.user.id));
+  const sort = SORTS.indexOf(req.query.sort) >= 0 ? req.query.sort : 'hot';
+  const window = req.query.t || 'all';
+  const ranked = rankPosts(decorated, sort, window).slice(0, 200);
+  res.json({ posts: ranked, locked: false, sort, window });
 });
 
 // Create a post in a community (public: anyone; private: members only).
@@ -147,6 +153,11 @@ router.post('/:id/posts', requireAuth, upload.single('image'), (req, res) => {
   const url = (req.body.url || '').trim();
   const image = req.file ? '/uploads/' + req.file.filename : '';
   if (type === 'link' && !url) return res.status(400).json({ error: 'Add a link URL' });
+  // Only http(s) links: blocks javascript:/data: schemes from being stored and
+  // later rendered into an href (defense in depth alongside the client safeHref).
+  if (type === 'link' && !/^https?:\/\//i.test(url)) {
+    return res.status(400).json({ error: 'Link must start with http:// or https://' });
+  }
   if (type === 'image' && !image) return res.status(400).json({ error: 'Add an image' });
 
   const info = db

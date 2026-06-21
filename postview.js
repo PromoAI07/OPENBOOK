@@ -5,11 +5,30 @@
 
 const db = require('./db');
 const { publicUser } = require('./auth');
+const { hot } = require('./ranking');
 
 const REACTION_TYPES = ['like', 'love', 'care', 'haha', 'wow', 'sad', 'angry'];
 
+// One pass over a target's votes giving both the raw tally (shown to users and
+// used for karma) and the trust-weighted tally (used for ranking). up/down are
+// raw counts; effUp/effDown sum each voter's stored weight.
+function voteTally(targetType, targetId) {
+  const r = db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(value), 0)                                        AS score,
+         COALESCE(SUM(CASE WHEN value = 1  THEN 1 ELSE 0 END), 0)       AS up,
+         COALESCE(SUM(CASE WHEN value = -1 THEN 1 ELSE 0 END), 0)       AS down,
+         COALESCE(SUM(CASE WHEN value = 1  THEN weight ELSE 0 END), 0)  AS effUp,
+         COALESCE(SUM(CASE WHEN value = -1 THEN weight ELSE 0 END), 0)  AS effDown
+       FROM votes WHERE target_type = ? AND target_id = ?`
+    )
+    .get(targetType, targetId);
+  return { score: r.score, up: r.up, down: r.down, effUp: r.effUp, effDown: r.effDown };
+}
+
 function postScore(postId) {
-  return db.prepare("SELECT COALESCE(SUM(value), 0) s FROM votes WHERE target_type = 'post' AND target_id = ?").get(postId).s;
+  return voteTally('post', postId).score;
 }
 function myPostVote(postId, userId) {
   const v = db.prepare("SELECT value FROM votes WHERE target_type = 'post' AND target_id = ? AND user_id = ?").get(postId, userId);
@@ -34,6 +53,7 @@ function decoratePost(post, viewerId) {
   const author = db.prepare('SELECT * FROM users WHERE id = ?').get(post.user_id);
   const commentCount = db.prepare('SELECT COUNT(*) c FROM comments WHERE post_id = ?').get(post.id).c;
   const reactions = reactionSummary('post', post.id, viewerId);
+  const tally = voteTally('post', post.id);
 
   let community = null;
   if (post.community_id) {
@@ -54,7 +74,13 @@ function decoratePost(post, viewerId) {
     reactions,
     likeCount: reactions.total, // back-compat
     liked: !!reactions.mine,
-    score: postScore(post.id),
+    score: tally.score,
+    up: tally.up,
+    down: tally.down,
+    // trust-weighted tallies and the hot value drive ranking; harmless to send.
+    effUp: tally.effUp,
+    effDown: tally.effDown,
+    hot: hot(tally.effUp, tally.effDown, post.created_at),
     myVote: myPostVote(post.id, viewerId),
     community,
     community_id: post.community_id || null,
@@ -65,4 +91,4 @@ function decoratePost(post, viewerId) {
   };
 }
 
-module.exports = { decoratePost, postScore, myPostVote, reactionSummary, REACTION_TYPES };
+module.exports = { decoratePost, voteTally, postScore, myPostVote, reactionSummary, REACTION_TYPES };
