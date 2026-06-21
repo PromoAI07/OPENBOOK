@@ -128,7 +128,11 @@
     if (params.has('verified')) window.history.replaceState({}, '', '/app');
 
     renderVerifyBanner();
-    go('feed');
+
+    // Deep link to a specific reel (/app#reel=<id>) opens the Reels feed there.
+    const reelMatch = /(?:^|#)reel=(\d+)/.exec(window.location.hash);
+    if (reelMatch) { pendingReel = Number(reelMatch[1]); go('reels'); }
+    else go('feed');
   }
 
   // A dismissable-by-verifying banner shown to accounts that have not confirmed
@@ -196,6 +200,12 @@
       if (rep) { e.preventDefault(); e.stopPropagation(); reportModal(rep.getAttribute('data-report'), Number(rep.getAttribute('data-report-id'))); return; }
       const ap = e.target.closest('[data-appeal]');
       if (ap) { e.preventDefault(); e.stopPropagation(); appealModal(ap.getAttribute('data-appeal-type'), Number(ap.getAttribute('data-appeal-id')) || null); }
+    });
+
+    // A shared reel link can also be opened while the app is already running.
+    window.addEventListener('hashchange', () => {
+      const m = /(?:^|#)reel=(\d+)/.exec(window.location.hash);
+      if (m) { pendingReel = Number(m[1]); go('reels'); }
     });
   }
 
@@ -268,6 +278,7 @@
       '<div class="side-link" data-go="groups"><span class="ic">&#127760;</span><span>Groups</span></div>' +
       '<div class="side-link" data-go="reels"><span class="ic">&#127909;</span><span>Reels</span></div>' +
       '<div class="side-link" data-go="support"><span class="ic">&#10084;&#65039;</span><span>Support OpenBook</span></div>' +
+      '<div class="side-link" id="themeToggle"><span class="ic">' + (currentTheme() === 'dark' ? '&#9728;&#65039;' : '&#127769;') + '</span><span>' + (currentTheme() === 'dark' ? 'Light mode' : 'Dark mode') + '</span></div>' +
       '<div class="side-link" id="leftLogout"><span class="ic">&#128682;</span><span>Log out</span></div>' +
       '</div>';
     rail.querySelectorAll('[data-go]').forEach((b) =>
@@ -277,8 +288,22 @@
         else go(n);
       })
     );
+    document.getElementById('themeToggle').addEventListener('click', toggleTheme);
     document.getElementById('leftLogout').addEventListener('click', doLogout);
     refreshBadges();
+  }
+
+  /* ---------- theme (light / dark) ---------- */
+  function currentTheme() {
+    return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  }
+  function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('ob_theme', theme); } catch (e) {}
+  }
+  function toggleTheme() {
+    setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+    renderLeftRail(); // refresh the toggle's icon and label
   }
 
   async function doLogout() {
@@ -1764,6 +1789,7 @@
   let feedMode = 'latest';
   let postMod = false;   // can the current viewer moderate the open post's thread (mod/admin)
   let postOwner = false; // is the current viewer the owner of the open post
+  let pendingReel = null; // a reel id from a shared deep link (/app#reel=<id>) to scroll to
 
   async function renderCommunity(id) {
     view.innerHTML = '<div class="card card-pad-0"><div class="empty" style="padding:40px">Loading community...</div></div>';
@@ -2091,6 +2117,12 @@
       const viewer = document.getElementById('reelsViewer');
       reels.forEach((r) => viewer.appendChild(reelStage(r)));
       wireReelAutoplay(viewer);
+      // If we arrived via a shared reel link, scroll that reel into view.
+      if (pendingReel) {
+        const target = viewer.querySelector('.reel-stage[data-reel="' + pendingReel + '"]');
+        if (target) target.scrollIntoView();
+        pendingReel = null;
+      }
     }
     renderRightRail();
   }
@@ -2129,8 +2161,8 @@
     };
     stage.querySelector('[data-comment]').onclick = () => openReelComments(r);
     stage.querySelector('[data-share]').onclick = () => {
-      const url = window.location.origin + '/app';
-      if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => toast('Link copied')).catch(() => toast('Share: ' + url));
+      const url = window.location.origin + '/app#reel=' + r.id;
+      if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => toast('Reel link copied')).catch(() => toast('Share: ' + url));
       else toast('Share: ' + url);
     };
     stage.querySelector('[data-profile]').onclick = () => go('profile', r.author.id);
