@@ -62,6 +62,8 @@ app.use('/api/messages', require('./routes/messages'));
 app.use('/api/marketplace', require('./routes/marketplace'));
 app.use('/api/groups', require('./routes/groups'));
 app.use('/api/albums', require('./routes/albums'));
+app.use('/api/communities', require('./routes/communities'));
+app.use('/api/votes', require('./routes/votes'));
 
 // The authenticated single page app shell.
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));

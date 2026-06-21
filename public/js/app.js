@@ -183,6 +183,9 @@
     else if (name === 'groups') renderGroups();
     else if (name === 'group') renderGroup(param);
     else if (name === 'album') renderAlbum(param);
+    else if (name === 'communities') renderCommunities();
+    else if (name === 'community') renderCommunity(param);
+    else if (name === 'post') renderPost(param);
     window.scrollTo(0, 0);
   }
 
@@ -195,6 +198,7 @@
       '<div class="side-link" data-go="friends"><span class="ic">&#128101;</span><span>Friends</span></div>' +
       '<div class="side-link" data-go="marketplace"><span class="ic">&#128722;</span><span>Marketplace</span></div>' +
       '<div class="side-link" data-go="groups"><span class="ic">&#127760;</span><span>Groups</span></div>' +
+      '<div class="side-link" data-go="communities"><span class="ic">&#128227;</span><span>Communities</span></div>' +
       '<div class="side-link" data-go="messages"><span class="ic">&#128172;</span><span>Messages</span></div>' +
       '<div class="side-link" id="leftLogout"><span class="ic">&#128682;</span><span>Log out</span></div>' +
       '</div>';
@@ -1236,6 +1240,314 @@
     const close = () => back.remove();
     back.querySelector('.sv-close').onclick = close;
     back.addEventListener('click', (e) => { if (e.target === back) close(); });
+  }
+
+  /* ============================ communities + voting ============================ */
+
+  function voteControl(targetType, targetId, score, myVote) {
+    const box = el('<div class="votebox"><button class="vote up" title="Upvote">&#9650;</button><span class="vscore"></span><button class="vote down" title="Downvote">&#9660;</button></div>');
+    const up = box.querySelector('.up');
+    const down = box.querySelector('.down');
+    const sc = box.querySelector('.vscore');
+    let s = score;
+    let mv = myVote;
+    function paint() {
+      sc.textContent = s;
+      up.classList.toggle('on', mv === 1);
+      down.classList.toggle('on', mv === -1);
+      sc.classList.remove('pos', 'neg');
+      if (s > 0) sc.classList.add('pos'); else if (s < 0) sc.classList.add('neg');
+    }
+    async function cast(v) {
+      try { const r = await API.vote(targetType, targetId, v); s = r.score; mv = r.myVote; paint(); }
+      catch (e) { toast(e.message); }
+    }
+    up.onclick = (e) => { e.stopPropagation(); cast(1); };
+    down.onclick = (e) => { e.stopPropagation(); cast(-1); };
+    paint();
+    return box;
+  }
+
+  function communityIcon(c, size) {
+    size = size || 44;
+    const dim = 'width:' + size + 'px;height:' + size + 'px;';
+    if (c.icon) return '<img class="avatar" style="' + dim + '" src="' + esc(c.icon) + '" alt="">';
+    const initial = ((c.name || '?').charAt(0) || '?');
+    const fs = Math.round(size * 0.5);
+    return '<span class="avatar-fallback" style="' + dim + 'background:' + colorFor(c.name || '?') + ';font-size:' + fs + 'px">' + esc(initial) + '</span>';
+  }
+
+  async function renderCommunities() {
+    view.innerHTML =
+      '<div class="card"><div class="mk-head"><div class="section-title" style="flex:1;margin:0">Communities</div>' +
+      '<button class="btn btn-primary btn-sm" id="createCommBtn">&#10010; Create community</button></div></div>' +
+      '<div class="card"><div class="section-title">Your communities</div><div id="subComm" class="grp-grid"><div class="empty">Loading...</div></div></div>' +
+      '<div class="card"><div class="section-title">Discover</div><div id="discComm" class="grp-grid"><div class="empty">Loading...</div></div></div>';
+    document.getElementById('createCommBtn').onclick = openCreateCommunity;
+    try {
+      const r = await API.communities();
+      const sub = document.getElementById('subComm');
+      const disc = document.getElementById('discComm');
+      if (!r.subscribed.length) sub.innerHTML = '<div class="empty">You have not joined any communities yet.</div>';
+      else { sub.innerHTML = ''; r.subscribed.forEach((c) => sub.appendChild(communityCard(c))); }
+      if (!r.discover.length) disc.innerHTML = '<div class="empty">No public communities to discover yet.</div>';
+      else { disc.innerHTML = ''; r.discover.forEach((c) => disc.appendChild(communityCard(c))); }
+    } catch (e) {}
+    renderRightRail();
+  }
+
+  function communityCard(c) {
+    const card = el(
+      '<div class="grp-card"><div class="comm-row">' + communityIcon(c, 44) +
+      '<div style="flex:1;min-width:0"><div class="grp-name">o/' + esc(c.name) + '</div>' +
+      '<div class="pmeta">' + (c.privacy === 'private' ? 'Private' : 'Public') + ' &#183; ' + c.memberCount + ' member' + (c.memberCount === 1 ? '' : 's') + '</div></div></div>' +
+      '<div class="grp-act"></div></div>'
+    );
+    const act = card.querySelector('.grp-act');
+    if (c.isMember) {
+      const b = el('<button class="btn btn-soft btn-sm btn-block">Open</button>'); b.onclick = () => go('community', c.id); act.appendChild(b);
+    } else {
+      const b = el('<button class="btn btn-primary btn-sm btn-block">Join</button>');
+      b.onclick = async (e) => { e.stopPropagation(); b.disabled = true; try { await API.joinCommunity(c.id); toast('Joined o/' + c.name); go('community', c.id); } catch (err) { toast(err.message); b.disabled = false; } };
+      act.appendChild(b);
+    }
+    card.querySelector('.comm-row').onclick = () => go('community', c.id);
+    return card;
+  }
+
+  function openCreateCommunity() {
+    const m = modal(
+      '<div class="mh"><h3>Create a community</h3></div><div class="mc">' +
+      '<div class="field"><label>Name (the o/ handle)</label><input class="input" id="ccName" placeholder="e.g. danang_food" maxlength="21">' +
+      '<div class="pmeta" style="margin-top:4px">3 to 21 characters: lowercase letters, numbers, underscores</div></div>' +
+      '<div class="field"><label>Description</label><textarea class="input" id="ccDesc" rows="2" placeholder="What is this community about?"></textarea></div>' +
+      '<div class="field"><label>Rules (optional)</label><textarea class="input" id="ccRules" rows="2" placeholder="Community rules"></textarea></div>' +
+      '<div class="field"><label>Privacy</label><select class="input" id="ccPriv"><option value="public">Public (anyone can view and post)</option><option value="private">Private (members only)</option></select></div>' +
+      '<div class="field"><label>Icon (optional)</label><input type="file" id="ccIcon" accept="image/*" class="input"></div>' +
+      '<button class="btn btn-primary btn-block" id="ccCreate">Create community</button></div>'
+    );
+    m.q('#ccCreate').onclick = async () => {
+      const name = m.q('#ccName').value.trim().toLowerCase();
+      if (!/^[a-z0-9_]{3,21}$/.test(name)) { toast('Name must be 3 to 21 chars: lowercase letters, numbers, underscores'); return; }
+      const btn = m.q('#ccCreate'); btn.disabled = true; btn.textContent = 'Creating...';
+      try {
+        const r = await API.createCommunity({ name, description: m.q('#ccDesc').value.trim(), rules: m.q('#ccRules').value.trim(), privacy: m.q('#ccPriv').value }, m.q('#ccIcon').files[0]);
+        m.close(); toast('Community created'); go('community', r.community.id);
+      } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Create community'; }
+    };
+  }
+
+  let communitySort = 'top';
+
+  async function renderCommunity(id) {
+    view.innerHTML = '<div class="card card-pad-0"><div class="empty" style="padding:40px">Loading community...</div></div>';
+    let data;
+    try { data = await API.community(id); } catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+    const c = data.community;
+    view.innerHTML =
+      '<div class="card card-pad-0"><div class="comm-hero"></div>' +
+      '<div class="comm-hd">' + communityIcon(c, 72) + '<div style="flex:1;min-width:0"><div class="pname">o/' + esc(c.name) + '</div>' +
+      '<div class="pmeta">' + (c.privacy === 'private' ? 'Private community' : 'Public community') + ' &#183; ' + c.memberCount + ' member' + (c.memberCount === 1 ? '' : 's') + '</div>' +
+      (c.description ? '<div style="margin-top:4px">' + esc(c.description) + '</div>' : '') + '</div>' +
+      '<div class="comm-act"></div></div></div>' +
+      (c.rules ? '<div class="card"><div class="section-title">Rules</div><div style="white-space:pre-wrap">' + esc(c.rules) + '</div></div>' : '') +
+      '<div class="card"><div class="mk-head"><div class="tabs"><button class="tab" data-sort="top">Top</button><button class="tab" data-sort="new">New</button></div>' +
+      '<span style="flex:1"></span><button class="btn btn-primary btn-sm" id="newCommPost">&#10010; Create post</button></div></div>' +
+      '<div id="commPosts"><div class="card"><div class="empty">Loading posts...</div></div></div>';
+
+    const act = view.querySelector('.comm-act');
+    if (c.isMember) {
+      const mem = el('<button class="btn btn-soft btn-sm">Members</button>'); mem.onclick = () => openCommunityMembers(c.id); act.appendChild(mem);
+      const leave = el('<button class="btn btn-sm">Leave</button>'); leave.onclick = async () => { try { await API.leaveCommunity(c.id); toast('Left o/' + c.name); renderCommunity(c.id); } catch (e) { toast(e.message); } }; act.appendChild(leave);
+      if (c.role === 'mod') { const del = el('<button class="btn btn-danger btn-sm">Delete</button>'); del.onclick = async () => { if (!window.confirm('Delete this community and all its posts?')) return; try { await API.deleteCommunity(c.id); toast('Community deleted'); go('communities'); } catch (e) { toast(e.message); } }; act.appendChild(del); }
+    } else {
+      const join = el('<button class="btn btn-primary btn-sm">Join</button>'); join.onclick = async () => { try { await API.joinCommunity(c.id); toast('Joined'); renderCommunity(c.id); } catch (e) { toast(e.message); } }; act.appendChild(join);
+    }
+    document.getElementById('newCommPost').onclick = () => openCommunityPostModal(c);
+    view.querySelectorAll('.tab').forEach((t) => {
+      t.classList.toggle('active', t.getAttribute('data-sort') === communitySort);
+      t.onclick = () => { communitySort = t.getAttribute('data-sort'); renderCommunity(c.id); };
+    });
+    loadCommunityPosts(c);
+    renderRightRail();
+  }
+
+  async function loadCommunityPosts(c) {
+    const cont = document.getElementById('commPosts');
+    if (!cont) return;
+    try {
+      const r = await API.communityPosts(c.id, communitySort);
+      if (r.locked) { cont.innerHTML = '<div class="card"><div class="empty">Join this private community to see its posts.</div></div>'; return; }
+      if (!r.posts.length) { cont.innerHTML = '<div class="card"><div class="empty">No posts yet. Be the first to post.</div></div>'; return; }
+      cont.innerHTML = '';
+      r.posts.forEach((p) => cont.appendChild(communityPostCard(p)));
+    } catch (e) { cont.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; }
+  }
+
+  function communityPostCard(p) {
+    const card = el('<div class="card cpost"></div>');
+    const vc = voteControl('post', p.id, p.score, p.myVote);
+    const body = el('<div class="cpost-body"></div>');
+    const thumb = p.image ? '<div class="cpost-thumb"><img src="' + esc(p.image) + '" alt=""></div>' : '';
+    body.innerHTML =
+      '<div class="cpost-title">' + esc(p.title || (p.content || '').slice(0, 120)) + '</div>' +
+      (p.type === 'link' && p.url ? '<a class="cpost-link" href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.url) + '</a>' : '') +
+      (p.content && p.type !== 'link' ? '<div class="cpost-snippet">' + esc((p.content || '').slice(0, 160)) + ((p.content || '').length > 160 ? '...' : '') + '</div>' : '') +
+      thumb +
+      '<div class="cpost-meta">' + (p.community ? 'o/' + esc(p.community.name) + ' &#183; ' : '') + 'by ' + esc(p.author.name) + ' &#183; ' + timeAgo(p.created_at) + ' &#183; &#128172; ' + p.commentCount + '</div>';
+    card.appendChild(vc);
+    card.appendChild(body);
+    body.onclick = (e) => { if (e.target.tagName !== 'A') go('post', p.id); };
+    return card;
+  }
+
+  function openCommunityPostModal(c) {
+    const m = modal(
+      '<div class="mh"><h3>Post to o/' + esc(c.name) + '</h3></div><div class="mc">' +
+      '<div class="field"><label>Title</label><input class="input" id="cpTitle" placeholder="Title"></div>' +
+      '<div class="field"><label>Type</label><select class="input" id="cpType"><option value="text">Text</option><option value="link">Link</option><option value="image">Image</option></select></div>' +
+      '<div class="field" id="cpTextField"><label>Text (optional)</label><textarea class="input" id="cpContent" rows="4" placeholder="Your text"></textarea></div>' +
+      '<div class="field hidden" id="cpLinkField"><label>Link URL</label><input class="input" id="cpUrl" placeholder="https://..."></div>' +
+      '<div class="field hidden" id="cpImgField"><label>Image</label><input type="file" id="cpImg" accept="image/*" class="input"></div>' +
+      '<button class="btn btn-primary btn-block" id="cpSubmit">Post</button></div>'
+    );
+    const type = m.q('#cpType');
+    type.onchange = () => {
+      const t = type.value;
+      m.q('#cpTextField').classList.toggle('hidden', t === 'link');
+      m.q('#cpLinkField').classList.toggle('hidden', t !== 'link');
+      m.q('#cpImgField').classList.toggle('hidden', t !== 'image');
+    };
+    m.q('#cpSubmit').onclick = async () => {
+      const title = m.q('#cpTitle').value.trim();
+      if (!title) { toast('Add a title'); return; }
+      const t = type.value;
+      const fields = { title, type: t, content: m.q('#cpContent').value.trim(), url: t === 'link' ? m.q('#cpUrl').value.trim() : '' };
+      const file = t === 'image' ? m.q('#cpImg').files[0] : null;
+      if (t === 'link' && !fields.url) { toast('Add a link URL'); return; }
+      if (t === 'image' && !file) { toast('Choose an image'); return; }
+      const btn = m.q('#cpSubmit'); btn.disabled = true; btn.textContent = 'Posting...';
+      try { await API.createCommunityPost(c.id, fields, file); m.close(); toast('Posted'); if (currentView === 'community') renderCommunity(c.id); }
+      catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Post'; }
+    };
+  }
+
+  function openCommunityMembers(id) {
+    const m = modal('<div class="mh"><h3>Members</h3></div><div class="mc" id="cmemList"><div class="empty">Loading...</div></div>');
+    API.communityMembers(id).then((r) => {
+      const list = m.q('#cmemList');
+      list.innerHTML = '';
+      r.members.forEach((u) => {
+        const row = el('<div class="contact">' + avatar(u, 40) + '<span class="nm">' + esc(u.name) + (u.role === 'mod' ? ' <span class="pill">Mod</span>' : '') + '</span></div>');
+        row.onclick = () => { m.close(); go('profile', u.id); };
+        list.appendChild(row);
+      });
+    }).catch((e) => { m.q('#cmemList').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; });
+  }
+
+  async function renderPost(id) {
+    view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading post...</div></div>';
+    let data;
+    try { data = await API.getPost(id); } catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+    const p = data.post;
+
+    view.innerHTML = '';
+    const back = el('<div class="card" style="padding:8px"><button class="btn btn-ghost btn-sm" id="postBack">&#8592; Back</button></div>');
+    view.appendChild(back);
+
+    const card = el('<div class="card cpost cpost-full"></div>');
+    card.appendChild(voteControl('post', p.id, p.score, p.myVote));
+    const canDelete = p.author.id === ME.id;
+    const pbody = el('<div class="cpost-body"></div>');
+    pbody.innerHTML =
+      '<div class="cpost-meta">' + (p.community ? '<b class="link" data-comm="' + p.community.id + '">o/' + esc(p.community.name) + '</b> &#183; ' : '') +
+      'by <span class="link" data-profile="' + p.author.id + '">' + esc(p.author.name) + '</span> &#183; ' + timeAgo(p.created_at) + '</div>' +
+      (p.title ? '<div class="cpost-title" style="font-size:22px;cursor:default">' + esc(p.title) + '</div>' : '') +
+      (p.type === 'link' && p.url ? '<a href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.url) + '</a>' : '') +
+      (p.content ? '<div class="post-body">' + linkify(esc(p.content)) + '</div>' : '') +
+      (p.image ? '<div class="post-image" style="margin:10px 0"><img src="' + esc(p.image) + '" alt="" style="border-radius:10px"></div>' : '') +
+      (canDelete ? '<div style="margin-top:8px"><button class="btn btn-danger btn-sm" data-delpost>Delete post</button></div>' : '');
+    card.appendChild(pbody);
+    view.appendChild(card);
+
+    const csec = el('<div class="card"><div class="section-title">Comments</div><div class="comment-form" id="rootCommentForm"></div><div id="commentTree"><div class="empty" style="padding:8px">Loading comments...</div></div></div>');
+    view.appendChild(csec);
+
+    document.getElementById('postBack').onclick = () => { if (p.community) go('community', p.community.id); else go('feed'); };
+    pbody.querySelectorAll('[data-profile]').forEach((x) => (x.onclick = () => go('profile', Number(x.getAttribute('data-profile')))));
+    const cm = pbody.querySelector('[data-comm]');
+    if (cm) cm.onclick = () => go('community', Number(cm.getAttribute('data-comm')));
+    const dp = pbody.querySelector('[data-delpost]');
+    if (dp) dp.onclick = async () => { if (!window.confirm('Delete this post?')) return; try { await API.deletePost(p.id); toast('Deleted'); if (p.community) go('community', p.community.id); else go('feed'); } catch (e) { toast(e.message); } };
+
+    const rcf = document.getElementById('rootCommentForm');
+    rcf.innerHTML = avatar(ME, 32) + '<input type="text" placeholder="Add a comment..."><button class="btn btn-soft btn-sm">Comment</button>';
+    const rin = rcf.querySelector('input');
+    const rsend = async () => { const content = rin.value.trim(); if (!content) return; rin.disabled = true; try { await API.addComment(p.id, content); rin.value = ''; loadCommentTree(p.id); } catch (e) { toast(e.message); } rin.disabled = false; };
+    rcf.querySelector('button').onclick = rsend;
+    rin.addEventListener('keydown', (e) => { if (e.key === 'Enter') rsend(); });
+
+    loadCommentTree(p.id);
+    renderRightRail();
+  }
+
+  async function loadCommentTree(postId) {
+    const box = document.getElementById('commentTree');
+    if (!box) return;
+    let r;
+    try { r = await API.comments(postId); } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; return; }
+    const comments = r.comments;
+    if (!comments.length) { box.innerHTML = '<div class="empty" style="padding:8px">No comments yet. Start the conversation.</div>'; return; }
+    const byParent = {};
+    comments.forEach((c) => { const k = c.parent_id || 0; (byParent[k] = byParent[k] || []).push(c); });
+    function render(parentId, depth) {
+      const kids = byParent[parentId] || [];
+      if (parentId === 0) kids.sort((a, b) => b.score - a.score || a.id - b.id);
+      else kids.sort((a, b) => a.id - b.id);
+      const frag = document.createDocumentFragment();
+      kids.forEach((c) => frag.appendChild(commentTreeNode(c, postId, depth, render)));
+      return frag;
+    }
+    box.innerHTML = '';
+    box.appendChild(render(0, 0));
+  }
+
+  function commentTreeNode(c, postId, depth, render) {
+    const node = el('<div class="ctree"></div>');
+    const row = el('<div class="crow"></div>');
+    row.appendChild(voteControl('comment', c.id, c.score, c.myVote));
+    const main = el('<div class="cmain"></div>');
+    const mine = c.author.id === ME.id;
+    main.innerHTML =
+      '<div class="cbubble"><span class="cname link" data-profile="' + c.author.id + '">' + esc(c.author.name) + '</span> <span class="ctime">' + timeAgo(c.created_at) + '</span>' +
+      '<div>' + linkify(esc(c.content)) + '</div></div>' +
+      '<div class="cactions"><button class="clink" data-reply>Reply</button>' + (mine ? ' <button class="clink" data-delc>Delete</button>' : '') + '</div>' +
+      '<div class="creply hidden"></div>';
+    row.appendChild(main);
+    node.appendChild(row);
+
+    const childFrag = render(c.id, depth + 1);
+    if (childFrag.childNodes.length) {
+      const childWrap = el('<div class="cchildren"></div>');
+      childWrap.appendChild(childFrag);
+      node.appendChild(childWrap);
+    }
+
+    main.querySelector('[data-profile]').onclick = () => go('profile', c.author.id);
+    main.querySelector('[data-reply]').onclick = () => {
+      const rb = main.querySelector('.creply');
+      if (!rb.classList.contains('hidden')) { rb.classList.add('hidden'); rb.innerHTML = ''; return; }
+      rb.classList.remove('hidden');
+      rb.innerHTML = '<div class="comment-form">' + avatar(ME, 28) + '<input type="text" placeholder="Reply..."><button class="btn btn-soft btn-sm">Reply</button></div>';
+      const inp = rb.querySelector('input');
+      const send = async () => { const content = inp.value.trim(); if (!content) return; inp.disabled = true; try { await API.addComment(postId, content, c.id); loadCommentTree(postId); } catch (e) { toast(e.message); inp.disabled = false; } };
+      rb.querySelector('button').onclick = send;
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+      inp.focus();
+    };
+    const delc = main.querySelector('[data-delc]');
+    if (delc) delc.onclick = async () => { try { await API.deleteComment(c.id); loadCommentTree(postId); } catch (e) { toast(e.message); } };
+    return node;
   }
 
   /* ============================ live socket events ============================ */

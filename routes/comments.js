@@ -15,8 +15,27 @@ router.delete('/:id', requireAuth, (req, res) => {
   const canDelete = c.user_id === req.user.id || (post && post.user_id === req.user.id);
   if (!canDelete) return res.status(403).json({ error: 'Not allowed' });
 
-  db.prepare('DELETE FROM comments WHERE id = ?').run(c.id);
-  res.json({ ok: true });
+  // Collect this comment and all nested replies, then remove them and any
+  // votes on them so no orphans are left behind.
+  const ids = db
+    .prepare(
+      `WITH RECURSIVE sub(id) AS (
+         SELECT ?
+         UNION ALL
+         SELECT cc.id FROM comments cc JOIN sub ON cc.parent_id = sub.id
+       )
+       SELECT id FROM sub`
+    )
+    .all(c.id)
+    .map((r) => r.id);
+
+  const delVotes = db.prepare("DELETE FROM votes WHERE target_type = 'comment' AND target_id = ?");
+  const delComment = db.prepare('DELETE FROM comments WHERE id = ?');
+  for (const id of ids) {
+    delVotes.run(id);
+    delComment.run(id);
+  }
+  res.json({ ok: true, removed: ids.length });
 });
 
 module.exports = router;

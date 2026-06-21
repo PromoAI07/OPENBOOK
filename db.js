@@ -222,6 +222,56 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_trust_events_user ON trust_events(user_id);
 `);
 
+// --- Phase 1: communities, voting, threaded comments (see SPEC.md) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS communities (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL UNIQUE,
+    description TEXT    NOT NULL DEFAULT '',
+    rules       TEXT    NOT NULL DEFAULT '',
+    icon        TEXT    NOT NULL DEFAULT '',
+    privacy     TEXT    NOT NULL DEFAULT 'public',
+    creator_id  INTEGER NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS community_members (
+    community_id INTEGER NOT NULL,
+    user_id      INTEGER NOT NULL,
+    role         TEXT    NOT NULL DEFAULT 'member',
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (community_id, user_id),
+    FOREIGN KEY (community_id) REFERENCES communities(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id)      REFERENCES users(id)       ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS votes (
+    user_id     INTEGER NOT NULL,
+    target_type TEXT    NOT NULL,
+    target_id   INTEGER NOT NULL,
+    value       INTEGER NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, target_type, target_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_community_members_user ON community_members(user_id);
+  CREATE INDEX IF NOT EXISTS idx_votes_target ON votes(target_type, target_id);
+`);
+
+// Posts can also belong to a community and carry a title, type, link, and a
+// visibility flag (the last is used by Phase 4 moderation). Comments can nest.
+addColumn('posts', 'community_id INTEGER', 'community_id');
+addColumn('posts', "title TEXT NOT NULL DEFAULT ''", 'title');
+addColumn('posts', "type TEXT NOT NULL DEFAULT 'text'", 'type');
+addColumn('posts', "url TEXT NOT NULL DEFAULT ''", 'url');
+addColumn('posts', "visibility TEXT NOT NULL DEFAULT 'visible'", 'visibility');
+addColumn('comments', 'parent_id INTEGER', 'parent_id');
+addColumn('comments', "visibility TEXT NOT NULL DEFAULT 'visible'", 'visibility');
+db.exec('CREATE INDEX IF NOT EXISTS idx_posts_community ON posts(community_id)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id)');
+
 // Clear out sessions older than 30 days on startup.
 db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");
 

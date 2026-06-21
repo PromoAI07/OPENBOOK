@@ -56,7 +56,7 @@ const API = {
   deletePost(id) { return this.del('/api/posts/' + id); },
   toggleLike(id) { return this.post('/api/posts/' + id + '/like'); },
   comments(postId) { return this.get('/api/posts/' + postId + '/comments'); },
-  addComment(postId, content) { return this.post('/api/posts/' + postId + '/comments', { content }); },
+  addComment(postId, content, parentId) { return this.post('/api/posts/' + postId + '/comments', { content, parentId }); },
   deleteComment(id) { return this.del('/api/comments/' + id); },
 
   // Friends
@@ -138,6 +138,31 @@ const API = {
   },
   deleteAlbum(id) { return this.del('/api/albums/' + id); },
   deleteAlbumPhoto(albumId, photoId) { return this.del('/api/albums/' + albumId + '/photos/' + photoId); },
+
+  // Communities
+  communities() { return this.get('/api/communities'); },
+  community(id) { return this.get('/api/communities/' + id); },
+  createCommunity(fields, iconFile) {
+    const f = new FormData();
+    Object.keys(fields).forEach((k) => f.append(k, fields[k] == null ? '' : fields[k]));
+    if (iconFile) f.append('icon', iconFile);
+    return this.postForm('/api/communities', f);
+  },
+  joinCommunity(id) { return this.post('/api/communities/' + id + '/join'); },
+  leaveCommunity(id) { return this.post('/api/communities/' + id + '/leave'); },
+  communityMembers(id) { return this.get('/api/communities/' + id + '/members'); },
+  communityPosts(id, sort) { return this.get('/api/communities/' + id + '/posts' + (sort ? '?sort=' + sort : '')); },
+  createCommunityPost(id, fields, file) {
+    const f = new FormData();
+    Object.keys(fields).forEach((k) => f.append(k, fields[k] == null ? '' : fields[k]));
+    if (file) f.append('image', file);
+    return this.postForm('/api/communities/' + id + '/posts', f);
+  },
+  deleteCommunity(id) { return this.del('/api/communities/' + id); },
+
+  // Votes + single post (for the community post detail view)
+  vote(targetType, targetId, value) { return this.post('/api/votes', { targetType, targetId, value }); },
+  getPost(id) { return this.get('/api/posts/' + id); },
 };
 
 window.API = API;
