@@ -1,0 +1,13 @@
+node_modules
+.git
+.gitignore
+.env
+*.log
+npm-debug.log
+openbook.db
+openbook.db-shm
+openbook.db-wal
+sessions.db
+uploads
+SPEC.md
+ROADMAP.md
