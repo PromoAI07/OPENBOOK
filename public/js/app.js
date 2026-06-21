@@ -340,6 +340,71 @@
     posts.forEach((p) => container.appendChild(renderPostNode(p)));
   }
 
+  /* ---------- reactions (Facebook-style) ---------- */
+
+  const REACTIONS = [
+    { key: 'like', emoji: '👍', label: 'Like' },
+    { key: 'love', emoji: '❤️', label: 'Love' },
+    { key: 'care', emoji: '🤗', label: 'Care' },
+    { key: 'haha', emoji: '😆', label: 'Haha' },
+    { key: 'wow', emoji: '😮', label: 'Wow' },
+    { key: 'sad', emoji: '😢', label: 'Sad' },
+    { key: 'angry', emoji: '😠', label: 'Angry' },
+  ];
+  const REACTION_MAP = {};
+  REACTIONS.forEach((r) => { REACTION_MAP[r.key] = r; });
+
+  function reactionSummaryHtml(summary) {
+    if (!summary || !summary.total) return '';
+    const present = REACTIONS.filter((r) => summary.counts[r.key])
+      .sort((a, b) => summary.counts[b.key] - summary.counts[a.key])
+      .slice(0, 3);
+    const emojis = present.map((r) => '<span class="rx-emoji">' + r.emoji + '</span>').join('');
+    return '<span class="rx-sum">' + emojis + ' ' + summary.total + '</span>';
+  }
+
+  // A reaction picker button. opts.small renders a compact text link (comments).
+  function reactionControl(targetType, targetId, summary, onChange, opts) {
+    opts = opts || {};
+    const wrap = el('<span class="rx-ctl"></span>');
+    const btn = el('<button class="' + (opts.small ? 'rxbtn-sm' : 'post-action react') + '"></button>');
+    wrap.appendChild(btn);
+    let mine = summary ? summary.mine : null;
+    let picker = null;
+
+    function paint() {
+      const r = mine ? REACTION_MAP[mine] : null;
+      if (opts.small) btn.innerHTML = r ? '<span class="rx-mine">' + r.label + '</span>' : 'Like';
+      else btn.innerHTML = r ? (r.emoji + ' <span class="rx-mine">' + r.label + '</span>') : '👍 Like';
+      btn.classList.toggle('reacted', !!mine);
+    }
+    function closePicker() {
+      if (picker) { picker.remove(); picker = null; document.removeEventListener('click', outside, true); }
+    }
+    function outside(e) { if (picker && !picker.contains(e.target) && e.target !== btn) closePicker(); }
+    async function react(type) {
+      try {
+        const s = await API.react(targetType, targetId, type);
+        mine = s.mine; paint(); closePicker();
+        if (onChange) onChange(s);
+      } catch (e) { toast(e.message); }
+    }
+    function openPicker() {
+      if (picker) { closePicker(); return; }
+      picker = el('<div class="rx-picker"></div>');
+      REACTIONS.forEach((r) => {
+        const b = el('<button class="rx-opt' + (mine === r.key ? ' on' : '') + '" title="' + r.label + '">' + r.emoji + '</button>');
+        b.onclick = (e) => { e.stopPropagation(); react(r.key); };
+        picker.appendChild(b);
+      });
+      wrap.appendChild(picker);
+      setTimeout(() => document.addEventListener('click', outside, true), 0);
+    }
+    btn.onclick = (e) => { e.stopPropagation(); openPicker(); };
+    paint();
+    return wrap;
+  }
+
   function renderPostNode(p) {
     const node = el('<div class="card post" data-post="' + p.id + '"></div>');
     node._post = p;
@@ -348,19 +413,23 @@
   }
 
   function renderPostInner(node, p) {
-    const canDelete = p.author.id === ME.id;
+    const mineP = p.author.id === ME.id;
+    const editedMark = p.edited
+      ? ' &#183; <span class="edited-link" data-history="' + p.id + '" title="Edited ' + timeAgo(p.edited_at) + '">edited</span>'
+      : '';
     node.innerHTML =
       '<div class="post-head">' +
       avatar(p.author, 44) +
       '<div class="meta"><div class="name" data-profile="' + p.author.id + '">' + esc(p.author.name) + '</div>' +
-      '<div class="time">' + timeAgo(p.created_at) + '</div></div>' +
-      (canDelete ? '<button class="menu-btn" data-del="' + p.id + '" title="Delete post">&#128465;</button>' : '') +
+      '<div class="time">' + timeAgo(p.created_at) + editedMark + '</div></div>' +
+      (mineP ? '<button class="menu-btn" data-edit="' + p.id + '" title="Edit post">&#9998;</button>' +
+        '<button class="menu-btn" data-del="' + p.id + '" title="Delete post">&#128465;</button>' : '') +
       '</div>' +
       (p.content ? '<div class="post-body">' + linkify(esc(p.content)) + '</div>' : '') +
       (p.image ? '<div class="post-image"><img src="' + esc(p.image) + '" alt=""></div>' : '') +
       '<div class="post-stats"></div>' +
       '<div class="post-actions">' +
-      '<button class="post-action like' + (p.liked ? ' liked' : '') + '" data-like="' + p.id + '">' + (p.liked ? '&#9829;' : '&#9825;') + ' Like</button>' +
+      '<span data-react></span>' +
       '<button class="post-action" data-comment="' + p.id + '">&#128172; Comment</button>' +
       '</div>' +
       '<div class="comments hidden" data-comments="' + p.id + '"></div>';
@@ -371,7 +440,7 @@
   function renderStats(node) {
     const p = node._post;
     const stats = node.querySelector('.post-stats');
-    const left = p.likeCount ? '<span class="heart">&#9829;</span>&nbsp;' + p.likeCount : '';
+    const left = reactionSummaryHtml(p.reactions);
     const right = p.commentCount ? p.commentCount + ' comment' + (p.commentCount > 1 ? 's' : '') : '';
     stats.innerHTML = left + '<span style="flex:1"></span>' + right;
   }
@@ -382,24 +451,13 @@
     );
     const del = node.querySelector('[data-del]');
     if (del) del.onclick = () => deletePost(p.id, node);
-    const likeBtn = node.querySelector('[data-like]');
-    likeBtn.onclick = () => toggleLike(node, likeBtn);
+    const edit = node.querySelector('[data-edit]');
+    if (edit) edit.onclick = () => editPostModal(p, (updated) => { node._post = updated; renderPostInner(node, updated); });
+    const hist = node.querySelector('[data-history]');
+    if (hist) hist.onclick = () => openEditHistory(p.id);
+    const rx = node.querySelector('[data-react]');
+    if (rx) rx.appendChild(reactionControl('post', p.id, p.reactions, (s) => { p.reactions = s; renderStats(node); }));
     node.querySelector('[data-comment]').onclick = () => toggleComments(p.id, node);
-  }
-
-  async function toggleLike(node, btn) {
-    const p = node._post;
-    try {
-      const r = await API.toggleLike(p.id);
-      p.liked = r.liked;
-      p.likeCount = r.likeCount;
-      btn.classList.toggle('liked', r.liked);
-      btn.innerHTML = (r.liked ? '&#9829;' : '&#9825;') + ' Like';
-      renderStats(node);
-      if (r.liked && window.anime) anime({ targets: btn, scale: [1, 1.25, 1], duration: 320, easing: 'easeOutBack' });
-    } catch (e) {
-      toast(e.message);
-    }
   }
 
   async function deletePost(id, node) {
@@ -411,6 +469,47 @@
     } catch (e) {
       toast(e.message);
     }
+  }
+
+  function editPostModal(p, onSaved) {
+    const isComm = !!p.community_id;
+    const note = (p.editCount || 0) === 0
+      ? 'Your first edit is free: it will not show an edited label.'
+      : 'This edit will be saved to the post history.';
+    const m = modal(
+      '<div class="mh"><h3>Edit post</h3></div><div class="mc">' +
+      (isComm ? '<div class="field"><label>Title</label><input class="input" id="epTitle" value="' + esc(p.title || '') + '"></div>' : '') +
+      '<div class="field"><label>Text</label><textarea class="input" id="epContent" rows="5">' + esc(p.content || '') + '</textarea></div>' +
+      '<div class="pmeta" style="margin-bottom:10px">' + note + '</div>' +
+      '<button class="btn btn-primary btn-block" id="epSave">Save changes</button></div>'
+    );
+    m.q('#epSave').onclick = async () => {
+      const fields = { content: m.q('#epContent').value.trim() };
+      if (isComm) fields.title = m.q('#epTitle').value.trim();
+      const btn = m.q('#epSave'); btn.disabled = true; btn.textContent = 'Saving...';
+      try { const r = await API.editPost(p.id, fields); m.close(); toast('Post updated'); if (onSaved) onSaved(r.post); }
+      catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Save changes'; }
+    };
+  }
+
+  function openEditHistory(postId) {
+    const m = modal('<div class="mh"><h3>Edit history</h3></div><div class="mc" id="histBody"><div class="empty">Loading...</div></div>');
+    API.postHistory(postId).then((r) => {
+      const body = m.q('#histBody');
+      if (!r.versions || !r.versions.length) { body.innerHTML = '<div class="empty">No earlier versions.</div>'; return; }
+      let html = '';
+      if (r.current) {
+        html += '<div class="hist-item hist-current"><div class="hist-when">Current' + (r.current.edited_at ? ' &#183; edited ' + timeAgo(r.current.edited_at) : '') + '</div>' +
+          (r.current.title ? '<div class="hist-title">' + esc(r.current.title) + '</div>' : '') +
+          '<div>' + esc(r.current.content) + '</div></div>';
+      }
+      r.versions.forEach((v) => {
+        html += '<div class="hist-item"><div class="hist-when">Before ' + timeAgo(v.replaced_at) + '</div>' +
+          (v.title ? '<div class="hist-title">' + esc(v.title) + '</div>' : '') +
+          '<div>' + esc(v.content) + '</div></div>';
+      });
+      body.innerHTML = html;
+    }).catch((e) => { m.q('#histBody').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; });
   }
 
   async function toggleComments(postId, node) {
@@ -435,12 +534,17 @@
     const node = el('<div class="comment"></div>');
     node.innerHTML =
       avatar(c.author, 32) +
-      '<div><div class="bubble"><div class="name" data-profile="' + c.author.id + '">' + esc(c.author.name) + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="bubble"><div class="name" data-profile="' + c.author.id + '">' + esc(c.author.name) + '</div>' +
       linkify(esc(c.content)) + '</div>' +
-      '<div class="time" style="margin-left:12px">' + timeAgo(c.created_at) +
-      (mine ? ' <button data-delc="' + c.id + '" style="background:none;border:none;color:var(--text-soft);cursor:pointer;font-size:12px">Delete</button>' : '') +
+      '<div class="cmeta"><span data-react></span><span class="time">' + timeAgo(c.created_at) + '</span>' +
+      '<span data-sum></span>' +
+      (mine ? ' <button data-delc="' + c.id + '" class="clink">Delete</button>' : '') +
       '</div></div>';
     node.querySelector('[data-profile]').onclick = () => go('profile', c.author.id);
+    const sumEl = node.querySelector('[data-sum]');
+    function paintSum(s) { sumEl.innerHTML = s && s.total ? ' ' + reactionSummaryHtml(s) : ''; }
+    paintSum(c.reactions);
+    node.querySelector('[data-react]').appendChild(reactionControl('comment', c.id, c.reactions, paintSum, { small: true }));
     const delc = node.querySelector('[data-delc]');
     if (delc) delc.onclick = async () => {
       try { await API.deleteComment(c.id); node.remove(); } catch (e) { toast(e.message); }
@@ -871,6 +975,7 @@
   function notifText(type) {
     switch (type) {
       case 'like': return ' liked your post';
+      case 'reaction': return ' reacted to your post';
       case 'comment': return ' commented on your post';
       case 'friend_request': return ' sent you a friend request';
       case 'friend_accept': return ' accepted your friend request';
@@ -1461,12 +1566,13 @@
     const pbody = el('<div class="cpost-body"></div>');
     pbody.innerHTML =
       '<div class="cpost-meta">' + (p.community ? '<b class="link" data-comm="' + p.community.id + '">o/' + esc(p.community.name) + '</b> &#183; ' : '') +
-      'by <span class="link" data-profile="' + p.author.id + '">' + esc(p.author.name) + '</span> &#183; ' + timeAgo(p.created_at) + '</div>' +
+      'by <span class="link" data-profile="' + p.author.id + '">' + esc(p.author.name) + '</span> &#183; ' + timeAgo(p.created_at) +
+      (p.edited ? ' &#183; <span class="edited-link" data-history>edited</span>' : '') + '</div>' +
       (p.title ? '<div class="cpost-title" style="font-size:22px;cursor:default">' + esc(p.title) + '</div>' : '') +
       (p.type === 'link' && p.url ? '<a href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.url) + '</a>' : '') +
       (p.content ? '<div class="post-body">' + linkify(esc(p.content)) + '</div>' : '') +
       (p.image ? '<div class="post-image" style="margin:10px 0"><img src="' + esc(p.image) + '" alt="" style="border-radius:10px"></div>' : '') +
-      (canDelete ? '<div style="margin-top:8px"><button class="btn btn-danger btn-sm" data-delpost>Delete post</button></div>' : '');
+      (canDelete ? '<div style="margin-top:8px"><button class="btn btn-sm" data-editpost>Edit</button> <button class="btn btn-danger btn-sm" data-delpost>Delete post</button></div>' : '');
     card.appendChild(pbody);
     view.appendChild(card);
 
@@ -1479,6 +1585,10 @@
     if (cm) cm.onclick = () => go('community', Number(cm.getAttribute('data-comm')));
     const dp = pbody.querySelector('[data-delpost]');
     if (dp) dp.onclick = async () => { if (!window.confirm('Delete this post?')) return; try { await API.deletePost(p.id); toast('Deleted'); if (p.community) go('community', p.community.id); else go('feed'); } catch (e) { toast(e.message); } };
+    const ep = pbody.querySelector('[data-editpost]');
+    if (ep) ep.onclick = () => editPostModal(p, () => renderPost(p.id));
+    const hp = pbody.querySelector('[data-history]');
+    if (hp) hp.onclick = () => openEditHistory(p.id);
 
     const rcf = document.getElementById('rootCommentForm');
     rcf.innerHTML = avatar(ME, 32) + '<input type="text" placeholder="Add a comment..."><button class="btn btn-soft btn-sm">Comment</button>';

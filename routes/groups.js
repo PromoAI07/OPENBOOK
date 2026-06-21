@@ -7,6 +7,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
+const { decoratePost } = require('../postview');
 
 const router = express.Router();
 
@@ -33,24 +34,8 @@ function decorateGroup(g, viewerId) {
     role: roleOf(viewerId, g.id),
   };
 }
-// Mirrors the post shape used by the feed so the frontend renders group posts
-// with the same card.
-function decoratePost(post, viewerId) {
-  const author = db.prepare('SELECT * FROM users WHERE id = ?').get(post.user_id);
-  const likeCount = db.prepare('SELECT COUNT(*) c FROM likes WHERE post_id = ?').get(post.id).c;
-  const commentCount = db.prepare('SELECT COUNT(*) c FROM comments WHERE post_id = ?').get(post.id).c;
-  const liked = !!db.prepare('SELECT 1 FROM likes WHERE post_id = ? AND user_id = ?').get(post.id, viewerId);
-  return {
-    id: post.id,
-    content: post.content,
-    image: post.image,
-    created_at: post.created_at,
-    author: publicUser(author),
-    likeCount,
-    commentCount,
-    liked,
-  };
-}
+// Group posts are shaped by the shared decoratePost (postview.js) so they get
+// the same reactions and metadata as the rest of the app.
 
 // My groups plus public groups to discover.
 router.get('/', requireAuth, (req, res) => {

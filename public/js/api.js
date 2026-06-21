@@ -54,7 +54,9 @@ const API = {
     return this.postForm('/api/posts', f);
   },
   deletePost(id) { return this.del('/api/posts/' + id); },
-  toggleLike(id) { return this.post('/api/posts/' + id + '/like'); },
+  editPost(id, fields) { return this.put('/api/posts/' + id, fields); },
+  postHistory(id) { return this.get('/api/posts/' + id + '/history'); },
+  react(targetType, targetId, type) { return this.post('/api/reactions', { targetType, targetId, type }); },
   comments(postId) { return this.get('/api/posts/' + postId + '/comments'); },
   addComment(postId, content, parentId) { return this.post('/api/posts/' + postId + '/comments', { content, parentId }); },
   deleteComment(id) { return this.del('/api/comments/' + id); },

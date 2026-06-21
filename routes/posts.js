@@ -9,7 +9,7 @@ const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
 const { notify } = require('../notify');
 const { areFriends, canViewPost, canInteractPost } = require('../visibility');
-const { decoratePost } = require('../postview');
+const { decoratePost, reactionSummary } = require('../postview');
 
 const router = express.Router();
 
@@ -29,6 +29,7 @@ function decorateComment(c, viewerId) {
     author: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(c.user_id)),
     score: commentScore(c.id),
     myVote: myCommentVote(c.id, viewerId),
+    reactions: reactionSummary('comment', c.id, viewerId),
   };
 }
 
@@ -102,27 +103,53 @@ router.delete('/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// Toggle a like (Facebook side).
-router.post('/:id/like', requireAuth, (req, res) => {
-  const postId = Number(req.params.id);
-  const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(postId);
+// Edit your own post. The first edit is free (silent, no marker, no history);
+// every edit after that saves the previous version and shows an edited badge.
+router.put('/:id', requireAuth, (req, res) => {
+  const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(Number(req.params.id));
   if (!post) return res.status(404).json({ error: 'Post not found' });
-  if (!canInteractPost(req.user.id, post)) {
-    return res.status(403).json({ error: 'You cannot react to this post' });
+  if (post.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'You can only edit your own posts' });
   }
 
-  const existing = db.prepare('SELECT 1 FROM likes WHERE post_id = ? AND user_id = ?').get(postId, req.user.id);
-  let liked;
-  if (existing) {
-    db.prepare('DELETE FROM likes WHERE post_id = ? AND user_id = ?').run(postId, req.user.id);
-    liked = false;
-  } else {
-    db.prepare('INSERT INTO likes (post_id, user_id) VALUES (?, ?)').run(postId, req.user.id);
-    liked = true;
-    notify(post.user_id, req.user.id, 'like', postId);
+  const content = (req.body.content || '').trim();
+  // Community posts have a title; plain posts keep their (empty) title.
+  let title = post.title;
+  if (post.community_id && req.body.title !== undefined) title = (req.body.title || '').trim();
+
+  if (post.community_id) {
+    if (!title) return res.status(400).json({ error: 'A title is required' });
+  } else if (!content && !post.image) {
+    return res.status(400).json({ error: 'A post cannot be empty' });
   }
-  const likeCount = db.prepare('SELECT COUNT(*) c FROM likes WHERE post_id = ?').get(postId).c;
-  res.json({ liked, likeCount });
+
+  if ((post.edit_count || 0) === 0) {
+    db.prepare('UPDATE posts SET content = ?, title = ?, edit_count = 1 WHERE id = ?').run(content, title, post.id);
+  } else {
+    db.prepare('INSERT INTO post_edits (post_id, title, content) VALUES (?, ?, ?)').run(post.id, post.title, post.content);
+    db.prepare("UPDATE posts SET content = ?, title = ?, edit_count = edit_count + 1, edited_at = datetime('now') WHERE id = ?").run(content, title, post.id);
+  }
+
+  const updated = db.prepare('SELECT * FROM posts WHERE id = ?').get(post.id);
+  res.json({ post: decoratePost(updated, req.user.id) });
+});
+
+// Edit history (only after the free first edit, so 2+ edits). Anyone who can
+// view the post can see what it said before.
+router.get('/:id/history', requireAuth, (req, res) => {
+  const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(Number(req.params.id));
+  if (!post) return res.status(404).json({ error: 'Post not found' });
+  if (!canViewPost(req.user.id, post)) {
+    return res.status(403).json({ error: 'You cannot view this post' });
+  }
+  if ((post.edit_count || 0) < 2) return res.json({ versions: [], current: null });
+  const rows = db
+    .prepare('SELECT title, content, replaced_at FROM post_edits WHERE post_id = ? ORDER BY replaced_at DESC, id DESC')
+    .all(post.id);
+  res.json({
+    versions: rows,
+    current: { title: post.title, content: post.content, edited_at: post.edited_at },
+  });
 });
 
 // List comments on a post (flat list with parent_id; the frontend nests them).

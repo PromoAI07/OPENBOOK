@@ -272,6 +272,37 @@ addColumn('comments', "visibility TEXT NOT NULL DEFAULT 'visible'", 'visibility'
 db.exec('CREATE INDEX IF NOT EXISTS idx_posts_community ON posts(community_id)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id)');
 
+// --- Reactions (Facebook-style) and post edit history ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS reactions (
+    user_id     INTEGER NOT NULL,
+    target_type TEXT    NOT NULL,
+    target_id   INTEGER NOT NULL,
+    type        TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, target_type, target_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_reactions_target ON reactions(target_type, target_id);
+
+  CREATE TABLE IF NOT EXISTS post_edits (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id     INTEGER NOT NULL,
+    title       TEXT    NOT NULL DEFAULT '',
+    content     TEXT    NOT NULL DEFAULT '',
+    replaced_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_post_edits_post ON post_edits(post_id);
+`);
+addColumn('posts', 'edit_count INTEGER NOT NULL DEFAULT 0', 'edit_count');
+addColumn('posts', 'edited_at TEXT', 'edited_at');
+
+// Carry existing likes over as 'like' reactions (idempotent; safe every boot).
+try {
+  db.exec("INSERT OR IGNORE INTO reactions (user_id, target_type, target_id, type, created_at) SELECT user_id, 'post', post_id, 'like', created_at FROM likes");
+} catch (e) { /* likes table may be absent in a brand new database */ }
+
 // Clear out sessions older than 30 days on startup.
 db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");
 
