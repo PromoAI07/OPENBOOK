@@ -16,6 +16,9 @@ const router = express.Router();
 function isMember(userId, communityId) {
   return !!db.prepare('SELECT 1 FROM community_members WHERE community_id = ? AND user_id = ?').get(communityId, userId);
 }
+function isBanned(userId, communityId) {
+  return !!db.prepare('SELECT 1 FROM community_bans WHERE community_id = ? AND user_id = ?').get(communityId, userId);
+}
 function roleOf(userId, communityId) {
   const r = db.prepare('SELECT role FROM community_members WHERE community_id = ? AND user_id = ?').get(communityId, userId);
   return r ? r.role : null;
@@ -94,6 +97,7 @@ router.post('/:id/join', requireAuth, (req, res) => {
   if (!db.prepare('SELECT id FROM communities WHERE id = ?').get(id)) {
     return res.status(404).json({ error: 'Community not found' });
   }
+  if (isBanned(req.user.id, id)) return res.status(403).json({ error: 'You are banned from this community' });
   if (!isMember(req.user.id, id)) {
     db.prepare("INSERT INTO community_members (community_id, user_id, role) VALUES (?, ?, 'member')").run(id, req.user.id);
   }
@@ -131,9 +135,27 @@ router.get('/:id/posts', requireAuth, (req, res) => {
     .prepare("SELECT * FROM posts WHERE community_id = ? AND visibility = 'visible' ORDER BY created_at DESC, id DESC LIMIT 150")
     .all(id);
   const decorated = decoratePosts(rows, req.user.id);
+
+  // Phase 4: community listings also multiply rank by the author's reach_score
+  // and drop fully floored (shadowbanned) authors, except for the author's own
+  // view. reach is folded into ranking only, never exposed on the post.
+  const reachCache = {};
+  function reachOf(p) {
+    const aid = p.author.id;
+    if (reachCache[aid] === undefined) {
+      const u = db.prepare('SELECT reach_score FROM users WHERE id = ?').get(aid);
+      reachCache[aid] = u && u.reach_score != null ? u.reach_score : 1;
+    }
+    return reachCache[aid];
+  }
+  const SHADOW_FLOOR = 0.05;
+  const visiblePosts = decorated.filter((p) => p.author.id === req.user.id || reachOf(p) > SHADOW_FLOOR);
+
   const sort = SORTS.indexOf(req.query.sort) >= 0 ? req.query.sort : 'hot';
   const window = req.query.t || 'all';
-  const ranked = rankPosts(decorated, sort, window).slice(0, 200);
+  const ranked = rankPosts(visiblePosts, sort, window, reachOf).slice(0, 200);
+  // Pinned posts float to the top (stable sort preserves rank order within groups).
+  ranked.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
   res.json({ posts: ranked, locked: false, sort, window });
 });
 
@@ -142,6 +164,7 @@ router.post('/:id/posts', requireAuth, upload.single('image'), (req, res) => {
   const id = Number(req.params.id);
   const c = db.prepare('SELECT * FROM communities WHERE id = ?').get(id);
   if (!c) return res.status(404).json({ error: 'Community not found' });
+  if (isBanned(req.user.id, id)) return res.status(403).json({ error: 'You are banned from this community' });
   if (c.privacy !== 'public' && !isMember(req.user.id, id)) {
     return res.status(403).json({ error: 'Join this private community to post' });
   }

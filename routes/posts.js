@@ -11,6 +11,7 @@ const { notify } = require('../notify');
 const { areFriends, canViewPost, canInteractPost } = require('../visibility');
 const { decoratePost, decoratePosts, voteTally, reactionSummary } = require('../postview');
 const { wilson, controversy, rankPosts } = require('../ranking');
+const { isAdmin, isCommunityMod } = require('../moderation');
 
 const router = express.Router();
 
@@ -20,10 +21,15 @@ function myCommentVote(id, userId) {
 }
 function decorateComment(c, viewerId) {
   const tally = voteTally('comment', c.id);
+  // Removed comments keep their place in the thread but their text is hidden from
+  // everyone except the author (who needs to see it to appeal).
+  const removed = (c.visibility || 'visible') !== 'visible';
+  const content = !removed || c.user_id === viewerId ? c.content : '[removed by a moderator]';
   return {
     id: c.id,
     parent_id: c.parent_id || null,
-    content: c.content,
+    content,
+    removed,
     created_at: c.created_at,
     author: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(c.user_id)),
     score: tally.score,
@@ -145,7 +151,13 @@ router.get('/:id', requireAuth, (req, res) => {
   if (!canViewPost(req.user.id, post)) {
     return res.status(403).json({ error: 'You cannot view this post' });
   }
-  if (post.user_id !== req.user.id) {
+  // A removed post is gone for normal users; the author, community mods, and
+  // admins can still open it (for appeals and audit).
+  const visible = (post.visibility || 'visible') === 'visible';
+  const privileged = post.user_id === req.user.id || isAdmin(req.user) || (post.community_id && isCommunityMod(req.user.id, post.community_id));
+  if (!visible && !privileged) return res.status(404).json({ error: 'This post has been removed' });
+
+  if (visible && post.user_id !== req.user.id) {
     db.prepare('UPDATE posts SET views = views + 1 WHERE id = ?').run(post.id);
     post.views = (post.views || 0) + 1;
   }

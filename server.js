@@ -95,6 +95,7 @@ app.use('/api/communities', require('./routes/communities'));
 app.use('/api/votes', require('./routes/votes'));
 app.use('/api/reactions', require('./routes/reactions'));
 app.use('/api/reels', require('./routes/reels'));
+app.use('/api/moderation', require('./routes/moderation'));
 
 // The authenticated single page app shell.
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));

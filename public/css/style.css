@@ -322,6 +322,19 @@ textarea.input { resize: vertical; min-height: 60px; }
 }
 .verify-banner span { flex: 1; }
 
+/* ---------- Moderation ---------- */
+.modbanner {
+  background: #fdecea;
+  border: 1px solid #f5b5ae;
+  color: #8a1c10;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin: 8px 0;
+}
+.modbanner-soft { background: var(--hover); border-color: #ddd; color: var(--text-soft); }
+.cbubble.cremoved { opacity: 0.6; font-style: italic; }
+
 /* ---------- Password show/hide ---------- */
 .pw-wrap { position: relative; }
 .pw-wrap .input { padding-right: 64px; }

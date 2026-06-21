@@ -27,6 +27,10 @@ function isCommunityMember(viewerId, communityId) {
   return !!db.prepare('SELECT 1 FROM community_members WHERE community_id = ? AND user_id = ?').get(communityId, viewerId);
 }
 
+function isCommunityBanned(viewerId, communityId) {
+  return !!db.prepare('SELECT 1 FROM community_bans WHERE community_id = ? AND user_id = ?').get(communityId, viewerId);
+}
+
 function canViewPost(viewerId, post) {
   if (post.community_id) {
     const c = db.prepare('SELECT privacy FROM communities WHERE id = ?').get(post.community_id);
@@ -42,13 +46,17 @@ function canViewPost(viewerId, post) {
 }
 
 function canInteractPost(viewerId, post) {
+  // Removed/locked posts take no new interaction (the author can still see them).
+  if (post.visibility && post.visibility !== 'visible') return false;
+  if (post.locked) return false;
   if (post.community_id) {
     const c = db.prepare('SELECT privacy FROM communities WHERE id = ?').get(post.community_id);
     if (!c) return false;
+    if (isCommunityBanned(viewerId, post.community_id)) return false; // banned from this community
     return c.privacy === 'public' || isCommunityMember(viewerId, post.community_id);
   }
   if (post.group_id) return isGroupMember(viewerId, post.group_id);
   return areFriends(viewerId, post.user_id);
 }
 
-module.exports = { areFriends, isGroupMember, isCommunityMember, canViewPost, canInteractPost };
+module.exports = { areFriends, isGroupMember, isCommunityMember, isCommunityBanned, canViewPost, canInteractPost };

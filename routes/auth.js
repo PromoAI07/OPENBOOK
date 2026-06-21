@@ -17,7 +17,7 @@ function verifyLink(req, token) {
 // The self-facing user object includes the owner's own email + verification flag
 // (publicUser hides email from everyone else).
 function selfUser(u) {
-  return Object.assign(publicUser(u), { email: u.email, emailVerified: !!u.email_verified });
+  return Object.assign(publicUser(u), { email: u.email, emailVerified: !!u.email_verified, isAdmin: !!u.is_admin });
 }
 
 router.post('/signup', (req, res) => {

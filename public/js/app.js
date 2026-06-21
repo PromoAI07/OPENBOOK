@@ -188,6 +188,15 @@
         dd.classList.add('hidden');
       }
     });
+
+    // Delegated handlers for report and appeal buttons (they appear on many
+    // dynamically-rendered surfaces, so one listener covers them all).
+    document.addEventListener('click', (e) => {
+      const rep = e.target.closest('[data-report]');
+      if (rep) { e.preventDefault(); e.stopPropagation(); reportModal(rep.getAttribute('data-report'), Number(rep.getAttribute('data-report-id'))); return; }
+      const ap = e.target.closest('[data-appeal]');
+      if (ap) { e.preventDefault(); e.stopPropagation(); appealModal(); }
+    });
   }
 
   function setupChromeAvatar() {
@@ -390,6 +399,87 @@
       '<div class="card"><div class="shint" style="font-size:12px">Why not ads? OpenBook is built on the promise that your data is yours. Surveillance ads would break that promise, so we will not run them.</div></div>';
 
     renderRightRail();
+  }
+
+  /* ============================ moderation ============================ */
+
+  const REPORT_REASONS = [
+    { v: 'spam', l: 'Spam' }, { v: 'harassment', l: 'Harassment' }, { v: 'hate', l: 'Hate speech' },
+    { v: 'violence', l: 'Violence or threats' }, { v: 'sexual', l: 'Sexual content' },
+    { v: 'illegal', l: 'Illegal content' }, { v: 'misinfo', l: 'Misinformation' }, { v: 'other', l: 'Other' },
+  ];
+
+  function reportModal(targetType, targetId) {
+    const opts = REPORT_REASONS.map((r) => '<option value="' + r.v + '">' + r.l + '</option>').join('');
+    const m = modal('<div class="mh"><h3>Report ' + esc(targetType) + '</h3></div><div class="mc">' +
+      '<div class="field"><label>Reason</label><select class="input" id="repReason">' + opts + '</select></div>' +
+      '<div class="field"><label>Details (optional)</label><textarea class="input" id="repDetail" rows="3" placeholder="Anything the moderators should know"></textarea></div>' +
+      '<button class="btn btn-primary btn-block" id="repSend">Submit report</button></div>');
+    m.q('#repSend').onclick = async () => {
+      const btn = m.q('#repSend'); btn.disabled = true;
+      try { await API.report(targetType, targetId, m.q('#repReason').value, m.q('#repDetail').value.trim()); m.close(); toast('Report submitted. Thank you.'); }
+      catch (e) { toast(e.message); btn.disabled = false; }
+    };
+  }
+
+  function appealModal() {
+    const m = modal('<div class="mh"><h3>Appeal a moderation action</h3></div><div class="mc">' +
+      '<div class="field"><label>Why should this be reversed?</label><textarea class="input" id="apMsg" rows="4" placeholder="Explain your appeal"></textarea></div>' +
+      '<button class="btn btn-primary btn-block" id="apSend">Submit appeal</button></div>');
+    m.q('#apSend').onclick = async () => {
+      const msg = m.q('#apMsg').value.trim(); if (!msg) { toast('Add a message'); return; }
+      const btn = m.q('#apSend'); btn.disabled = true;
+      try { await API.fileAppeal(msg); m.close(); toast('Appeal submitted. A moderator will review it.'); }
+      catch (e) { toast(e.message); btn.disabled = false; }
+    };
+  }
+
+  function modActionLabel(a) {
+    const map = {
+      remove_post: 'Removed a post', remove_comment: 'Removed a comment',
+      restore_post: 'Restored a post', restore_comment: 'Restored a comment',
+      ban: 'Banned a user', unban: 'Unbanned a user',
+      lock: 'Locked a thread', unlock: 'Unlocked a thread', pin: 'Pinned a post', unpin: 'Unpinned a post',
+    };
+    return map[a] || a;
+  }
+
+  function openModLog(communityId) {
+    const m = modal('<div class="mh"><h3>Moderation log</h3></div><div class="mc" id="mlogList"><div class="empty">Loading...</div></div>');
+    API.communityModLog(communityId).then((r) => {
+      const list = m.q('#mlogList');
+      if (!r.log.length) { list.innerHTML = '<div class="empty" style="padding:8px">No public moderation actions yet. That is the point: when there are, they show here.</div>'; return; }
+      list.innerHTML = r.log.map((e) =>
+        '<div class="contact" style="align-items:flex-start"><div style="flex:1"><b>' + esc(modActionLabel(e.action)) + '</b>' +
+        (e.reason ? ' &#183; ' + esc(e.reason) : '') +
+        '<div class="ctime">by ' + esc(e.actor ? e.actor.name : 'a moderator') + ' &#183; ' + timeAgo(e.created_at) + '</div></div></div>'
+      ).join('');
+    }).catch((e) => { m.q('#mlogList').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; });
+  }
+
+  function openReportsQueue() {
+    const m = modal('<div class="mh"><h3>Reports queue</h3></div><div class="mc" id="rqList"><div class="empty">Loading...</div></div>');
+    function load() {
+      API.modReports().then((r) => {
+        const list = m.q('#rqList');
+        if (!r.reports.length) { list.innerHTML = '<div class="empty" style="padding:8px">No open reports. All clear.</div>'; return; }
+        list.innerHTML = '';
+        r.reports.forEach((rep) => {
+          const row = el('<div class="card" style="margin:0 0 8px"><div style="font-size:13px"><b>' + esc(rep.reasonCode) + '</b> &#183; ' + esc(rep.targetType) + ' by ' + esc(rep.author ? rep.author.name : '?') + '</div>' +
+            '<div class="shint" style="font-size:13px;margin:4px 0">' + esc((rep.preview || '').slice(0, 140)) + '</div>' +
+            (rep.detail ? '<div class="ctime">reporter: ' + esc(rep.detail) + '</div>' : '') +
+            '<div style="margin-top:6px;display:flex;gap:6px">' +
+            (rep.removed ? '<span class="pill">already removed</span>' : '<button class="btn btn-danger btn-sm" data-rm>Remove</button>') +
+            (rep.targetType === 'post' ? ' <button class="btn btn-sm" data-open>Open post</button>' : '') + '</div></div>');
+          const rm = row.querySelector('[data-rm]');
+          if (rm) rm.onclick = async () => { try { await API.modRemove(rep.targetType, rep.targetId, 'report: ' + rep.reasonCode); toast('Removed'); load(); } catch (e) { toast(e.message); } };
+          const op = row.querySelector('[data-open]');
+          if (op) op.onclick = () => { m.close(); go('post', rep.targetId); };
+          list.appendChild(row);
+        });
+      }).catch((e) => { m.q('#rqList').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; });
+    }
+    load();
   }
 
   /* ============================ dashboard ============================ */
@@ -642,6 +732,7 @@
       '<div class="post-actions">' +
       '<span data-react></span>' +
       '<button class="post-action" data-comment="' + p.id + '">&#128172; Comment</button>' +
+      (mineP ? '' : '<button class="post-action" data-report="post" data-report-id="' + p.id + '">&#9873; Report</button>') +
       '</div>' +
       '<div class="comments hidden" data-comments="' + p.id + '"></div>';
     renderStats(node);
@@ -1194,6 +1285,8 @@
       case 'comment': return ' commented on your post';
       case 'friend_request': return ' sent you a friend request';
       case 'friend_accept': return ' accepted your friend request';
+      case 'mod_removed': return ' (a moderator) removed your content';
+      case 'mod_restored': return ' (a moderator) restored your content';
       default: return ' interacted with you';
     }
   }
@@ -1661,6 +1754,8 @@
   let communityWindow = 'all';
   let commentSort = 'best';
   let feedMode = 'latest';
+  let postMod = false;   // can the current viewer moderate the open post's thread (mod/admin)
+  let postOwner = false; // is the current viewer the owner of the open post
 
   async function renderCommunity(id) {
     view.innerHTML = '<div class="card card-pad-0"><div class="empty" style="padding:40px">Loading community...</div></div>';
@@ -1688,12 +1783,16 @@
 
     const act = view.querySelector('.comm-act');
     if (c.isMember) {
-      const mem = el('<button class="btn btn-soft btn-sm">Members</button>'); mem.onclick = () => openCommunityMembers(c.id); act.appendChild(mem);
+      const mem = el('<button class="btn btn-soft btn-sm">Members</button>'); mem.onclick = () => openCommunityMembers(c.id, c.role === 'mod' || ME.isAdmin); act.appendChild(mem);
       const leave = el('<button class="btn btn-sm">Leave</button>'); leave.onclick = async () => { try { await API.leaveCommunity(c.id); toast('Left o/' + c.name); renderCommunity(c.id); } catch (e) { toast(e.message); } }; act.appendChild(leave);
       if (c.role === 'mod') { const del = el('<button class="btn btn-danger btn-sm">Delete</button>'); del.onclick = async () => { if (!window.confirm('Delete this community and all its posts?')) return; try { await API.deleteCommunity(c.id); toast('Community deleted'); go('communities'); } catch (e) { toast(e.message); } }; act.appendChild(del); }
     } else {
       const join = el('<button class="btn btn-primary btn-sm">Join</button>'); join.onclick = async () => { try { await API.joinCommunity(c.id); toast('Joined'); renderCommunity(c.id); } catch (e) { toast(e.message); } }; act.appendChild(join);
     }
+    // Transparency: anyone can read the public mod log. Mods/admins get the queue.
+    const isMod = c.role === 'mod' || ME.isAdmin;
+    const mlog = el('<button class="btn btn-soft btn-sm">Mod log</button>'); mlog.onclick = () => openModLog(c.id); act.appendChild(mlog);
+    if (isMod) { const rq = el('<button class="btn btn-soft btn-sm">Reports</button>'); rq.onclick = () => openReportsQueue(); act.appendChild(rq); }
     document.getElementById('newCommPost').onclick = () => openCommunityPostModal(c);
     const winSel = document.getElementById('commWindow');
     function syncSortUI() {
@@ -1770,14 +1869,25 @@
     };
   }
 
-  function openCommunityMembers(id) {
+  function openCommunityMembers(id, isMod) {
     const m = modal('<div class="mh"><h3>Members</h3></div><div class="mc" id="cmemList"><div class="empty">Loading...</div></div>');
     API.communityMembers(id).then((r) => {
       const list = m.q('#cmemList');
       list.innerHTML = '';
       r.members.forEach((u) => {
-        const row = el('<div class="contact">' + avatar(u, 40) + '<span class="nm">' + esc(u.name) + (u.role === 'mod' ? ' <span class="pill">Mod</span>' : '') + '</span></div>');
-        row.onclick = () => { m.close(); go('profile', u.id); };
+        const row = el('<div class="contact" style="align-items:center">' +
+          '<span class="nm" style="flex:1;cursor:pointer">' + esc(u.name) + (u.role === 'mod' ? ' <span class="pill">Mod</span>' : '') + '</span></div>');
+        row.insertBefore(el(avatar(u, 40)), row.firstChild);
+        row.querySelector('.nm').onclick = () => { m.close(); go('profile', u.id); };
+        if (isMod && u.role !== 'mod' && u.id !== ME.id) {
+          const ban = el('<button class="btn btn-danger btn-sm">Ban</button>');
+          ban.onclick = async () => {
+            const reason = window.prompt('Reason for banning ' + u.name + ' (optional):');
+            if (reason === null) return;
+            try { await API.communityBan(id, u.id, reason); toast('Banned ' + u.name); row.remove(); } catch (e) { toast(e.message); }
+          };
+          row.appendChild(ban);
+        }
         list.appendChild(row);
       });
     }).catch((e) => { m.q('#cmemList').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; });
@@ -1789,25 +1899,56 @@
     try { data = await API.getPost(id); } catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
     const p = data.post;
 
+    // Work out whether the viewer can moderate this thread (admin, or a mod of
+    // its community). postOwner/postMod are also read by the comment tree.
+    postOwner = p.author.id === ME.id;
+    postMod = !!ME.isAdmin;
+    if (!postMod && p.community) {
+      try { const cd = await API.community(p.community.id); postMod = !!(cd.community && cd.community.role === 'mod'); } catch (e) {}
+    }
+
     view.innerHTML = '';
     const back = el('<div class="card" style="padding:8px"><button class="btn btn-ghost btn-sm" id="postBack">&#8592; Back</button></div>');
     view.appendChild(back);
 
     const card = el('<div class="card cpost cpost-full"></div>');
     card.appendChild(voteControl('post', p.id, p.score, p.myVote));
-    const canDelete = p.author.id === ME.id;
     const pbody = el('<div class="cpost-body"></div>');
     pbody.innerHTML =
       '<div class="cpost-meta">' + (p.community ? '<b class="link" data-comm="' + p.community.id + '">o/' + esc(p.community.name) + '</b> &#183; ' : '') +
       'by <span class="link" data-profile="' + p.author.id + '">' + esc(p.author.name) + '</span> &#183; ' + timeAgo(p.created_at) +
       (p.edited ? ' &#183; <span class="edited-link" data-history>edited</span>' : '') + '</div>' +
+      (p.removed ? '<div class="modbanner">This post was removed by a moderator.</div>' : '') +
+      (p.locked ? '<div class="modbanner modbanner-soft">&#128274; Comments are locked.</div>' : '') +
       (p.title ? '<div class="cpost-title" style="font-size:22px;cursor:default">' + esc(p.title) + '</div>' : '') +
       (p.type === 'link' && p.url ? '<a href="' + esc(safeHref(p.url)) + '" target="_blank" rel="noopener">' + esc(p.url) + '</a>' : '') +
       (p.content ? '<div class="post-body">' + linkify(esc(p.content)) + '</div>' : '') +
       (p.image ? '<div class="post-image" style="margin:10px 0"><img src="' + esc(p.image) + '" alt="" style="border-radius:10px"></div>' : '') +
-      (canDelete ? '<div style="margin-top:8px"><button class="btn btn-sm" data-editpost>Edit</button> <button class="btn btn-danger btn-sm" data-delpost>Delete post</button></div>' : '');
+      '<div class="cpost-ops" id="postOps" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"></div>';
     card.appendChild(pbody);
     view.appendChild(card);
+
+    // Build the action row: owner edit/delete, report (others), and mod controls.
+    let opsHtml = '';
+    if (postOwner) opsHtml += '<button class="btn btn-sm" data-editpost>Edit</button><button class="btn btn-danger btn-sm" data-delpost>Delete</button>';
+    else opsHtml += '<button class="btn btn-sm" data-report="post" data-report-id="' + p.id + '">&#9873; Report</button>';
+    if (postMod) {
+      opsHtml += p.removed
+        ? '<button class="btn btn-sm" data-modrestore>Restore</button>'
+        : '<button class="btn btn-danger btn-sm" data-modremove>Remove</button>';
+      opsHtml += '<button class="btn btn-sm" data-modlock>' + (p.locked ? 'Unlock' : 'Lock') + '</button>';
+      if (p.community) opsHtml += '<button class="btn btn-sm" data-modpin>' + (p.pinned ? 'Unpin' : 'Pin') + '</button>';
+    }
+    if (postOwner && p.removed) opsHtml += '<button class="btn btn-sm" data-appeal>Appeal</button>';
+    pbody.querySelector('#postOps').innerHTML = opsHtml;
+    const mrm = pbody.querySelector('[data-modremove]');
+    if (mrm) mrm.onclick = async () => { if (!window.confirm('Remove this post?')) return; try { await API.modRemove('post', p.id, ''); toast('Removed'); renderPost(p.id); } catch (e) { toast(e.message); } };
+    const mrs = pbody.querySelector('[data-modrestore]');
+    if (mrs) mrs.onclick = async () => { try { await API.modRestore('post', p.id); toast('Restored'); renderPost(p.id); } catch (e) { toast(e.message); } };
+    const mlk = pbody.querySelector('[data-modlock]');
+    if (mlk) mlk.onclick = async () => { try { const r = await API.modLock(p.id, !p.locked); toast(r.locked ? 'Locked' : 'Unlocked'); renderPost(p.id); } catch (e) { toast(e.message); } };
+    const mpn = pbody.querySelector('[data-modpin]');
+    if (mpn) mpn.onclick = async () => { try { const r = await API.modPin(p.id, !p.pinned); toast(r.pinned ? 'Pinned' : 'Unpinned'); renderPost(p.id); } catch (e) { toast(e.message); } };
 
     const csec = el('<div class="card"><div class="mk-head" style="margin-bottom:6px">' +
       '<div class="section-title" style="margin:0">Comments</div><span style="flex:1"></span>' +
@@ -1881,10 +2022,14 @@
     row.appendChild(voteControl('comment', c.id, c.score, c.myVote));
     const main = el('<div class="cmain"></div>');
     const mine = c.author.id === ME.id;
+    const canModC = (postMod || postOwner) && !mine;
     main.innerHTML =
-      '<div class="cbubble"><span class="cname link" data-profile="' + c.author.id + '">' + esc(c.author.name) + '</span> <span class="ctime">' + timeAgo(c.created_at) + '</span>' +
+      '<div class="cbubble' + (c.removed ? ' cremoved' : '') + '"><span class="cname link" data-profile="' + c.author.id + '">' + esc(c.author.name) + '</span> <span class="ctime">' + timeAgo(c.created_at) + '</span>' +
       '<div>' + linkify(esc(c.content)) + '</div></div>' +
-      '<div class="cactions"><button class="clink" data-reply>Reply</button>' + (mine ? ' <button class="clink" data-delc>Delete</button>' : '') + '</div>' +
+      '<div class="cactions"><button class="clink" data-reply>Reply</button>' +
+      (mine ? ' <button class="clink" data-delc>Delete</button>' : ' <button class="clink" data-report="comment" data-report-id="' + c.id + '">Report</button>') +
+      (canModC ? (c.removed ? ' <button class="clink" data-modrestorec>Restore</button>' : ' <button class="clink" data-modrmc>Remove</button>') : '') +
+      '</div>' +
       '<div class="creply hidden"></div>';
     row.appendChild(main);
     node.appendChild(row);
@@ -1910,6 +2055,10 @@
     };
     const delc = main.querySelector('[data-delc]');
     if (delc) delc.onclick = async () => { try { await API.deleteComment(c.id); loadCommentTree(postId); } catch (e) { toast(e.message); } };
+    const mrmc = main.querySelector('[data-modrmc]');
+    if (mrmc) mrmc.onclick = async () => { try { await API.modRemove('comment', c.id, ''); loadCommentTree(postId); } catch (e) { toast(e.message); } };
+    const mrsc = main.querySelector('[data-modrestorec]');
+    if (mrsc) mrsc.onclick = async () => { try { await API.modRestore('comment', c.id); loadCommentTree(postId); } catch (e) { toast(e.message); } };
     return node;
   }
 
@@ -1944,7 +2093,8 @@
           '<button class="reel-act" data-like><span class="ra-ic">' + (r.liked ? '❤️' : '🤍') + '</span><span class="ra-n" data-likec>' + r.likeCount + '</span></button>' +
           '<button class="reel-act" data-comment><span class="ra-ic">&#128172;</span><span class="ra-n" data-commc>' + r.commentCount + '</span></button>' +
           '<button class="reel-act" data-share><span class="ra-ic">&#8599;</span><span class="ra-n">Share</span></button>' +
-          (r.mine ? '<button class="reel-act" data-del><span class="ra-ic">&#128465;</span></button>' : '') +
+          (r.mine ? '<button class="reel-act" data-del><span class="ra-ic">&#128465;</span></button>'
+                  : '<button class="reel-act" data-report="reel" data-report-id="' + r.id + '"><span class="ra-ic">&#9873;</span><span class="ra-n">Report</span></button>') +
         '</div>' +
         '<div class="reel-meta">' + avatar(r.author, 36) +
           '<div><div class="rname" data-profile="' + r.author.id + '">' + esc(r.author.name) + '</div>' +

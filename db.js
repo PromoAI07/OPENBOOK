@@ -368,6 +368,81 @@ addColumn('posts', 'views INTEGER NOT NULL DEFAULT 0', 'views');
 }
 addColumn('users', 'verify_token TEXT', 'verify_token');
 
+// --- Phase 3/4: moderation, reports, bans, appeals, shadowban ---
+// Moderation power is distributed: post creators moderate their own threads,
+// community mods moderate their community, platform admins handle only sitewide
+// issues. Every action is logged (mod_actions), confirmed removals lower the
+// author's standing (which the reach engine in trust.js turns into a graduated
+// shadowban), and affected users are notified and can appeal. Nothing here is
+// driven by votes, only by confirmed actions.
+addColumn('users', 'is_admin INTEGER NOT NULL DEFAULT 0', 'is_admin');
+addColumn('posts', 'locked INTEGER NOT NULL DEFAULT 0', 'locked');   // comments locked
+addColumn('posts', 'pinned INTEGER NOT NULL DEFAULT 0', 'pinned');   // pinned in its community
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS reports (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    reporter_id INTEGER NOT NULL,
+    target_type TEXT    NOT NULL,
+    target_id   INTEGER NOT NULL,
+    reason_code TEXT    NOT NULL,
+    detail      TEXT    NOT NULL DEFAULT '',
+    status      TEXT    NOT NULL DEFAULT 'open',
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (reporter_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
+  CREATE INDEX IF NOT EXISTS idx_reports_target ON reports(target_type, target_id);
+
+  CREATE TABLE IF NOT EXISTS mod_actions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_id     INTEGER NOT NULL,
+    action       TEXT    NOT NULL,
+    target_type  TEXT    NOT NULL,
+    target_id    INTEGER NOT NULL,
+    community_id INTEGER,
+    reason       TEXT    NOT NULL DEFAULT '',
+    is_public    INTEGER NOT NULL DEFAULT 1,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_mod_actions_comm ON mod_actions(community_id);
+
+  CREATE TABLE IF NOT EXISTS community_bans (
+    community_id INTEGER NOT NULL,
+    user_id      INTEGER NOT NULL,
+    reason       TEXT    NOT NULL DEFAULT '',
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (community_id, user_id),
+    FOREIGN KEY (community_id) REFERENCES communities(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id)      REFERENCES users(id)       ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS appeals (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL,
+    mod_action_id INTEGER,
+    message       TEXT    NOT NULL DEFAULT '',
+    status        TEXT    NOT NULL DEFAULT 'open',
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_appeals_status ON appeals(status);
+`);
+
+// Platform admins are designated by the ADMIN_EMAILS env var (comma separated).
+// Run on every boot so the list stays in sync; never hardcodes an admin.
+try {
+  const adminEmails = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (adminEmails.length) {
+    const ph = adminEmails.map(() => '?').join(',');
+    db.prepare('UPDATE users SET is_admin = 1 WHERE lower(email) IN (' + ph + ')').run(...adminEmails);
+  }
+} catch (e) { /* users table or column may not be ready on a brand new db */ }
+
 // Clear out sessions older than 30 days on startup.
 db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");
 
