@@ -52,6 +52,36 @@ router.post('/me/cover', requireAuth, upload.single('image'), (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
+// Your own transparency dashboard: the two reputation scores (karma vs standing)
+// plus your activity counts. reach_score is deliberately NOT included (the
+// graduated shadowban stays silent, even to the account owner).
+router.get('/me/stats', requireAuth, (req, res) => {
+  const id = req.user.id;
+  const u = db.prepare('SELECT karma, standing, trust_level, created_at FROM users WHERE id = ?').get(id);
+  const posts = db.prepare('SELECT COUNT(*) c FROM posts WHERE user_id = ?').get(id).c;
+  const comments = db.prepare('SELECT COUNT(*) c FROM comments WHERE user_id = ?').get(id).c;
+  const communities = db.prepare('SELECT COUNT(*) c FROM community_members WHERE user_id = ?').get(id).c;
+  const friends = db
+    .prepare("SELECT COUNT(*) c FROM friendships WHERE status = 'accepted' AND (requester_id = ? OR addressee_id = ?)")
+    .get(id, id).c;
+  const reactionsReceived = db
+    .prepare(
+      `SELECT COUNT(*) c FROM reactions r
+       WHERE (r.target_type = 'post'    AND r.target_id IN (SELECT id FROM posts    WHERE user_id = ?))
+          OR (r.target_type = 'comment' AND r.target_id IN (SELECT id FROM comments WHERE user_id = ?))`
+    )
+    .get(id, id).c;
+  res.json({
+    trust: {
+      karma: u.karma || 0,
+      standing: u.standing == null ? 100 : u.standing,
+      trustLevel: u.trust_level || 0,
+    },
+    stats: { posts, comments, communities, friends, reactionsReceived },
+    created_at: u.created_at,
+  });
+});
+
 // View one profile, with counts and the friendship status from your point of view.
 router.get('/:id', requireAuth, (req, res) => {
   const id = Number(req.params.id);

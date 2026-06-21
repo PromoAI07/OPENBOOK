@@ -65,6 +65,7 @@ app.use('/api/albums', require('./routes/albums'));
 app.use('/api/communities', require('./routes/communities'));
 app.use('/api/votes', require('./routes/votes'));
 app.use('/api/reactions', require('./routes/reactions'));
+app.use('/api/reels', require('./routes/reels'));
 
 // The authenticated single page app shell.
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
@@ -73,7 +74,7 @@ app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.h
 app.use((err, req, res, next) => {
   const status = err.status || (err.name === 'MulterError' ? 400 : 500);
   const message = err.code === 'LIMIT_FILE_SIZE'
-    ? 'Image is too large (max 8 MB)'
+    ? 'File is too large (images max 8 MB, reels max 60 MB)'
     : (err.message || 'Something went wrong');
   if (status >= 500) console.error('[error]', err.message);
   res.status(status).json({ error: message });

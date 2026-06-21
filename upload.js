@@ -32,4 +32,16 @@ const upload = multer({
   limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB per image
 });
 
-module.exports = { upload, UP_DIR };
+function videoFilter(req, file, cb) {
+  if (/^video\//.test(file.mimetype)) cb(null, true);
+  else cb(Object.assign(new Error('Only video files are allowed'), { status: 400 }));
+}
+
+// Reels: short videos. Same disk storage, a larger size cap.
+const videoUpload = multer({
+  storage,
+  fileFilter: videoFilter,
+  limits: { fileSize: 60 * 1024 * 1024 }, // 60 MB per reel
+});
+
+module.exports = { upload, videoUpload, UP_DIR };

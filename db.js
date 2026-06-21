@@ -311,6 +311,33 @@ try {
   db.exec("INSERT OR IGNORE INTO reactions (user_id, target_type, target_id, type, created_at) SELECT user_id, 'post', post_id, 'like', created_at FROM likes");
 } catch (e) { /* likes table may be absent in a brand new database */ }
 
+// --- Reels: short vertical videos (Facebook/TikTok-style) ---
+// Likes reuse the generic reactions table (target_type = 'reel', type = 'like').
+db.exec(`
+  CREATE TABLE IF NOT EXISTS reels (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    video      TEXT    NOT NULL,
+    caption    TEXT    NOT NULL DEFAULT '',
+    views      INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS reel_comments (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    reel_id    INTEGER NOT NULL,
+    user_id    INTEGER NOT NULL,
+    content    TEXT    NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (reel_id) REFERENCES reels(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_reels_created      ON reels(created_at);
+  CREATE INDEX IF NOT EXISTS idx_reel_comments_reel ON reel_comments(reel_id);
+`);
+
 // Clear out sessions older than 30 days on startup.
 db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");
 

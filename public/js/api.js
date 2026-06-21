@@ -40,6 +40,7 @@ const API = {
   searchUsers(q) { return this.get('/api/users?q=' + encodeURIComponent(q || '')); },
   getProfile(id) { return this.get('/api/users/' + id); },
   updateProfile(name, bio) { return this.put('/api/users/me', { name, bio }); },
+  myStats() { return this.get('/api/users/me/stats'); },
   uploadAvatar(file) { const f = new FormData(); f.append('image', file); return this.postForm('/api/users/me/avatar', f); },
   uploadCover(file) { const f = new FormData(); f.append('image', file); return this.postForm('/api/users/me/cover', f); },
   userFriends(id) { return this.get('/api/users/' + id + '/friends'); },
@@ -176,6 +177,20 @@ const API = {
   // Votes + single post (for the community post detail view)
   vote(targetType, targetId, value) { return this.post('/api/votes', { targetType, targetId, value }); },
   getPost(id) { return this.get('/api/posts/' + id); },
+
+  // Reels
+  reels() { return this.get('/api/reels'); },
+  createReel(file, caption) {
+    const f = new FormData();
+    f.append('video', file);
+    f.append('caption', caption || '');
+    return this.postForm('/api/reels', f);
+  },
+  likeReel(id) { return this.post('/api/reels/' + id + '/like'); },
+  viewReel(id) { return this.post('/api/reels/' + id + '/view'); },
+  reelComments(id) { return this.get('/api/reels/' + id + '/comments'); },
+  addReelComment(id, content) { return this.post('/api/reels/' + id + '/comments', { content }); },
+  deleteReel(id) { return this.del('/api/reels/' + id); },
 };
 
 window.API = API;

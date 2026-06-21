@@ -8,23 +8,24 @@
   <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body>
-  <!-- Top bar -->
+  <!-- Top bar: left (logo + search), center (primary tabs), right (utility) -->
   <header class="topbar">
-    <div class="logo" data-nav="feed">
-      <span class="brand-mark">O</span>
-      <span class="brand name">OpenBook</span>
+    <div class="topbar-left">
+      <div class="logo" data-nav="feed">
+        <span class="brand-mark">O</span>
+        <span class="brand name">OpenBook</span>
+      </div>
+      <div class="search">
+        <input type="text" id="searchInput" placeholder="Search OpenBook" autocomplete="off" />
+      </div>
     </div>
-    <div class="search">
-      <input type="text" id="searchInput" placeholder="Search OpenBook" autocomplete="off" />
-    </div>
-    <nav class="nav">
-      <button class="nav-btn" data-nav="feed" title="Home">&#127968;</button>
-      <button class="nav-btn" data-nav="friends" title="Friends">
-        &#128101;<span class="badge hidden" id="friendsBadge">0</span>
-      </button>
-      <button class="nav-btn" data-nav="marketplace" title="Marketplace">&#128722;</button>
-      <button class="nav-btn" data-nav="groups" title="Groups">&#127760;</button>
-      <button class="nav-btn" data-nav="communities" title="Communities">&#128227;</button>
+    <nav class="nav-primary">
+      <button class="nav-tab" data-nav="feed" title="Home"><span class="ti">&#127968;</span><span class="tl">Home</span></button>
+      <button class="nav-tab" data-nav="communities" title="Communities"><span class="ti">&#128227;</span><span class="tl">Communities</span></button>
+      <button class="nav-tab" data-nav="marketplace" title="Marketplace"><span class="ti">&#128722;</span><span class="tl">Marketplace</span></button>
+      <button class="nav-tab" data-nav="dashboard" title="Professional dashboard"><span class="ti">&#128202;</span><span class="tl">Dashboard</span></button>
+    </nav>
+    <div class="topbar-right">
       <button class="nav-btn" data-nav="messages" title="Messages">
         &#128172;<span class="badge hidden" id="messagesBadge">0</span>
       </button>
@@ -32,7 +33,7 @@
         &#128276;<span class="badge hidden" id="notifBadge">0</span>
       </button>
       <button class="nav-btn" id="meBtn" title="Your profile"></button>
-    </nav>
+    </div>
   </header>
 
   <!-- Notifications dropdown -->

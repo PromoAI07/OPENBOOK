@@ -160,9 +160,17 @@
     document.getElementById('meBtn').innerHTML = avatar(ME, 32);
   }
 
+  // Highlight the matching top tab and side-menu link. Sub-views map back to
+  // their parent destination so the right tab stays lit (e.g. a community page
+  // keeps "Communities" active).
   function setActiveNav(name) {
-    document.querySelectorAll('.nav-btn[data-nav]').forEach((b) =>
-      b.classList.toggle('active', b.getAttribute('data-nav') === name)
+    const alias = { community: 'communities', group: 'groups' };
+    const active = alias[name] || name;
+    document.querySelectorAll('.nav-tab[data-nav], .nav-btn[data-nav]').forEach((b) =>
+      b.classList.toggle('active', b.getAttribute('data-nav') === active)
+    );
+    document.querySelectorAll('.side-link[data-go]').forEach((b) =>
+      b.classList.toggle('active', b.getAttribute('data-go') === active)
     );
   }
 
@@ -198,20 +206,23 @@
     else if (name === 'communities') renderCommunities();
     else if (name === 'community') renderCommunity(param);
     else if (name === 'post') renderPost(param);
+    else if (name === 'dashboard') renderDashboard();
+    else if (name === 'reels') renderReels();
     window.scrollTo(0, 0);
   }
 
+  // The side menu holds the destinations that are NOT primary top-bar tabs, so
+  // the two menus no longer duplicate each other. Home / Communities /
+  // Marketplace / Dashboard live in the top bar; Messages + Notifications live
+  // top-right; everything else (your profile, Friends, Groups, Reels) lives here.
   function renderLeftRail() {
     const rail = document.getElementById('leftRail');
     rail.innerHTML =
       '<div class="card" style="padding:8px">' +
       '<div class="side-link" data-go="profile">' + avatar(ME, 32) + '<span>' + esc(ME.name) + '</span></div>' +
-      '<div class="side-link" data-go="feed"><span class="ic">&#127968;</span><span>Home</span></div>' +
-      '<div class="side-link" data-go="friends"><span class="ic">&#128101;</span><span>Friends</span></div>' +
-      '<div class="side-link" data-go="marketplace"><span class="ic">&#128722;</span><span>Marketplace</span></div>' +
+      '<div class="side-link" data-go="friends"><span class="ic">&#128101;</span><span>Friends</span><span class="badge side-badge hidden" id="friendsBadge">0</span></div>' +
       '<div class="side-link" data-go="groups"><span class="ic">&#127760;</span><span>Groups</span></div>' +
-      '<div class="side-link" data-go="communities"><span class="ic">&#128227;</span><span>Communities</span></div>' +
-      '<div class="side-link" data-go="messages"><span class="ic">&#128172;</span><span>Messages</span></div>' +
+      '<div class="side-link" data-go="reels"><span class="ic">&#127909;</span><span>Reels</span></div>' +
       '<div class="side-link" id="leftLogout"><span class="ic">&#128682;</span><span>Log out</span></div>' +
       '</div>';
     rail.querySelectorAll('[data-go]').forEach((b) =>
@@ -222,6 +233,7 @@
       })
     );
     document.getElementById('leftLogout').addEventListener('click', doLogout);
+    refreshBadges();
   }
 
   async function doLogout() {
@@ -301,6 +313,53 @@
       return;
     }
     posts.forEach((p) => container.appendChild(p.community_id ? communityPostCard(p) : renderPostNode(p)));
+  }
+
+  /* ============================ dashboard ============================ */
+
+  function statCard(value, label, hint) {
+    return (
+      '<div class="stat"><div class="sval">' + esc(String(value)) + '</div>' +
+      '<div class="slabel">' + esc(label) + '</div>' +
+      (hint ? '<div class="shint">' + esc(hint) + '</div>' : '') + '</div>'
+    );
+  }
+
+  async function renderDashboard() {
+    view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading your dashboard...</div></div>';
+    let d;
+    try { d = await API.myStats(); } catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+    const t = d.trust;
+    const s = d.stats;
+    const tlNames = ['New', 'Member', 'Regular', 'Trusted', 'Veteran'];
+    const tl = Math.max(0, Math.min(4, t.trustLevel || 0));
+
+    view.innerHTML =
+      '<div class="card"><div class="pname">Professional dashboard</div>' +
+      '<div class="shint" style="font-size:13px">Your reputation and activity on OpenBook, fully in the open.</div></div>' +
+      '<div class="section-title">Your reputation</div>' +
+      '<div class="dash-grid">' +
+        statCard(t.karma, 'Karma', 'From up and down votes. Affects ranking only, never your reach.') +
+        statCard(t.standing, 'Standing', 'Account safety score. This is what protects your reach. Votes never lower it.') +
+        statCard('TL' + tl + ' ' + tlNames[tl], 'Trust level', 'Unlocks with account age and clean activity, never with money.') +
+        statCard(timeAgo(d.created_at) + ' ago', 'Joined', '') +
+      '</div>' +
+      '<div class="section-title">Your activity</div>' +
+      '<div class="dash-grid">' +
+        statCard(s.posts, 'Posts', '') +
+        statCard(s.comments, 'Comments', '') +
+        statCard(s.communities, 'Communities', '') +
+        statCard(s.friends, 'Friends', '') +
+        statCard(s.reactionsReceived, 'Reactions received', '') +
+      '</div>' +
+      '<div class="card"><div class="section-title">How OpenBook scoring works</div>' +
+      '<div class="shint" style="font-size:13px;line-height:1.6">' +
+      'OpenBook keeps two separate scores on purpose. <b>Karma</b> moves with community votes and only changes where your content ranks. ' +
+      'It can go negative and it never hides your posts. <b>Standing</b> is your safety score: it goes up with account age and clean activity, ' +
+      'and only confirmed rule violations bring it down. Standing, not votes, is what controls your reach. So you can hold an unpopular ' +
+      'opinion, collect downvotes, and still be seen, as long as your standing is healthy. The ranking and reputation rules are published ' +
+      'in the open-source code.</div></div>';
+    renderRightRail();
   }
 
   function composerHtml() {
@@ -1745,6 +1804,151 @@
     const delc = main.querySelector('[data-delc]');
     if (delc) delc.onclick = async () => { try { await API.deleteComment(c.id); loadCommentTree(postId); } catch (e) { toast(e.message); } };
     return node;
+  }
+
+  /* ============================ reels ============================ */
+
+  async function renderReels() {
+    view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading reels...</div></div>';
+    let data;
+    try { data = await API.reels(); } catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+    const reels = data.reels;
+    view.innerHTML =
+      '<div class="card mk-head"><div class="section-title" style="margin:0">Reels</div><span style="flex:1"></span>' +
+      '<button class="btn btn-primary btn-sm" id="newReel">&#10010; New reel</button></div>' +
+      (reels.length ? '<div class="reels-viewer" id="reelsViewer"></div>'
+        : '<div class="card"><div class="empty">No reels yet. Tap "New reel" to post the first one.</div></div>');
+    document.getElementById('newReel').onclick = openReelComposer;
+    if (reels.length) {
+      const viewer = document.getElementById('reelsViewer');
+      reels.forEach((r) => viewer.appendChild(reelStage(r)));
+      wireReelAutoplay(viewer);
+    }
+    renderRightRail();
+  }
+
+  function reelStage(r) {
+    const stage = el('<div class="reel-stage" data-reel="' + r.id + '"></div>');
+    stage.innerHTML =
+      '<video class="reel-video" src="' + esc(r.video) + '" loop muted playsinline preload="metadata"></video>' +
+      '<div class="reel-overlay">' +
+        '<div class="reel-mute" data-mute>&#128263;</div>' +
+        '<div class="reel-actions">' +
+          '<button class="reel-act" data-like><span class="ra-ic">' + (r.liked ? '❤️' : '🤍') + '</span><span class="ra-n" data-likec>' + r.likeCount + '</span></button>' +
+          '<button class="reel-act" data-comment><span class="ra-ic">&#128172;</span><span class="ra-n" data-commc>' + r.commentCount + '</span></button>' +
+          '<button class="reel-act" data-share><span class="ra-ic">&#8599;</span><span class="ra-n">Share</span></button>' +
+          (r.mine ? '<button class="reel-act" data-del><span class="ra-ic">&#128465;</span></button>' : '') +
+        '</div>' +
+        '<div class="reel-meta">' + avatar(r.author, 36) +
+          '<div><div class="rname" data-profile="' + r.author.id + '">' + esc(r.author.name) + '</div>' +
+          (r.caption ? '<div class="rcap">' + linkify(esc(r.caption)) + '</div>' : '') +
+          '<div class="rviews">' + r.views + ' views</div></div>' +
+        '</div>' +
+      '</div>';
+
+    const video = stage.querySelector('video');
+    video.onclick = () => { if (video.paused) video.play().catch(() => {}); else video.pause(); };
+    const mute = stage.querySelector('[data-mute]');
+    mute.onclick = (e) => { e.stopPropagation(); video.muted = !video.muted; mute.innerHTML = video.muted ? '&#128263;' : '&#128266;'; };
+
+    stage.querySelector('[data-like]').onclick = async () => {
+      try {
+        const res = await API.likeReel(r.id);
+        stage.querySelector('[data-like] .ra-ic').innerHTML = res.liked ? '❤️' : '🤍';
+        stage.querySelector('[data-likec]').textContent = res.likeCount;
+      } catch (e) { toast(e.message); }
+    };
+    stage.querySelector('[data-comment]').onclick = () => openReelComments(r);
+    stage.querySelector('[data-share]').onclick = () => {
+      const url = window.location.origin + '/app';
+      if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => toast('Link copied')).catch(() => toast('Share: ' + url));
+      else toast('Share: ' + url);
+    };
+    stage.querySelector('[data-profile]').onclick = () => go('profile', r.author.id);
+    const del = stage.querySelector('[data-del]');
+    if (del) del.onclick = async () => { if (!window.confirm('Delete this reel?')) return; try { await API.deleteReel(r.id); toast('Reel deleted'); renderReels(); } catch (e) { toast(e.message); } };
+    return stage;
+  }
+
+  // Play whichever reel is mostly in view, pause the rest, and count one view.
+  function wireReelAutoplay(viewer) {
+    const viewed = new Set();
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((en) => {
+        const v = en.target.querySelector('video');
+        if (!v) return;
+        if (en.isIntersecting && en.intersectionRatio > 0.6) {
+          v.play().catch(() => {});
+          const id = Number(en.target.getAttribute('data-reel'));
+          if (!viewed.has(id)) {
+            viewed.add(id);
+            API.viewReel(id).then((res) => { const rv = en.target.querySelector('.rviews'); if (rv) rv.textContent = res.views + ' views'; }).catch(() => {});
+          }
+        } else {
+          v.pause();
+        }
+      });
+    }, { threshold: [0, 0.6, 1], root: viewer });
+    viewer.querySelectorAll('.reel-stage').forEach((s) => io.observe(s));
+    // Kick off the first reel right away.
+    const first = viewer.querySelector('.reel-stage video');
+    if (first) first.play().catch(() => {});
+  }
+
+  function openReelComposer() {
+    const m = modal(
+      '<div class="mh"><h3>New reel</h3></div><div class="mc">' +
+      '<div class="field"><label>Video</label><input type="file" id="reelFile" accept="video/*" class="input"></div>' +
+      '<div class="preview hidden" id="reelPrev"></div>' +
+      '<div class="field"><label>Caption (optional)</label><textarea class="input" id="reelCap" rows="2" placeholder="Say something..."></textarea></div>' +
+      '<button class="btn btn-primary btn-block" id="reelPost">Post reel</button></div>'
+    );
+    const fileInput = m.q('#reelFile');
+    const prev = m.q('#reelPrev');
+    fileInput.onchange = () => {
+      const f = fileInput.files[0];
+      if (f) { prev.classList.remove('hidden'); prev.innerHTML = '<video src="' + URL.createObjectURL(f) + '" style="max-height:220px;width:100%;border-radius:10px" muted controls></video>'; }
+    };
+    m.q('#reelPost').onclick = async () => {
+      const f = fileInput.files[0];
+      if (!f) { toast('Choose a video'); return; }
+      const btn = m.q('#reelPost'); btn.disabled = true; btn.textContent = 'Posting...';
+      try { await API.createReel(f, m.q('#reelCap').value.trim()); m.close(); toast('Reel posted'); renderReels(); }
+      catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Post reel'; }
+    };
+  }
+
+  function openReelComments(r) {
+    const m = modal('<div class="mh"><h3>Comments</h3></div><div class="mc"><div id="reelCmList"><div class="empty">Loading...</div></div><div class="comment-form" id="reelCmForm"></div></div>');
+    async function load() {
+      try {
+        const d = await API.reelComments(r.id);
+        const list = m.q('#reelCmList');
+        if (!d.comments.length) { list.innerHTML = '<div class="empty" style="padding:8px">No comments yet.</div>'; return; }
+        list.innerHTML = '';
+        d.comments.forEach((c) => {
+          const row = el('<div class="contact" style="align-items:flex-start">' + avatar(c.author, 32) +
+            '<div><b>' + esc(c.author.name) + '</b> <span class="ctime">' + timeAgo(c.created_at) + '</span>' +
+            '<div>' + linkify(esc(c.content)) + '</div></div></div>');
+          list.appendChild(row);
+        });
+      } catch (e) { m.q('#reelCmList').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+    }
+    const form = m.q('#reelCmForm');
+    form.innerHTML = avatar(ME, 28) + '<input type="text" placeholder="Add a comment..."><button class="btn btn-soft btn-sm">Send</button>';
+    const inp = form.querySelector('input');
+    const send = async () => {
+      const content = inp.value.trim(); if (!content) return;
+      inp.disabled = true;
+      try {
+        await API.addReelComment(r.id, content); inp.value = ''; inp.disabled = false; load();
+        const stage = document.querySelector('.reel-stage[data-reel="' + r.id + '"]');
+        if (stage) { const cn = stage.querySelector('[data-commc]'); if (cn) cn.textContent = (Number(cn.textContent) || 0) + 1; }
+      } catch (e) { toast(e.message); inp.disabled = false; }
+    };
+    form.querySelector('button').onclick = send;
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+    load();
   }
 
   /* ============================ live socket events ============================ */
