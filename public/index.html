@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenBook</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%235b51e8'/><text x='16' y='23' font-size='20' fill='white' text-anchor='middle' font-family='Arial' font-weight='bold'>O</text></svg>" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <main class="landing">
+    <div class="landing-grid">
+      <section class="landing-pitch">
+        <div class="landing-logo">
+          <span class="brand-mark">O</span>
+          <span class="brand name">OpenBook</span>
+        </div>
+        <h1>Share your world.</h1>
+        <p>Connect with friends, post what is on your mind, and keep up with the people who matter.</p>
+      </section>
+
+      <section>
+        <div class="auth-card" id="authCard">
+          <!-- Login view -->
+          <div id="loginView">
+            <h2>Welcome back</h2>
+            <p class="sub">Log in to your OpenBook account.</p>
+            <div id="loginAlert"></div>
+            <form id="loginForm">
+              <div class="field">
+                <label for="loginEmail">Email</label>
+                <input class="input" type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email" required />
+              </div>
+              <div class="field">
+                <label for="loginPassword">Password</label>
+                <input class="input" type="password" id="loginPassword" placeholder="Your password" autocomplete="current-password" required />
+              </div>
+              <button class="btn btn-primary btn-block" type="submit" id="loginBtn">Log in</button>
+            </form>
+            <div class="auth-switch">
+              New to OpenBook? <button type="button" id="toSignup">Create an account</button>
+            </div>
+          </div>
+
+          <!-- Signup view -->
+          <div id="signupView" class="hidden">
+            <h2>Create your account</h2>
+            <p class="sub">It is quick and easy.</p>
+            <div id="signupAlert"></div>
+            <form id="signupForm">
+              <div class="field">
+                <label for="signupName">Full name</label>
+                <input class="input" type="text" id="signupName" placeholder="Jane Doe" autocomplete="name" required />
+              </div>
+              <div class="field">
+                <label for="signupEmail">Email</label>
+                <input class="input" type="email" id="signupEmail" placeholder="you@example.com" autocomplete="email" required />
+              </div>
+              <div class="field">
+                <label for="signupPassword">Password</label>
+                <input class="input" type="password" id="signupPassword" placeholder="At least 6 characters" autocomplete="new-password" required />
+              </div>
+              <button class="btn btn-primary btn-block" type="submit" id="signupBtn">Sign up</button>
+            </form>
+            <div class="auth-switch">
+              Already have an account? <button type="button" id="toLogin">Log in</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/landing.js"></script>
+</body>
+</html>

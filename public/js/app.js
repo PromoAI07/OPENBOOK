@@ -1,0 +1,1267 @@
+// app.js
+// The OpenBook single page app: top bar, feed, profiles, friends, stories,
+// notifications, search, and the messages view. Talks to the JSON API (api.js)
+// and the live socket (chat.js).
+
+(function () {
+  let ME = null;
+  let currentView = 'feed';
+  let activeChatUser = null;
+  const view = document.getElementById('view');
+
+  /* ============================ helpers ============================ */
+
+  function el(html) {
+    const t = document.createElement('template');
+    t.innerHTML = html.trim();
+    return t.content.firstElementChild;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+    );
+  }
+
+  function linkify(escaped) {
+    return escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  }
+
+  const AVATAR_COLORS = ['#4f46e5', '#0ea5a4', '#e0245e', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#3b82f6'];
+  function colorFor(name) {
+    const s = name || '?';
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % AVATAR_COLORS.length;
+    return AVATAR_COLORS[Math.abs(h)];
+  }
+
+  function avatar(user, size) {
+    size = size || 40;
+    const dim = 'width:' + size + 'px;height:' + size + 'px;';
+    if (user && user.avatar) {
+      return '<img class="avatar" style="' + dim + '" src="' + esc(user.avatar) + '" alt="">';
+    }
+    const initial = (((user && user.name) || '?').trim().charAt(0) || '?');
+    const fs = Math.round(size * 0.42);
+    return '<span class="avatar-fallback" style="' + dim + 'background:' + colorFor((user && user.name) || '?') +
+      ';font-size:' + fs + 'px">' + esc(initial) + '</span>';
+  }
+
+  function parseTime(iso) {
+    if (!iso) return new Date();
+    // sqlite returns "YYYY-MM-DD HH:MM:SS" in UTC.
+    const t = iso.indexOf('T') >= 0 ? iso : iso.replace(' ', 'T') + 'Z';
+    return new Date(t);
+  }
+
+  function timeAgo(iso) {
+    const d = parseTime(iso);
+    const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (sec < 45) return 'just now';
+    const min = Math.floor(sec / 60);
+    if (min < 60) return min + 'm';
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return hr + 'h';
+    const day = Math.floor(hr / 24);
+    if (day < 7) return day + 'd';
+    return d.toLocaleDateString();
+  }
+
+  function toast(msg) {
+    const t = el('<div class="toast"></div>');
+    t.textContent = msg;
+    document.getElementById('toastRoot').appendChild(t);
+    if (window.anime) anime({ targets: t, opacity: [0, 1], translateY: [10, 0], duration: 200, easing: 'easeOutCubic' });
+    setTimeout(() => t.remove(), 2600);
+  }
+
+  function modal(innerHtml) {
+    const back = el('<div class="modal-back"><div class="modal">' + innerHtml + '</div></div>');
+    document.getElementById('modalRoot').appendChild(back);
+    function close() { back.remove(); }
+    back.addEventListener('click', (e) => { if (e.target === back) close(); });
+    if (window.anime) anime({ targets: back.querySelector('.modal'), scale: [0.95, 1], opacity: [0.5, 1], duration: 200, easing: 'easeOutCubic' });
+    return { node: back, close: close, q: (sel) => back.querySelector(sel) };
+  }
+
+  function pickImage(cb) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = () => { if (input.files[0]) cb(input.files[0]); };
+    input.click();
+  }
+
+  function scrollBottom(elm) { if (elm) elm.scrollTop = elm.scrollHeight; }
+
+  /* ============================ boot ============================ */
+
+  async function boot() {
+    try {
+      const r = await API.me();
+      ME = r.user;
+    } catch (e) {
+      window.location.href = '/';
+      return;
+    }
+    Chat.init();
+    setupChrome();
+    wireSocket();
+    refreshBadges();
+    go('feed');
+  }
+
+  /* ============================ chrome / nav ============================ */
+
+  function setupChrome() {
+    setupChromeAvatar();
+    document.getElementById('meBtn').onclick = () => go('profile', ME.id);
+
+    document.querySelectorAll('.topbar [data-nav]').forEach((b) => {
+      b.addEventListener('click', () => go(b.getAttribute('data-nav')));
+    });
+    document.getElementById('notifBtn').addEventListener('click', toggleNotifs);
+
+    const si = document.getElementById('searchInput');
+    let to;
+    si.addEventListener('input', () => {
+      clearTimeout(to);
+      const q = si.value.trim();
+      to = setTimeout(() => { if (q) go('search', q); }, 300);
+    });
+    si.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { const q = si.value.trim(); if (q) go('search', q); }
+    });
+
+    renderLeftRail();
+
+    document.addEventListener('click', (e) => {
+      const dd = document.getElementById('notifDropdown');
+      const btn = document.getElementById('notifBtn');
+      if (!dd.classList.contains('hidden') && !dd.contains(e.target) && !btn.contains(e.target)) {
+        dd.classList.add('hidden');
+      }
+    });
+  }
+
+  function setupChromeAvatar() {
+    document.getElementById('meBtn').innerHTML = avatar(ME, 32);
+  }
+
+  function setActiveNav(name) {
+    document.querySelectorAll('.nav-btn[data-nav]').forEach((b) =>
+      b.classList.toggle('active', b.getAttribute('data-nav') === name)
+    );
+  }
+
+  function go(name, param) {
+    currentView = name;
+    setActiveNav(name);
+    document.getElementById('notifDropdown').classList.add('hidden');
+
+    const layout = document.querySelector('.layout');
+    const left = document.getElementById('leftRail');
+    const right = document.getElementById('rightRail');
+    if (name === 'messages') {
+      left.style.display = 'none';
+      right.style.display = 'none';
+      layout.style.gridTemplateColumns = '1fr';
+      layout.style.maxWidth = '960px';
+    } else {
+      left.style.display = '';
+      right.style.display = '';
+      layout.style.gridTemplateColumns = '';
+      layout.style.maxWidth = '';
+    }
+
+    if (name === 'feed') renderFeed();
+    else if (name === 'profile') renderProfile(param || ME.id);
+    else if (name === 'friends') renderFriends();
+    else if (name === 'messages') renderMessages(param);
+    else if (name === 'search') renderSearch(param);
+    else if (name === 'marketplace') renderMarketplace();
+    else if (name === 'groups') renderGroups();
+    else if (name === 'group') renderGroup(param);
+    else if (name === 'album') renderAlbum(param);
+    window.scrollTo(0, 0);
+  }
+
+  function renderLeftRail() {
+    const rail = document.getElementById('leftRail');
+    rail.innerHTML =
+      '<div class="card" style="padding:8px">' +
+      '<div class="side-link" data-go="profile">' + avatar(ME, 32) + '<span>' + esc(ME.name) + '</span></div>' +
+      '<div class="side-link" data-go="feed"><span class="ic">&#127968;</span><span>Home</span></div>' +
+      '<div class="side-link" data-go="friends"><span class="ic">&#128101;</span><span>Friends</span></div>' +
+      '<div class="side-link" data-go="marketplace"><span class="ic">&#128722;</span><span>Marketplace</span></div>' +
+      '<div class="side-link" data-go="groups"><span class="ic">&#127760;</span><span>Groups</span></div>' +
+      '<div class="side-link" data-go="messages"><span class="ic">&#128172;</span><span>Messages</span></div>' +
+      '<div class="side-link" id="leftLogout"><span class="ic">&#128682;</span><span>Log out</span></div>' +
+      '</div>';
+    rail.querySelectorAll('[data-go]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const n = b.getAttribute('data-go');
+        if (n === 'profile') go('profile', ME.id);
+        else go(n);
+      })
+    );
+    document.getElementById('leftLogout').addEventListener('click', doLogout);
+  }
+
+  async function doLogout() {
+    try { await API.logout(); } catch (e) {}
+    window.location.href = '/';
+  }
+
+  /* ============================ badges ============================ */
+
+  function setBadge(id, count) {
+    const b = document.getElementById(id);
+    if (!b) return;
+    if (count && count > 0) {
+      b.textContent = count > 99 ? '99+' : count;
+      b.classList.remove('hidden');
+    } else {
+      b.classList.add('hidden');
+    }
+  }
+
+  async function refreshBadges() {
+    try { setBadge('notifBadge', (await API.unreadNotifs()).count); } catch (e) {}
+    try { setBadge('messagesBadge', (await API.unreadMessages()).count); } catch (e) {}
+    try { setBadge('friendsBadge', (await API.friendRequests()).users.length); } catch (e) {}
+  }
+
+  /* ============================ feed ============================ */
+
+  async function renderFeed() {
+    view.innerHTML =
+      '<div class="card" id="storiesCard"><div class="stories" id="storiesRow"><div class="empty" style="padding:10px">Loading stories...</div></div></div>' +
+      composerHtml() +
+      '<div id="feedPosts"><div class="card"><div class="empty">Loading your feed...</div></div></div>';
+    wireComposer('feedPosts');
+    loadStories();
+    try {
+      const r = await API.feed();
+      renderPosts(document.getElementById('feedPosts'), r.posts, 'Your feed is quiet for now. Add some friends or write your first post above.');
+    } catch (e) {
+      document.getElementById('feedPosts').innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>';
+    }
+    renderRightRail();
+  }
+
+  function composerHtml() {
+    const first = esc((ME.name || '').split(' ')[0] || 'there');
+    return (
+      '<div class="card composer" id="composer">' +
+      '<div class="row">' + avatar(ME, 40) +
+      '<textarea id="composerText" rows="1" placeholder="What is on your mind, ' + first + '?"></textarea>' +
+      '</div>' +
+      '<div class="preview hidden" id="composerPreview"></div>' +
+      '<div class="actions">' +
+      '<button class="icon-action" id="composerPhotoBtn">&#128247; Photo</button>' +
+      '<span class="spacer"></span>' +
+      '<button class="btn btn-primary btn-sm" id="composerPost">Post</button>' +
+      '</div>' +
+      '<input type="file" id="composerFile" accept="image/*" class="hidden">' +
+      '</div>'
+    );
+  }
+
+  function wireComposer(targetId) {
+    targetId = targetId || 'feedPosts';
+    const fileInput = document.getElementById('composerFile');
+    const preview = document.getElementById('composerPreview');
+    const textArea = document.getElementById('composerText');
+    let selectedFile = null;
+
+    document.getElementById('composerPhotoBtn').onclick = () => fileInput.click();
+
+    fileInput.onchange = () => {
+      selectedFile = fileInput.files[0] || null;
+      if (selectedFile) {
+        const url = URL.createObjectURL(selectedFile);
+        preview.innerHTML = '<img src="' + url + '"><button class="remove" id="composerRemove">&times;</button>';
+        preview.classList.remove('hidden');
+        document.getElementById('composerRemove').onclick = () => {
+          selectedFile = null;
+          fileInput.value = '';
+          preview.classList.add('hidden');
+          preview.innerHTML = '';
+        };
+      }
+    };
+
+    textArea.addEventListener('input', () => {
+      textArea.style.height = 'auto';
+      textArea.style.height = Math.min(textArea.scrollHeight, 220) + 'px';
+    });
+
+    document.getElementById('composerPost').onclick = async () => {
+      const content = textArea.value.trim();
+      if (!content && !selectedFile) { toast('Write something or add a photo'); return; }
+      const btn = document.getElementById('composerPost');
+      btn.disabled = true;
+      btn.textContent = 'Posting...';
+      try {
+        const r = await API.createPost(content, selectedFile);
+        const container = document.getElementById(targetId);
+        const empty = container.querySelector('.empty');
+        if (empty) container.innerHTML = '';
+        const node = renderPostNode(r.post);
+        container.prepend(node);
+        if (window.anime) anime({ targets: node, opacity: [0, 1], translateY: [-10, 0], duration: 300, easing: 'easeOutCubic' });
+        textArea.value = '';
+        textArea.style.height = 'auto';
+        selectedFile = null;
+        fileInput.value = '';
+        preview.classList.add('hidden');
+        preview.innerHTML = '';
+      } catch (e) {
+        toast(e.message);
+      }
+      btn.disabled = false;
+      btn.textContent = 'Post';
+    };
+  }
+
+  /* ============================ posts ============================ */
+
+  function renderPosts(container, posts, emptyMsg) {
+    container.innerHTML = '';
+    if (!posts.length) {
+      container.innerHTML = '<div class="card"><div class="empty">' + esc(emptyMsg) + '</div></div>';
+      return;
+    }
+    posts.forEach((p) => container.appendChild(renderPostNode(p)));
+  }
+
+  function renderPostNode(p) {
+    const node = el('<div class="card post" data-post="' + p.id + '"></div>');
+    node._post = p;
+    renderPostInner(node, p);
+    return node;
+  }
+
+  function renderPostInner(node, p) {
+    const canDelete = p.author.id === ME.id;
+    node.innerHTML =
+      '<div class="post-head">' +
+      avatar(p.author, 44) +
+      '<div class="meta"><div class="name" data-profile="' + p.author.id + '">' + esc(p.author.name) + '</div>' +
+      '<div class="time">' + timeAgo(p.created_at) + '</div></div>' +
+      (canDelete ? '<button class="menu-btn" data-del="' + p.id + '" title="Delete post">&#128465;</button>' : '') +
+      '</div>' +
+      (p.content ? '<div class="post-body">' + linkify(esc(p.content)) + '</div>' : '') +
+      (p.image ? '<div class="post-image"><img src="' + esc(p.image) + '" alt=""></div>' : '') +
+      '<div class="post-stats"></div>' +
+      '<div class="post-actions">' +
+      '<button class="post-action like' + (p.liked ? ' liked' : '') + '" data-like="' + p.id + '">' + (p.liked ? '&#9829;' : '&#9825;') + ' Like</button>' +
+      '<button class="post-action" data-comment="' + p.id + '">&#128172; Comment</button>' +
+      '</div>' +
+      '<div class="comments hidden" data-comments="' + p.id + '"></div>';
+    renderStats(node);
+    wirePost(node, p);
+  }
+
+  function renderStats(node) {
+    const p = node._post;
+    const stats = node.querySelector('.post-stats');
+    const left = p.likeCount ? '<span class="heart">&#9829;</span>&nbsp;' + p.likeCount : '';
+    const right = p.commentCount ? p.commentCount + ' comment' + (p.commentCount > 1 ? 's' : '') : '';
+    stats.innerHTML = left + '<span style="flex:1"></span>' + right;
+  }
+
+  function wirePost(node, p) {
+    node.querySelectorAll('[data-profile]').forEach((x) =>
+      (x.onclick = () => go('profile', Number(x.getAttribute('data-profile'))))
+    );
+    const del = node.querySelector('[data-del]');
+    if (del) del.onclick = () => deletePost(p.id, node);
+    const likeBtn = node.querySelector('[data-like]');
+    likeBtn.onclick = () => toggleLike(node, likeBtn);
+    node.querySelector('[data-comment]').onclick = () => toggleComments(p.id, node);
+  }
+
+  async function toggleLike(node, btn) {
+    const p = node._post;
+    try {
+      const r = await API.toggleLike(p.id);
+      p.liked = r.liked;
+      p.likeCount = r.likeCount;
+      btn.classList.toggle('liked', r.liked);
+      btn.innerHTML = (r.liked ? '&#9829;' : '&#9825;') + ' Like';
+      renderStats(node);
+      if (r.liked && window.anime) anime({ targets: btn, scale: [1, 1.25, 1], duration: 320, easing: 'easeOutBack' });
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+
+  async function deletePost(id, node) {
+    if (!window.confirm('Delete this post?')) return;
+    try {
+      await API.deletePost(id);
+      if (window.anime) anime({ targets: node, opacity: 0, duration: 220, complete: () => node.remove() });
+      else node.remove();
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+
+  async function toggleComments(postId, node) {
+    const box = node.querySelector('[data-comments]');
+    if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    box.innerHTML = '<div class="empty" style="padding:8px">Loading comments...</div>';
+    try {
+      const r = await API.comments(postId);
+      box.innerHTML = '';
+      r.comments.forEach((c) => box.appendChild(commentNode(c)));
+      box.appendChild(commentForm(postId, node));
+      const input = box.querySelector('.comment-form input');
+      if (input) input.focus();
+    } catch (e) {
+      box.innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+    }
+  }
+
+  function commentNode(c) {
+    const mine = c.author.id === ME.id;
+    const node = el('<div class="comment"></div>');
+    node.innerHTML =
+      avatar(c.author, 32) +
+      '<div><div class="bubble"><div class="name" data-profile="' + c.author.id + '">' + esc(c.author.name) + '</div>' +
+      linkify(esc(c.content)) + '</div>' +
+      '<div class="time" style="margin-left:12px">' + timeAgo(c.created_at) +
+      (mine ? ' <button data-delc="' + c.id + '" style="background:none;border:none;color:var(--text-soft);cursor:pointer;font-size:12px">Delete</button>' : '') +
+      '</div></div>';
+    node.querySelector('[data-profile]').onclick = () => go('profile', c.author.id);
+    const delc = node.querySelector('[data-delc]');
+    if (delc) delc.onclick = async () => {
+      try { await API.deleteComment(c.id); node.remove(); } catch (e) { toast(e.message); }
+    };
+    return node;
+  }
+
+  function commentForm(postId, postNode) {
+    const form = el(
+      '<div class="comment-form">' + avatar(ME, 32) +
+      '<input type="text" placeholder="Write a comment..."><button class="btn btn-soft btn-sm">Send</button></div>'
+    );
+    const input = form.querySelector('input');
+    const send = async () => {
+      const content = input.value.trim();
+      if (!content) return;
+      input.disabled = true;
+      try {
+        const r = await API.addComment(postId, content);
+        form.parentNode.insertBefore(commentNode(r.comment), form);
+        input.value = '';
+        postNode._post.commentCount += 1;
+        renderStats(postNode);
+      } catch (e) {
+        toast(e.message);
+      }
+      input.disabled = false;
+      input.focus();
+    };
+    form.querySelector('button').onclick = send;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+    return form;
+  }
+
+  /* ============================ stories ============================ */
+
+  async function loadStories() {
+    try {
+      const r = await API.stories();
+      const row = document.getElementById('storiesRow');
+      if (!row) return;
+      row.innerHTML = '';
+      const add = el('<div class="story add"><div class="plus">+</div><div class="label">Add story</div></div>');
+      add.onclick = openStoryComposer;
+      row.appendChild(add);
+      r.groups.forEach((g) => {
+        const cover = g.stories[g.stories.length - 1];
+        const tile = el('<div class="story"><img src="' + esc(cover.image) + '" alt=""><div class="ring"></div><div class="who">' + esc(g.user.name) + '</div></div>');
+        tile.onclick = () => openStoryViewer(g);
+        row.appendChild(tile);
+      });
+    } catch (e) {}
+  }
+
+  function openStoryComposer() {
+    const m = modal(
+      '<div class="mh"><h3>Add to your story</h3></div><div class="mc">' +
+      '<div class="field"><input type="file" id="storyFile" accept="image/*" class="input"></div>' +
+      '<div class="preview hidden" id="storyPrev" style="margin-bottom:12px"></div>' +
+      '<div class="field"><input class="input" id="storyCap" placeholder="Add a caption (optional)"></div>' +
+      '<button class="btn btn-primary btn-block" id="storyPost">Share to story</button>' +
+      '</div>'
+    );
+    const file = m.q('#storyFile');
+    file.onchange = () => {
+      const f = file.files[0];
+      if (f) {
+        const u = URL.createObjectURL(f);
+        const pv = m.q('#storyPrev');
+        pv.innerHTML = '<img src="' + u + '" style="border-radius:10px;max-height:280px;width:100%;object-fit:cover">';
+        pv.classList.remove('hidden');
+      }
+    };
+    m.q('#storyPost').onclick = async () => {
+      const f = file.files[0];
+      if (!f) { toast('Choose a photo first'); return; }
+      const btn = m.q('#storyPost');
+      btn.disabled = true;
+      btn.textContent = 'Sharing...';
+      try {
+        await API.createStory(f, m.q('#storyCap').value.trim());
+        m.close();
+        toast('Story shared');
+        loadStories();
+      } catch (e) {
+        toast(e.message);
+        btn.disabled = false;
+        btn.textContent = 'Share to story';
+      }
+    };
+  }
+
+  function openStoryViewer(g) {
+    let i = 0;
+    const back = el(
+      '<div class="story-view-back"><div class="story-view">' +
+      '<button class="sv-close">&times;</button><div class="sv-head"></div><img alt=""><div class="sv-cap"></div>' +
+      '</div></div>'
+    );
+    document.getElementById('modalRoot').appendChild(back);
+    const img = back.querySelector('img');
+    const head = back.querySelector('.sv-head');
+    const cap = back.querySelector('.sv-cap');
+    function show() {
+      const s = g.stories[i];
+      img.src = s.image;
+      head.innerHTML = avatar(g.user, 32) + '<div style="font-weight:700">' + esc(g.user.name) + '</div><div style="opacity:.8;font-size:12px">' + timeAgo(s.created_at) + '</div>';
+      cap.innerHTML = s.caption ? esc(s.caption) : '';
+      cap.style.display = s.caption ? 'block' : 'none';
+    }
+    function next() { i += 1; if (i >= g.stories.length) close(); else show(); }
+    function close() { back.remove(); }
+    back.querySelector('.sv-close').onclick = close;
+    back.addEventListener('click', (e) => { if (e.target === back) close(); });
+    img.onclick = next;
+    show();
+  }
+
+  /* ============================ right rail ============================ */
+
+  async function renderRightRail() {
+    const rail = document.getElementById('rightRail');
+    rail.innerHTML = '<div class="card"><div class="section-title">Contacts</div><div id="contactsList"><div class="empty" style="padding:8px">Loading...</div></div></div>';
+    try {
+      const r = await API.friends();
+      const list = document.getElementById('contactsList');
+      if (!list) return;
+      if (!r.users.length) {
+        list.innerHTML = '<div class="empty" style="padding:8px;font-size:13px">No friends yet. Find people to add on the Friends page.</div>';
+        return;
+      }
+      list.innerHTML = '';
+      r.users.forEach((u) => {
+        const c = el('<div class="contact">' + avatar(u, 36) + '<span class="nm">' + esc(u.name) + '</span><span class="dot-online"></span></div>');
+        c.onclick = () => go('messages', u.id);
+        list.appendChild(c);
+      });
+    } catch (e) {}
+  }
+
+  /* ============================ friends ============================ */
+
+  async function renderFriends() {
+    view.innerHTML =
+      '<div class="card"><div class="section-title">Friend requests</div><div id="reqList"><div class="empty">Loading...</div></div></div>' +
+      '<div class="card"><div class="section-title">People you may know</div><div id="sugList" class="people-grid"><div class="empty">Loading...</div></div></div>' +
+      '<div class="card"><div class="section-title">Your friends</div><div id="frList" class="people-grid"><div class="empty">Loading...</div></div></div>';
+
+    try {
+      const r = await API.friendRequests();
+      const box = document.getElementById('reqList');
+      if (!r.users.length) box.innerHTML = '<div class="empty" style="padding:8px">No pending requests.</div>';
+      else { box.innerHTML = ''; r.users.forEach((u) => box.appendChild(requestRow(u))); }
+    } catch (e) {}
+
+    try {
+      const r = await API.suggestions();
+      const box = document.getElementById('sugList');
+      if (!r.users.length) box.innerHTML = '<div class="empty">No suggestions right now.</div>';
+      else { box.innerHTML = ''; r.users.forEach((u) => box.appendChild(personCard(u, 'add'))); }
+    } catch (e) {}
+
+    try {
+      const r = await API.friends();
+      const box = document.getElementById('frList');
+      if (!r.users.length) box.innerHTML = '<div class="empty">No friends yet.</div>';
+      else { box.innerHTML = ''; r.users.forEach((u) => box.appendChild(personCard(u, 'message'))); }
+    } catch (e) {}
+
+    renderRightRail();
+  }
+
+  function requestRow(u) {
+    const row = el(
+      '<div class="contact" style="padding:10px 4px">' + avatar(u, 48) +
+      '<div style="flex:1"><div class="nm" data-profile="' + u.id + '">' + esc(u.name) + '</div></div>' +
+      '<button class="btn btn-primary btn-sm" data-accept>Confirm</button>&nbsp;' +
+      '<button class="btn btn-sm" data-decline>Delete</button></div>'
+    );
+    row.querySelector('[data-profile]').onclick = () => go('profile', u.id);
+    row.querySelector('[data-accept]').onclick = async () => {
+      try { await API.acceptRequest(u.id); toast('You are now friends with ' + u.name); row.remove(); refreshBadges(); } catch (e) { toast(e.message); }
+    };
+    row.querySelector('[data-decline]').onclick = async () => {
+      try { await API.declineRequest(u.id); row.remove(); refreshBadges(); } catch (e) { toast(e.message); }
+    };
+    return row;
+  }
+
+  function personCard(u, mode) {
+    const card = el(
+      '<div class="person"><div class="ph">' + avatar(u, 80) + '</div>' +
+      '<div class="pn" data-profile="' + u.id + '">' + esc(u.name) + '</div><div class="pb"></div></div>'
+    );
+    card.querySelector('[data-profile]').onclick = () => go('profile', u.id);
+    const pb = card.querySelector('.pb');
+    if (mode === 'add') {
+      const b = el('<button class="btn btn-primary btn-sm btn-block">Add friend</button>');
+      b.onclick = async () => {
+        b.disabled = true;
+        try { await API.sendRequest(u.id); b.textContent = 'Request sent'; } catch (e) { toast(e.message); b.disabled = false; }
+      };
+      pb.appendChild(b);
+    } else if (mode === 'message') {
+      const b = el('<button class="btn btn-soft btn-sm btn-block">Message</button>');
+      b.onclick = () => go('messages', u.id);
+      pb.appendChild(b);
+    } else {
+      const b = el('<button class="btn btn-sm btn-block">View profile</button>');
+      b.onclick = () => go('profile', u.id);
+      pb.appendChild(b);
+    }
+    return card;
+  }
+
+  /* ============================ search ============================ */
+
+  async function renderSearch(q) {
+    view.innerHTML = '<div class="card"><div class="section-title">Results for "' + esc(q) + '"</div><div id="searchList" class="people-grid"><div class="empty">Searching...</div></div></div>';
+    try {
+      const r = await API.searchUsers(q);
+      const box = document.getElementById('searchList');
+      if (!r.users.length) box.innerHTML = '<div class="empty">No people found.</div>';
+      else { box.innerHTML = ''; r.users.forEach((u) => box.appendChild(personCard(u, 'view'))); }
+    } catch (e) {}
+    renderRightRail();
+  }
+
+  /* ============================ profile ============================ */
+
+  function profileActions(data) {
+    const u = data.user;
+    switch (data.friendStatus) {
+      case 'self': return '<button class="btn btn-soft" id="editProfileBtn">Edit profile</button>';
+      case 'friends': return '<button class="btn btn-primary" data-msg="' + u.id + '">Message</button>&nbsp;<button class="btn" data-unfriend="' + u.id + '">Friends &#10003;</button>';
+      case 'requested': return '<button class="btn" data-unfriend="' + u.id + '">Cancel request</button>';
+      case 'incoming': return '<button class="btn btn-primary" data-accept="' + u.id + '">Confirm request</button>&nbsp;<button class="btn" data-decline="' + u.id + '">Delete</button>';
+      default: return '<button class="btn btn-primary" data-addfriend="' + u.id + '">Add friend</button>';
+    }
+  }
+
+  async function renderProfile(id) {
+    view.innerHTML = '<div class="card card-pad-0"><div class="empty" style="padding:40px">Loading profile...</div></div>';
+    let data;
+    try { data = await API.getProfile(id); }
+    catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+
+    const u = data.user;
+    const isMe = data.friendStatus === 'self';
+    const coverStyle = u.cover ? ' style="background-image:url(\'' + esc(u.cover) + '\')"' : '';
+
+    view.innerHTML =
+      '<div class="card card-pad-0">' +
+      '<div class="profile-cover"' + coverStyle + '>' + (isMe ? '<button class="btn btn-sm edit-cover" id="editCoverBtn">&#128247; Edit cover</button>' : '') + '</div>' +
+      '<div class="profile-head">' +
+      '<div class="av-wrap">' + avatar(u, 130) + (isMe ? '<button class="cam" id="editAvatarBtn" title="Change photo">&#128247;</button>' : '') + '</div>' +
+      '<div><div class="pname">' + esc(u.name) + '</div>' +
+      '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + data.postsCount + ' posts</div>' +
+      (u.bio ? '<div style="margin-top:4px">' + esc(u.bio) + '</div>' : '') +
+      '</div>' +
+      '<div class="pactions">' + profileActions(data) + '</div>' +
+      '</div>' +
+      '</div>' +
+      '<div id="profileAlbums"></div>' +
+      (isMe ? composerHtml() : '') +
+      '<div id="profilePosts"><div class="card"><div class="empty">Loading posts...</div></div></div>';
+
+    wireProfileActions(view, data);
+    if (isMe) {
+      wireComposer('profilePosts');
+      wireProfilePhotoEdits();
+    }
+
+    try {
+      const r = await API.userPosts(u.id);
+      const emptyMsg = r.locked
+        ? u.name + ' shares posts with friends. Add them as a friend to see their posts.'
+        : (isMe ? 'You have not posted anything yet.' : u.name + ' has not posted anything yet.');
+      renderPosts(document.getElementById('profilePosts'), r.posts, emptyMsg);
+    } catch (e) {}
+
+    loadProfileAlbums(u, isMe);
+    renderRightRail();
+  }
+
+  function wireProfileActions(root, data) {
+    const u = data.user;
+    root.querySelectorAll('[data-msg]').forEach((b) => (b.onclick = () => go('messages', u.id)));
+    root.querySelectorAll('[data-addfriend]').forEach((b) => (b.onclick = async () => {
+      b.disabled = true;
+      try { await API.sendRequest(u.id); toast('Friend request sent'); renderProfile(u.id); } catch (e) { toast(e.message); b.disabled = false; }
+    }));
+    root.querySelectorAll('[data-unfriend]').forEach((b) => (b.onclick = async () => {
+      if (!window.confirm('Remove this connection?')) return;
+      try { await API.unfriend(u.id); renderProfile(u.id); } catch (e) { toast(e.message); }
+    }));
+    root.querySelectorAll('[data-accept]').forEach((b) => (b.onclick = async () => {
+      try { await API.acceptRequest(u.id); toast('You are now friends'); renderProfile(u.id); refreshBadges(); } catch (e) { toast(e.message); }
+    }));
+    root.querySelectorAll('[data-decline]').forEach((b) => (b.onclick = async () => {
+      try { await API.declineRequest(u.id); renderProfile(u.id); refreshBadges(); } catch (e) { toast(e.message); }
+    }));
+    const edit = root.querySelector('#editProfileBtn');
+    if (edit) edit.onclick = openEditProfile;
+  }
+
+  function wireProfilePhotoEdits() {
+    const avBtn = document.getElementById('editAvatarBtn');
+    const cvBtn = document.getElementById('editCoverBtn');
+    if (avBtn) avBtn.onclick = () => pickImage(async (file) => {
+      try { ME = (await API.uploadAvatar(file)).user; toast('Profile photo updated'); setupChromeAvatar(); renderLeftRail(); renderProfile(ME.id); } catch (e) { toast(e.message); }
+    });
+    if (cvBtn) cvBtn.onclick = () => pickImage(async (file) => {
+      try { await API.uploadCover(file); toast('Cover photo updated'); renderProfile(ME.id); } catch (e) { toast(e.message); }
+    });
+  }
+
+  function openEditProfile() {
+    const m = modal(
+      '<div class="mh"><h3>Edit profile</h3></div><div class="mc">' +
+      '<div class="field"><label>Name</label><input class="input" id="epName" value="' + esc(ME.name) + '"></div>' +
+      '<div class="field"><label>Bio</label><textarea class="input" id="epBio" rows="3" placeholder="Tell people about yourself">' + esc(ME.bio || '') + '</textarea></div>' +
+      '<button class="btn btn-primary btn-block" id="epSave">Save changes</button>' +
+      '</div>'
+    );
+    m.q('#epSave').onclick = async () => {
+      const name = m.q('#epName').value.trim();
+      const bio = m.q('#epBio').value.trim();
+      if (!name) { toast('Name cannot be empty'); return; }
+      try {
+        ME = (await API.updateProfile(name, bio)).user;
+        m.close();
+        toast('Profile saved');
+        setupChromeAvatar();
+        renderLeftRail();
+        renderProfile(ME.id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+
+  /* ============================ messages ============================ */
+
+  async function renderMessages(userId) {
+    view.innerHTML =
+      '<div class="card card-pad-0"><div class="messenger" id="messenger">' +
+      '<div class="mlist" id="convoList"><div class="empty" style="padding:16px">Loading...</div></div>' +
+      '<div class="mthread" id="thread"><div class="chat-empty">Select a conversation to start chatting</div></div>' +
+      '</div></div>';
+    await loadConversations(userId ? Number(userId) : null);
+    if (userId) openThread(Number(userId));
+  }
+
+  async function loadConversations(activeId) {
+    try {
+      const r = await API.conversations();
+      const list = document.getElementById('convoList');
+      if (!list) return;
+      if (!r.conversations.length) {
+        list.innerHTML = '<div class="empty" style="padding:16px">No conversations yet. Open a friend and tap Message to say hi.</div>';
+        return;
+      }
+      list.innerHTML = '';
+      r.conversations.forEach((c) => list.appendChild(convoRow(c, activeId)));
+    } catch (e) {}
+  }
+
+  function convoRow(c, activeId) {
+    const u = c.user;
+    const last = c.lastMessage ? (c.lastMessage.mine ? 'You: ' : '') + c.lastMessage.content : 'Say hi';
+    const row = el(
+      '<div class="convo' + (Number(activeId) === u.id ? ' active' : '') + '" data-uid="' + u.id + '">' +
+      avatar(u, 48) + '<div class="cm"><div class="nm">' + esc(u.name) + '</div><div class="lm">' + esc(last) + '</div></div>' +
+      (c.unreadCount ? '<span class="badge" style="position:static">' + c.unreadCount + '</span>' : '') +
+      '</div>'
+    );
+    row.onclick = () => openThread(u.id);
+    return row;
+  }
+
+  async function openThread(userId) {
+    activeChatUser = userId;
+    document.querySelectorAll('#convoList .convo').forEach((r) =>
+      r.classList.toggle('active', Number(r.dataset.uid) === userId)
+    );
+    const thread = document.getElementById('thread');
+    thread.innerHTML = '<div class="chat-empty">Loading...</div>';
+    const messenger = document.getElementById('messenger');
+    if (messenger) messenger.classList.add('show-thread');
+
+    let data;
+    try { data = await API.history(userId); }
+    catch (e) { thread.innerHTML = '<div class="chat-empty">' + esc(e.message) + '</div>'; return; }
+
+    const u = data.user;
+    thread.innerHTML =
+      '<div class="thead"><button class="btn btn-ghost btn-sm" id="backToList">&#8592;</button>' +
+      avatar(u, 40) + '<div style="font-weight:700;flex:1">' + esc(u.name) + '</div></div>' +
+      '<div class="mbody" id="mbody"></div>' +
+      '<div class="mfoot"><input id="msgInput" placeholder="Type a message..." autocomplete="off"><button class="btn btn-primary" id="msgSend">Send</button></div>';
+
+    const body = document.getElementById('mbody');
+    data.messages.forEach((m) => body.appendChild(msgBubble(m)));
+    scrollBottom(body);
+
+    const back = document.getElementById('backToList');
+    back.style.display = window.innerWidth <= 980 ? 'inline-flex' : 'none';
+    back.onclick = () => messenger.classList.remove('show-thread');
+
+    const input = document.getElementById('msgInput');
+    const send = async () => {
+      const content = input.value.trim();
+      if (!content) return;
+      input.value = '';
+      try { await Chat.send(userId, content); } catch (e) { toast(e.message); }
+    };
+    document.getElementById('msgSend').onclick = send;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+    input.focus();
+    refreshBadges();
+  }
+
+  function msgBubble(m) {
+    return el('<div class="bubble-msg' + (m.mine ? ' mine' : '') + '">' + linkify(esc(m.content)) + '<div class="bt">' + timeAgo(m.created_at) + '</div></div>');
+  }
+
+  /* ============================ notifications ============================ */
+
+  function notifText(type) {
+    switch (type) {
+      case 'like': return ' liked your post';
+      case 'comment': return ' commented on your post';
+      case 'friend_request': return ' sent you a friend request';
+      case 'friend_accept': return ' accepted your friend request';
+      default: return ' interacted with you';
+    }
+  }
+
+  function notifRow(n) {
+    const row = el(
+      '<div class="notif' + (n.is_read ? '' : ' unread') + '">' + avatar(n.actor, 44) +
+      '<div class="nt"><div><b>' + esc(n.actor.name) + '</b>' + notifText(n.type) + '</div>' +
+      '<div class="tm">' + timeAgo(n.created_at) + '</div></div></div>'
+    );
+    row.onclick = () => {
+      document.getElementById('notifDropdown').classList.add('hidden');
+      if (n.type === 'friend_request' || n.type === 'friend_accept') go('profile', n.actor.id);
+      else go('profile', ME.id);
+    };
+    return row;
+  }
+
+  async function toggleNotifs(e) {
+    e.stopPropagation();
+    const dd = document.getElementById('notifDropdown');
+    if (!dd.classList.contains('hidden')) { dd.classList.add('hidden'); return; }
+    dd.classList.remove('hidden');
+    const list = document.getElementById('notifList');
+    list.innerHTML = '<div class="empty">Loading...</div>';
+    try {
+      const r = await API.notifications();
+      if (!r.notifications.length) list.innerHTML = '<div class="empty">No notifications yet.</div>';
+      else { list.innerHTML = ''; r.notifications.forEach((n) => list.appendChild(notifRow(n))); }
+      await API.markNotifsRead();
+      setBadge('notifBadge', 0);
+    } catch (err) {
+      list.innerHTML = '<div class="empty">' + esc(err.message) + '</div>';
+    }
+  }
+
+  /* ============================ marketplace ============================ */
+
+  function money(n) {
+    const v = Number(n) || 0;
+    return '$' + v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  }
+
+  const MARKET_CATEGORIES = ['All', 'General', 'Electronics', 'Furniture', 'Clothing', 'Vehicles', 'Property', 'Hobbies', 'Free'];
+  const marketState = { q: '', category: 'All' };
+
+  async function renderMarketplace() {
+    view.innerHTML =
+      '<div class="card"><div class="mk-head">' +
+      '<div class="section-title" style="flex:1;margin:0">Marketplace</div>' +
+      '<button class="btn btn-primary btn-sm" id="sellBtn">&#10010; Sell something</button></div>' +
+      '<input class="input" id="mkSearch" placeholder="Search marketplace" value="' + esc(marketState.q) + '" style="margin-top:10px">' +
+      '<div class="chips" id="mkChips"></div></div>' +
+      '<div id="mkGrid" class="mk-grid"><div class="empty">Loading...</div></div>';
+    const chips = document.getElementById('mkChips');
+    MARKET_CATEGORIES.forEach((c) => {
+      const chip = el('<button class="chip' + (marketState.category === c ? ' active' : '') + '">' + esc(c) + '</button>');
+      chip.onclick = () => {
+        marketState.category = c;
+        chips.querySelectorAll('.chip').forEach((x) => x.classList.remove('active'));
+        chip.classList.add('active');
+        loadListings();
+      };
+      chips.appendChild(chip);
+    });
+    document.getElementById('sellBtn').onclick = openSellModal;
+    const search = document.getElementById('mkSearch');
+    let to;
+    search.addEventListener('input', () => { clearTimeout(to); marketState.q = search.value.trim(); to = setTimeout(loadListings, 300); });
+    loadListings();
+    renderRightRail();
+  }
+
+  async function loadListings() {
+    const grid = document.getElementById('mkGrid');
+    if (!grid) return;
+    try {
+      const r = await API.listings(marketState.q, marketState.category);
+      if (!r.listings.length) { grid.innerHTML = '<div class="card"><div class="empty">No items here yet. Be the first to list something.</div></div>'; return; }
+      grid.innerHTML = '';
+      r.listings.forEach((l) => grid.appendChild(listingCard(l)));
+    } catch (e) { grid.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; }
+  }
+
+  function listingCard(l) {
+    const card = el(
+      '<div class="mk-card">' +
+      '<div class="mk-photo">' + (l.image ? '<img src="' + esc(l.image) + '" alt="">' : '<div class="mk-noimg">&#128247;</div>') +
+      (l.status === 'sold' ? '<div class="mk-sold">SOLD</div>' : '') + '</div>' +
+      '<div class="mk-info"><div class="mk-price">' + money(l.price) + '</div>' +
+      '<div class="mk-title">' + esc(l.title) + '</div>' +
+      '<div class="mk-loc">' + (l.location ? esc(l.location) : esc(l.category)) + '</div></div></div>'
+    );
+    card.onclick = () => openListing(l.id);
+    return card;
+  }
+
+  async function openListing(id) {
+    let data;
+    try { data = await API.listing(id); } catch (e) { toast(e.message); return; }
+    const l = data.listing;
+    const firstName = (l.seller.name || '').split(' ')[0];
+    const m = modal(
+      '<div class="mh"><h3>Item</h3></div><div class="mc">' +
+      (l.image ? '<img src="' + esc(l.image) + '" style="width:100%;border-radius:10px;max-height:340px;object-fit:cover;margin-bottom:12px">' : '') +
+      '<div class="mk-price" style="font-size:24px">' + money(l.price) + (l.status === 'sold' ? ' <span class="pill">Sold</span>' : '') + '</div>' +
+      '<div style="font-size:18px;font-weight:700;margin:4px 0">' + esc(l.title) + '</div>' +
+      '<div class="pmeta" style="margin-bottom:8px">' + esc(l.category) + (l.location ? ' &#183; ' + esc(l.location) : '') + '</div>' +
+      (l.description ? '<div style="white-space:pre-wrap;margin-bottom:12px">' + linkify(esc(l.description)) + '</div>' : '') +
+      '<div class="contact" style="padding:0;margin-bottom:14px">' + avatar(l.seller, 36) + '<span class="nm">' + esc(l.seller.name) + '</span></div>' +
+      (l.isMine
+        ? '<button class="btn btn-block" id="mkSold">' + (l.status === 'sold' ? 'Mark available' : 'Mark as sold') + '</button>' +
+          '<button class="btn btn-danger btn-block" id="mkDel" style="margin-top:8px">Delete listing</button>'
+        : '<button class="btn btn-primary btn-block" id="mkMsg">Message ' + esc(firstName) + '</button>' +
+          '<button class="btn btn-block" id="mkSeller" style="margin-top:8px">View seller profile</button>') +
+      '</div>'
+    );
+    if (l.isMine) {
+      m.q('#mkSold').onclick = async () => { try { await API.toggleSold(l.id); m.close(); toast('Updated'); if (currentView === 'marketplace') loadListings(); } catch (e) { toast(e.message); } };
+      m.q('#mkDel').onclick = async () => { if (!window.confirm('Delete this listing?')) return; try { await API.deleteListing(l.id); m.close(); toast('Listing deleted'); if (currentView === 'marketplace') loadListings(); } catch (e) { toast(e.message); } };
+    } else {
+      m.q('#mkMsg').onclick = () => { m.close(); go('messages', l.seller.id); };
+      m.q('#mkSeller').onclick = () => { m.close(); go('profile', l.seller.id); };
+    }
+  }
+
+  function openSellModal() {
+    const m = modal(
+      '<div class="mh"><h3>List an item</h3></div><div class="mc">' +
+      '<div class="field"><label>Title</label><input class="input" id="slTitle" placeholder="What are you selling?"></div>' +
+      '<div class="field"><label>Price (USD)</label><input class="input" id="slPrice" type="number" min="0" step="0.01" placeholder="0"></div>' +
+      '<div class="field"><label>Category</label><select class="input" id="slCat"></select></div>' +
+      '<div class="field"><label>Location (optional)</label><input class="input" id="slLoc" placeholder="City or area"></div>' +
+      '<div class="field"><label>Description</label><textarea class="input" id="slDesc" rows="3" placeholder="Describe your item"></textarea></div>' +
+      '<div class="field"><input type="file" id="slImg" accept="image/*" class="input"></div>' +
+      '<div class="preview hidden" id="slPrev" style="margin-bottom:12px"></div>' +
+      '<button class="btn btn-primary btn-block" id="slPost">Post listing</button></div>'
+    );
+    const sel = m.q('#slCat');
+    MARKET_CATEGORIES.filter((c) => c !== 'All').forEach((c) => { const o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o); });
+    const img = m.q('#slImg');
+    img.onchange = () => { const f = img.files[0]; if (f) { const u = URL.createObjectURL(f); const pv = m.q('#slPrev'); pv.innerHTML = '<img src="' + u + '" style="border-radius:10px;max-height:240px;width:100%;object-fit:cover">'; pv.classList.remove('hidden'); } };
+    m.q('#slPost').onclick = async () => {
+      const title = m.q('#slTitle').value.trim();
+      if (!title) { toast('Add a title'); return; }
+      const btn = m.q('#slPost'); btn.disabled = true; btn.textContent = 'Posting...';
+      try {
+        await API.createListing({ title, price: m.q('#slPrice').value || 0, category: sel.value, location: m.q('#slLoc').value.trim(), description: m.q('#slDesc').value.trim() }, img.files[0]);
+        m.close(); toast('Listing posted'); if (currentView === 'marketplace') loadListings();
+      } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Post listing'; }
+    };
+  }
+
+  /* ============================ groups ============================ */
+
+  async function renderGroups() {
+    view.innerHTML =
+      '<div class="card"><div class="mk-head"><div class="section-title" style="flex:1;margin:0">Groups</div>' +
+      '<button class="btn btn-primary btn-sm" id="createGroupBtn">&#10010; Create group</button></div></div>' +
+      '<div class="card"><div class="section-title">Your groups</div><div id="myGroups" class="grp-grid"><div class="empty">Loading...</div></div></div>' +
+      '<div class="card"><div class="section-title">Discover</div><div id="discoverGroups" class="grp-grid"><div class="empty">Loading...</div></div></div>';
+    document.getElementById('createGroupBtn').onclick = openCreateGroup;
+    try {
+      const r = await API.groups();
+      const mine = document.getElementById('myGroups');
+      const disc = document.getElementById('discoverGroups');
+      if (!r.mine.length) mine.innerHTML = '<div class="empty">You have not joined any groups yet.</div>';
+      else { mine.innerHTML = ''; r.mine.forEach((g) => mine.appendChild(groupCard(g))); }
+      if (!r.discover.length) disc.innerHTML = '<div class="empty">No public groups to discover yet.</div>';
+      else { disc.innerHTML = ''; r.discover.forEach((g) => disc.appendChild(groupCard(g))); }
+    } catch (e) {}
+    renderRightRail();
+  }
+
+  function groupCard(g) {
+    const coverStyle = g.cover ? ' style="background-image:url(\'' + esc(g.cover) + '\')"' : '';
+    const card = el(
+      '<div class="grp-card"><div class="grp-cover"' + coverStyle + '></div>' +
+      '<div class="grp-body"><div class="grp-name">' + esc(g.name) + '</div>' +
+      '<div class="pmeta">' + (g.privacy === 'private' ? 'Private' : 'Public') + ' &#183; ' + g.memberCount + ' member' + (g.memberCount === 1 ? '' : 's') + '</div>' +
+      '<div class="grp-act"></div></div></div>'
+    );
+    const act = card.querySelector('.grp-act');
+    if (g.isMember) {
+      const b = el('<button class="btn btn-soft btn-sm btn-block">Open</button>'); b.onclick = () => go('group', g.id); act.appendChild(b);
+    } else {
+      const b = el('<button class="btn btn-primary btn-sm btn-block">Join</button>');
+      b.onclick = async (e) => { e.stopPropagation(); b.disabled = true; try { await API.joinGroup(g.id); toast('Joined ' + g.name); go('group', g.id); } catch (err) { toast(err.message); b.disabled = false; } };
+      act.appendChild(b);
+    }
+    card.querySelector('.grp-cover').onclick = () => go('group', g.id);
+    card.querySelector('.grp-name').onclick = () => go('group', g.id);
+    return card;
+  }
+
+  function openCreateGroup() {
+    const m = modal(
+      '<div class="mh"><h3>Create a group</h3></div><div class="mc">' +
+      '<div class="field"><label>Group name</label><input class="input" id="cgName" placeholder="Name your group"></div>' +
+      '<div class="field"><label>Description</label><textarea class="input" id="cgDesc" rows="2" placeholder="What is this group about?"></textarea></div>' +
+      '<div class="field"><label>Privacy</label><select class="input" id="cgPriv"><option value="public">Public (anyone can see and join)</option><option value="private">Private (members only see posts)</option></select></div>' +
+      '<div class="field"><label>Cover photo (optional)</label><input type="file" id="cgCover" accept="image/*" class="input"></div>' +
+      '<button class="btn btn-primary btn-block" id="cgCreate">Create group</button></div>'
+    );
+    m.q('#cgCreate').onclick = async () => {
+      const name = m.q('#cgName').value.trim();
+      if (!name) { toast('Name your group'); return; }
+      const btn = m.q('#cgCreate'); btn.disabled = true; btn.textContent = 'Creating...';
+      try {
+        const r = await API.createGroup({ name, description: m.q('#cgDesc').value.trim(), privacy: m.q('#cgPriv').value }, m.q('#cgCover').files[0]);
+        m.close(); toast('Group created'); go('group', r.group.id);
+      } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Create group'; }
+    };
+  }
+
+  async function renderGroup(id) {
+    view.innerHTML = '<div class="card card-pad-0"><div class="empty" style="padding:40px">Loading group...</div></div>';
+    let data;
+    try { data = await API.group(id); } catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+    const g = data.group;
+    const coverStyle = g.cover ? ' style="background-image:url(\'' + esc(g.cover) + '\')"' : '';
+    view.innerHTML =
+      '<div class="card card-pad-0"><div class="grp-hero"' + coverStyle + '></div>' +
+      '<div class="grp-hd"><div style="flex:1"><div class="pname">' + esc(g.name) + '</div>' +
+      '<div class="pmeta">' + (g.privacy === 'private' ? 'Private group' : 'Public group') + ' &#183; ' + g.memberCount + ' member' + (g.memberCount === 1 ? '' : 's') + '</div>' +
+      (g.description ? '<div style="margin-top:4px">' + esc(g.description) + '</div>' : '') + '</div>' +
+      '<div class="grp-hd-act"></div></div></div>' +
+      '<div id="grpComposer"></div>' +
+      '<div id="grpPosts"><div class="card"><div class="empty">Loading posts...</div></div></div>';
+
+    const act = view.querySelector('.grp-hd-act');
+    if (g.isMember) {
+      const open = el('<button class="btn btn-soft btn-sm">Members</button>'); open.onclick = () => openGroupMembers(g.id); act.appendChild(open);
+      const leave = el('<button class="btn btn-sm">Leave</button>'); leave.onclick = async () => { if (!window.confirm('Leave this group?')) return; try { await API.leaveGroup(g.id); toast('Left group'); go('groups'); } catch (e) { toast(e.message); } }; act.appendChild(leave);
+      if (g.role === 'admin') { const del = el('<button class="btn btn-danger btn-sm">Delete</button>'); del.onclick = async () => { if (!window.confirm('Delete this whole group?')) return; try { await API.deleteGroup(g.id); toast('Group deleted'); go('groups'); } catch (e) { toast(e.message); } }; act.appendChild(del); }
+    } else {
+      const join = el('<button class="btn btn-primary btn-sm">Join group</button>'); join.onclick = async () => { try { await API.joinGroup(g.id); toast('Joined'); renderGroup(g.id); } catch (e) { toast(e.message); } }; act.appendChild(join);
+    }
+
+    if (g.isMember) {
+      const c = document.getElementById('grpComposer');
+      c.innerHTML =
+        '<div class="card composer"><div class="row">' + avatar(ME, 40) +
+        '<textarea id="gpText" rows="1" placeholder="Write something to ' + esc(g.name) + '..."></textarea></div>' +
+        '<div class="preview hidden" id="gpPrev"></div>' +
+        '<div class="actions"><button class="icon-action" id="gpPhotoBtn">&#128247; Photo</button><span class="spacer"></span><button class="btn btn-primary btn-sm" id="gpPost">Post</button></div>' +
+        '<input type="file" id="gpFile" accept="image/*" class="hidden"></div>';
+      let file = null;
+      const fileInput = document.getElementById('gpFile');
+      const prev = document.getElementById('gpPrev');
+      document.getElementById('gpPhotoBtn').onclick = () => fileInput.click();
+      fileInput.onchange = () => { file = fileInput.files[0] || null; if (file) { const u = URL.createObjectURL(file); prev.innerHTML = '<img src="' + u + '" style="border-radius:10px;max-height:280px;width:100%;object-fit:cover">'; prev.classList.remove('hidden'); } };
+      document.getElementById('gpPost').onclick = async () => {
+        const content = document.getElementById('gpText').value.trim();
+        if (!content && !file) { toast('Write something or add a photo'); return; }
+        const btn = document.getElementById('gpPost'); btn.disabled = true; btn.textContent = 'Posting...';
+        try {
+          const r = await API.createGroupPost(g.id, content, file);
+          const cont = document.getElementById('grpPosts');
+          const empt = cont.querySelector('.empty');
+          if (empt) cont.innerHTML = '';
+          cont.prepend(renderPostNode(r.post));
+          document.getElementById('gpText').value = ''; file = null; fileInput.value = ''; prev.classList.add('hidden'); prev.innerHTML = '';
+        } catch (e) { toast(e.message); }
+        btn.disabled = false; btn.textContent = 'Post';
+      };
+    }
+
+    try {
+      const r = await API.groupPosts(g.id);
+      const emptyMsg = r.locked ? 'Join this private group to see its posts.' : 'No posts in this group yet.';
+      renderPosts(document.getElementById('grpPosts'), r.posts, emptyMsg);
+    } catch (e) {}
+    renderRightRail();
+  }
+
+  function openGroupMembers(id) {
+    const m = modal('<div class="mh"><h3>Members</h3></div><div class="mc" id="memList"><div class="empty">Loading...</div></div>');
+    API.groupMembers(id).then((r) => {
+      const list = m.q('#memList');
+      list.innerHTML = '';
+      r.members.forEach((u) => {
+        const row = el('<div class="contact">' + avatar(u, 40) + '<span class="nm">' + esc(u.name) + (u.role === 'admin' ? ' <span class="pill">Admin</span>' : '') + '</span></div>');
+        row.onclick = () => { m.close(); go('profile', u.id); };
+        list.appendChild(row);
+      });
+    }).catch((e) => { m.q('#memList').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; });
+  }
+
+  /* ============================ albums ============================ */
+
+  async function loadProfileAlbums(user, isMe) {
+    const box = document.getElementById('profileAlbums');
+    if (!box) return;
+    let data;
+    try { data = await API.userAlbums(user.id); } catch (e) { return; }
+    if (data.locked) { box.innerHTML = ''; return; }
+    const albums = data.albums;
+    if (!albums.length && !isMe) { box.innerHTML = ''; return; }
+    let html =
+      '<div class="card"><div class="mk-head"><div class="section-title" style="flex:1;margin:0">Albums</div>' +
+      (isMe ? '<button class="btn btn-soft btn-sm" id="newAlbumBtn">&#10010; New album</button>' : '') + '</div>';
+    if (!albums.length) html += '<div class="empty">No albums yet.</div>';
+    else {
+      html += '<div class="alb-grid">';
+      albums.forEach((a) => {
+        html += '<div class="alb-card" data-album="' + a.id + '"><div class="alb-cover"' + (a.cover ? ' style="background-image:url(\'' + esc(a.cover) + '\')"' : '') + '></div>' +
+          '<div class="alb-info"><div class="alb-title">' + esc(a.title) + '</div><div class="pmeta">' + a.photoCount + ' photo' + (a.photoCount === 1 ? '' : 's') + '</div></div></div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+    box.innerHTML = html;
+    box.querySelectorAll('[data-album]').forEach((c) => (c.onclick = () => go('album', Number(c.getAttribute('data-album')))));
+    const nb = document.getElementById('newAlbumBtn');
+    if (nb) nb.onclick = () => openCreateAlbum(user.id);
+  }
+
+  function openCreateAlbum() {
+    const m = modal('<div class="mh"><h3>New album</h3></div><div class="mc"><div class="field"><label>Album title</label><input class="input" id="abTitle" placeholder="e.g. Summer 2026"></div><button class="btn btn-primary btn-block" id="abCreate">Create album</button></div>');
+    m.q('#abCreate').onclick = async () => {
+      const title = m.q('#abTitle').value.trim();
+      if (!title) { toast('Give the album a title'); return; }
+      try { const r = await API.createAlbum(title); m.close(); toast('Album created'); go('album', r.album.id); } catch (e) { toast(e.message); }
+    };
+  }
+
+  async function renderAlbum(id) {
+    view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading album...</div></div>';
+    let data;
+    try { data = await API.album(id); } catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+    const a = data.album;
+    view.innerHTML =
+      '<div class="card"><div class="mk-head"><button class="btn btn-ghost btn-sm" id="albBack">&#8592;</button>' +
+      '<div style="flex:1"><div class="section-title" style="margin:0">' + esc(a.title) + '</div><div class="pmeta">by ' + esc(a.owner.name) + '</div></div>' +
+      (a.isMine ? '<button class="btn btn-primary btn-sm" id="albAdd">&#10010; Add photo</button>' : '') + '</div></div>' +
+      '<div id="albGrid" class="ph-grid"></div>';
+    document.getElementById('albBack').onclick = () => go('profile', a.owner.id);
+    const grid = document.getElementById('albGrid');
+    if (!data.photos.length) grid.innerHTML = '<div class="card"><div class="empty">No photos in this album yet.</div></div>';
+    else {
+      grid.innerHTML = '';
+      data.photos.forEach((p) => {
+        const ph = el('<div class="ph-item"><img src="' + esc(p.image) + '" alt="">' + (p.caption ? '<div class="ph-cap">' + esc(p.caption) + '</div>' : '') + '</div>');
+        ph.querySelector('img').onclick = () => openPhoto(p);
+        grid.appendChild(ph);
+      });
+    }
+    if (a.isMine) document.getElementById('albAdd').onclick = () => addAlbumPhoto(a.id);
+    renderRightRail();
+  }
+
+  function addAlbumPhoto(albumId) {
+    pickImage(async (file) => {
+      try { await API.addAlbumPhoto(albumId, file, ''); toast('Photo added'); renderAlbum(albumId); } catch (e) { toast(e.message); }
+    });
+  }
+
+  function openPhoto(p) {
+    const back = el('<div class="story-view-back"><div class="story-view"><button class="sv-close">&times;</button><img alt="">' + (p.caption ? '<div class="sv-cap"></div>' : '') + '</div></div>');
+    document.getElementById('modalRoot').appendChild(back);
+    back.querySelector('img').src = p.image;
+    if (p.caption) back.querySelector('.sv-cap').textContent = p.caption;
+    const close = () => back.remove();
+    back.querySelector('.sv-close').onclick = close;
+    back.addEventListener('click', (e) => { if (e.target === back) close(); });
+  }
+
+  /* ============================ live socket events ============================ */
+
+  function wireSocket() {
+    Chat.onMessage((m) => {
+      const other = m.mine ? m.recipient_id : m.sender_id;
+      if (currentView === 'messages' && activeChatUser === other) {
+        const body = document.getElementById('mbody');
+        if (body) { body.appendChild(msgBubble(m)); scrollBottom(body); }
+        if (!m.mine) {
+          // We are looking right at this thread, so mark it read, then refresh counts.
+          Chat.markRead(other).then(() => { loadConversations(activeChatUser); refreshBadges(); });
+        } else {
+          loadConversations(activeChatUser);
+        }
+      } else if (!m.mine) {
+        toast('New message');
+        refreshBadges();
+        if (currentView === 'messages') loadConversations(activeChatUser);
+      }
+    });
+    Chat.onNotif((n) => setBadge('notifBadge', n.count));
+  }
+
+  /* ============================ go ============================ */
+
+  boot();
+})();

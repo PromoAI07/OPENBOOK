@@ -1,0 +1,9 @@
+node_modules/
+uploads/*
+!uploads/.gitkeep
+openbook.db
+openbook.db-shm
+openbook.db-wal
+sessions.db
+.env
+npm-debug.log*

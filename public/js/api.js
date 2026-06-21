@@ -1,0 +1,143 @@
+// api.js
+// A small wrapper around fetch so every call sends cookies and parses JSON,
+// plus named helpers for every endpoint. Shared by the landing page and the app.
+
+const API = {
+  async request(method, url, body, isForm) {
+    const opts = { method, credentials: 'same-origin', headers: {} };
+    if (body !== undefined && body !== null) {
+      if (isForm) {
+        opts.body = body; // FormData, browser sets the content type
+      } else {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
+      }
+    }
+    const res = await fetch(url, opts);
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    if (!res.ok) {
+      const message = (data && data.error) || 'Request failed (' + res.status + ')';
+      const err = new Error(message);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  },
+  get(url) { return this.request('GET', url); },
+  post(url, body) { return this.request('POST', url, body); },
+  put(url, body) { return this.request('PUT', url, body); },
+  del(url) { return this.request('DELETE', url); },
+  postForm(url, formData) { return this.request('POST', url, formData, true); },
+
+  // Auth
+  signup(name, email, password) { return this.post('/api/auth/signup', { name, email, password }); },
+  login(email, password) { return this.post('/api/auth/login', { email, password }); },
+  logout() { return this.post('/api/auth/logout'); },
+  me() { return this.get('/api/auth/me'); },
+
+  // Users
+  searchUsers(q) { return this.get('/api/users?q=' + encodeURIComponent(q || '')); },
+  getProfile(id) { return this.get('/api/users/' + id); },
+  updateProfile(name, bio) { return this.put('/api/users/me', { name, bio }); },
+  uploadAvatar(file) { const f = new FormData(); f.append('image', file); return this.postForm('/api/users/me/avatar', f); },
+  uploadCover(file) { const f = new FormData(); f.append('image', file); return this.postForm('/api/users/me/cover', f); },
+  userFriends(id) { return this.get('/api/users/' + id + '/friends'); },
+
+  // Posts
+  feed() { return this.get('/api/posts/feed'); },
+  userPosts(id) { return this.get('/api/posts/user/' + id); },
+  createPost(content, file) {
+    const f = new FormData();
+    f.append('content', content || '');
+    if (file) f.append('image', file);
+    return this.postForm('/api/posts', f);
+  },
+  deletePost(id) { return this.del('/api/posts/' + id); },
+  toggleLike(id) { return this.post('/api/posts/' + id + '/like'); },
+  comments(postId) { return this.get('/api/posts/' + postId + '/comments'); },
+  addComment(postId, content) { return this.post('/api/posts/' + postId + '/comments', { content }); },
+  deleteComment(id) { return this.del('/api/comments/' + id); },
+
+  // Friends
+  friends() { return this.get('/api/friends'); },
+  friendRequests() { return this.get('/api/friends/requests'); },
+  suggestions() { return this.get('/api/friends/suggestions'); },
+  sendRequest(id) { return this.post('/api/friends/request/' + id); },
+  acceptRequest(id) { return this.post('/api/friends/accept/' + id); },
+  declineRequest(id) { return this.post('/api/friends/decline/' + id); },
+  unfriend(id) { return this.del('/api/friends/' + id); },
+
+  // Notifications
+  notifications() { return this.get('/api/notifications'); },
+  unreadNotifs() { return this.get('/api/notifications/unread-count'); },
+  markNotifsRead() { return this.post('/api/notifications/read'); },
+
+  // Stories
+  stories() { return this.get('/api/stories'); },
+  createStory(file, caption) {
+    const f = new FormData();
+    f.append('image', file);
+    f.append('caption', caption || '');
+    return this.postForm('/api/stories', f);
+  },
+
+  // Messages
+  conversations() { return this.get('/api/messages/conversations'); },
+  unreadMessages() { return this.get('/api/messages/unread-count'); },
+  history(userId) { return this.get('/api/messages/' + userId); },
+
+  // Marketplace
+  listings(q, category) {
+    const params = [];
+    if (q) params.push('q=' + encodeURIComponent(q));
+    if (category) params.push('category=' + encodeURIComponent(category));
+    return this.get('/api/marketplace' + (params.length ? '?' + params.join('&') : ''));
+  },
+  myListings() { return this.get('/api/marketplace/mine'); },
+  listing(id) { return this.get('/api/marketplace/' + id); },
+  createListing(fields, file) {
+    const f = new FormData();
+    Object.keys(fields).forEach((k) => f.append(k, fields[k] == null ? '' : fields[k]));
+    if (file) f.append('image', file);
+    return this.postForm('/api/marketplace', f);
+  },
+  toggleSold(id) { return this.post('/api/marketplace/' + id + '/sold'); },
+  deleteListing(id) { return this.del('/api/marketplace/' + id); },
+
+  // Groups
+  groups() { return this.get('/api/groups'); },
+  group(id) { return this.get('/api/groups/' + id); },
+  createGroup(fields, coverFile) {
+    const f = new FormData();
+    Object.keys(fields).forEach((k) => f.append(k, fields[k] == null ? '' : fields[k]));
+    if (coverFile) f.append('cover', coverFile);
+    return this.postForm('/api/groups', f);
+  },
+  joinGroup(id) { return this.post('/api/groups/' + id + '/join'); },
+  leaveGroup(id) { return this.post('/api/groups/' + id + '/leave'); },
+  groupMembers(id) { return this.get('/api/groups/' + id + '/members'); },
+  groupPosts(id) { return this.get('/api/groups/' + id + '/posts'); },
+  createGroupPost(id, content, file) {
+    const f = new FormData();
+    f.append('content', content || '');
+    if (file) f.append('image', file);
+    return this.postForm('/api/groups/' + id + '/posts', f);
+  },
+  deleteGroup(id) { return this.del('/api/groups/' + id); },
+
+  // Albums
+  userAlbums(userId) { return this.get('/api/albums/user/' + userId); },
+  album(id) { return this.get('/api/albums/' + id); },
+  createAlbum(title) { return this.post('/api/albums', { title }); },
+  addAlbumPhoto(id, file, caption) {
+    const f = new FormData();
+    f.append('image', file);
+    f.append('caption', caption || '');
+    return this.postForm('/api/albums/' + id + '/photos', f);
+  },
+  deleteAlbum(id) { return this.del('/api/albums/' + id); },
+  deleteAlbumPhoto(albumId, photoId) { return this.del('/api/albums/' + albumId + '/photos/' + photoId); },
+};
+
+window.API = API;
