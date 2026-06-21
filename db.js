@@ -430,8 +430,15 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_appeals_status ON appeals(status);
 `);
 
+// Appeals can reference the specific content they are about, so an admin
+// "reverse" can restore that content and the standing it cost.
+addColumn('appeals', 'target_type TEXT', 'target_type');
+addColumn('appeals', 'target_id INTEGER', 'target_id');
+
 // Platform admins are designated by the ADMIN_EMAILS env var (comma separated).
-// Run on every boot so the list stays in sync; never hardcodes an admin.
+// The sync is two-way: when the list is set, clear all admin flags first and then
+// re-grant, so removing an email from the list actually demotes that user. (When
+// the env var is unset we leave existing flags untouched.)
 try {
   const adminEmails = (process.env.ADMIN_EMAILS || '')
     .split(',')
@@ -439,6 +446,7 @@ try {
     .filter(Boolean);
   if (adminEmails.length) {
     const ph = adminEmails.map(() => '?').join(',');
+    db.exec('UPDATE users SET is_admin = 0');
     db.prepare('UPDATE users SET is_admin = 1 WHERE lower(email) IN (' + ph + ')').run(...adminEmails);
   }
 } catch (e) { /* users table or column may not be ready on a brand new db */ }

@@ -46,9 +46,9 @@ function canViewPost(viewerId, post) {
 }
 
 function canInteractPost(viewerId, post) {
-  // Removed/locked posts take no new interaction (the author can still see them).
+  // Removed posts take no new interaction at all. (Locks block new COMMENTS only,
+  // not votes/reactions, so the lock check lives in the comment route, not here.)
   if (post.visibility && post.visibility !== 'visible') return false;
-  if (post.locked) return false;
   if (post.community_id) {
     const c = db.prepare('SELECT privacy FROM communities WHERE id = ?').get(post.community_id);
     if (!c) return false;

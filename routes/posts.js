@@ -15,6 +15,14 @@ const { isAdmin, isCommunityMod } = require('../moderation');
 
 const router = express.Router();
 
+// A removed post (and its comments/history) is gone for normal users; the
+// author, community mods, and admins can still see it (for appeals and audit).
+// Used by every view-side post endpoint so the rule cannot drift between them.
+function canSeeRemovedPost(user, post) {
+  if ((post.visibility || 'visible') === 'visible') return true;
+  return post.user_id === user.id || isAdmin(user) || (post.community_id && isCommunityMod(user.id, post.community_id));
+}
+
 function myCommentVote(id, userId) {
   const v = db.prepare("SELECT value FROM votes WHERE target_type = 'comment' AND target_id = ? AND user_id = ?").get(id, userId);
   return v ? v.value : 0;
@@ -131,6 +139,41 @@ router.get('/feed/home', requireAuth, (req, res) => {
   res.json({ posts: ranked, sort, window });
 });
 
+// Discover feed: public content from across OpenBook (every public community),
+// for finding people and communities you do not already follow. Personal posts
+// stay friends-only, so this is public-community content only. Ranked by the same
+// hot * reach formula, shadowbanned authors excluded. This is the surface that an
+// interest-based personalization layer will plug into as volume grows.
+router.get('/feed/discover', requireAuth, (req, res) => {
+  const uid = req.user.id;
+  const rows = db
+    .prepare(
+      `SELECT p.* FROM posts p
+       JOIN communities c ON c.id = p.community_id
+       WHERE c.privacy = 'public' AND p.visibility = 'visible'
+       ORDER BY p.created_at DESC, p.id DESC LIMIT 200`
+    )
+    .all();
+  const decorated = decoratePosts(rows, uid);
+
+  const reachCache = {};
+  function reachOf(p) {
+    const aid = p.author.id;
+    if (reachCache[aid] === undefined) {
+      const u = db.prepare('SELECT reach_score FROM users WHERE id = ?').get(aid);
+      reachCache[aid] = u && u.reach_score != null ? u.reach_score : 1;
+    }
+    return reachCache[aid];
+  }
+  const SHADOW_FLOOR = 0.05;
+  const visible = decorated.filter((p) => p.author.id === uid || reachOf(p) > SHADOW_FLOOR);
+
+  const sort = ['hot', 'new', 'top'].indexOf(req.query.sort) >= 0 ? req.query.sort : 'hot';
+  const window = req.query.t || 'all';
+  const ranked = rankPosts(visible, sort, window, reachOf).slice(0, 100);
+  res.json({ posts: ranked, sort, window });
+});
+
 // A user's wall (their plain posts only).
 router.get('/user/:id', requireAuth, (req, res) => {
   const id = Number(req.params.id);
@@ -151,12 +194,9 @@ router.get('/:id', requireAuth, (req, res) => {
   if (!canViewPost(req.user.id, post)) {
     return res.status(403).json({ error: 'You cannot view this post' });
   }
-  // A removed post is gone for normal users; the author, community mods, and
-  // admins can still open it (for appeals and audit).
-  const visible = (post.visibility || 'visible') === 'visible';
-  const privileged = post.user_id === req.user.id || isAdmin(req.user) || (post.community_id && isCommunityMod(req.user.id, post.community_id));
-  if (!visible && !privileged) return res.status(404).json({ error: 'This post has been removed' });
+  if (!canSeeRemovedPost(req.user, post)) return res.status(404).json({ error: 'This post has been removed' });
 
+  const visible = (post.visibility || 'visible') === 'visible';
   if (visible && post.user_id !== req.user.id) {
     db.prepare('UPDATE posts SET views = views + 1 WHERE id = ?').run(post.id);
     post.views = (post.views || 0) + 1;
@@ -186,6 +226,8 @@ router.delete('/:id', requireAuth, (req, res) => {
     return res.status(403).json({ error: 'You can only delete your own posts' });
   }
   db.prepare('DELETE FROM posts WHERE id = ?').run(post.id);
+  // Close any open reports for this now-deleted post so they do not orphan.
+  db.prepare("UPDATE reports SET status = 'resolved' WHERE target_type = 'post' AND target_id = ? AND status = 'open'").run(post.id);
   res.json({ ok: true });
 });
 
@@ -228,6 +270,7 @@ router.get('/:id/history', requireAuth, (req, res) => {
   if (!canViewPost(req.user.id, post)) {
     return res.status(403).json({ error: 'You cannot view this post' });
   }
+  if (!canSeeRemovedPost(req.user, post)) return res.status(404).json({ error: 'This post has been removed' });
   if ((post.edit_count || 0) < 2) return res.json({ versions: [], current: null });
   const rows = db
     .prepare('SELECT title, content, replaced_at FROM post_edits WHERE post_id = ? ORDER BY replaced_at DESC, id DESC')
@@ -246,6 +289,7 @@ router.get('/:id/comments', requireAuth, (req, res) => {
   if (!canViewPost(req.user.id, post)) {
     return res.status(403).json({ error: 'You cannot view comments on this post' });
   }
+  if (!canSeeRemovedPost(req.user, post)) return res.status(404).json({ error: 'This post has been removed' });
   const rows = db
     .prepare('SELECT * FROM comments WHERE post_id = ? ORDER BY created_at ASC, id ASC')
     .all(postId);
@@ -260,6 +304,7 @@ router.post('/:id/comments', requireAuth, (req, res) => {
 
   const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(postId);
   if (!post) return res.status(404).json({ error: 'Post not found' });
+  if (post.locked) return res.status(403).json({ error: 'This thread is locked' });
   if (!canInteractPost(req.user.id, post)) {
     return res.status(403).json({ error: 'You cannot comment on this post' });
   }

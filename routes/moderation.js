@@ -80,6 +80,17 @@ router.get('/reports', requireAuth, (req, res) => {
   res.json({ reports: out, isAdmin: admin });
 });
 
+// Dismiss a report a moderator judges not actionable (scoped like the queue).
+router.post('/reports/:id/dismiss', requireAuth, (req, res) => {
+  const r = db.prepare('SELECT * FROM reports WHERE id = ?').get(Number(req.params.id));
+  if (!r) return res.status(404).json({ error: 'Report not found' });
+  const t = resolveTarget(r.target_type, r.target_id);
+  const allowed = isAdmin(req.user) || (t && t.communityId && isCommunityMod(req.user.id, t.communityId));
+  if (!allowed) return res.status(403).json({ error: 'Not allowed' });
+  db.prepare("UPDATE reports SET status = 'dismissed' WHERE id = ?").run(r.id);
+  res.json({ ok: true });
+});
+
 // ---- Remove / restore (posts and comments) ----
 function applyRemoval(req, res, restore) {
   const targetType = req.body.targetType;
@@ -95,6 +106,15 @@ function applyRemoval(req, res, restore) {
     ? canModeratePost(req.user, t.post)
     : canModerateComment(req.user, t.comment, t.post);
   if (!allowed) return res.status(403).json({ error: 'You are not allowed to moderate this' });
+
+  // Idempotency guard: treat this as a state transition. If the content is
+  // already in the requested state, do nothing (no second standing penalty, no
+  // duplicate log, no extra notification). This is what keeps "one confirmed
+  // removal = exactly one standing change" true and stops a mod from stacking
+  // penalties or minting standing by repeating remove/restore.
+  const curVis = (targetType === 'post' ? t.post.visibility : t.comment.visibility) || 'visible';
+  const wasVisible = curVis === 'visible';
+  if (wasVisible === restore) return res.json({ ok: true, changed: false });
 
   const newVis = restore ? 'visible' : 'removed';
   if (targetType === 'post') db.prepare('UPDATE posts SET visibility = ? WHERE id = ?').run(newVis, targetId);
@@ -117,7 +137,7 @@ function applyRemoval(req, res, restore) {
   if (!restore) {
     db.prepare("UPDATE reports SET status = 'resolved' WHERE target_type = ? AND target_id = ? AND status = 'open'").run(targetType, targetId);
   }
-  res.json({ ok: true });
+  res.json({ ok: true, changed: true });
 }
 router.post('/remove', requireAuth, (req, res) => applyRemoval(req, res, false));
 router.post('/restore', requireAuth, (req, res) => applyRemoval(req, res, true));
@@ -132,7 +152,10 @@ router.post('/lock', requireAuth, (req, res) => {
     return res.status(403).json({ error: 'Not allowed' });
   }
   db.prepare('UPDATE posts SET locked = ? WHERE id = ?').run(locked, postId);
-  logModAction(req.user.id, locked ? 'lock' : 'unlock', 'post', postId, post.community_id || null, '', post.community_id ? 1 : 0);
+  // Only a genuine mod/admin lock is public; an author locking their own thread
+  // is a private action and must not appear in the community's public mod log.
+  const isModeratorAction = isAdmin(req.user) || (post.community_id && isCommunityMod(req.user.id, post.community_id));
+  logModAction(req.user.id, locked ? 'lock' : 'unlock', 'post', postId, post.community_id || null, '', isModeratorAction ? 1 : 0);
   res.json({ ok: true, locked: !!locked });
 });
 router.post('/pin', requireAuth, (req, res) => {
@@ -194,7 +217,11 @@ router.post('/appeals', requireAuth, (req, res) => {
   const modActionId = req.body.modActionId ? Number(req.body.modActionId) : null;
   const message = (req.body.message || '').toString().slice(0, 1000);
   if (!message) return res.status(400).json({ error: 'Add a message explaining your appeal' });
-  db.prepare('INSERT INTO appeals (user_id, mod_action_id, message) VALUES (?, ?, ?)').run(req.user.id, modActionId, message);
+  // Link the appeal to the specific content so a reversal can restore it.
+  const targetType = ['post', 'comment'].includes(req.body.targetType) ? req.body.targetType : null;
+  const targetId = req.body.targetId ? Number(req.body.targetId) : null;
+  db.prepare('INSERT INTO appeals (user_id, mod_action_id, message, target_type, target_id) VALUES (?, ?, ?, ?, ?)')
+    .run(req.user.id, modActionId, message, targetType, targetId);
   res.json({ ok: true });
 });
 router.get('/appeals', requireAuth, (req, res) => {
@@ -217,6 +244,22 @@ router.post('/appeals/:id/resolve', requireAuth, (req, res) => {
   const a = db.prepare('SELECT * FROM appeals WHERE id = ?').get(id);
   if (!a) return res.status(404).json({ error: 'Appeal not found' });
   db.prepare('UPDATE appeals SET status = ? WHERE id = ?').run(decision, id);
+
+  // A reversal actually undoes the action: restore the linked content and credit
+  // back the standing it cost. Guarded on the content still being removed, so it
+  // is idempotent and cannot double-credit or stack with a manual restore.
+  if (decision === 'reversed' && a.target_type && a.target_id) {
+    const t = resolveTarget(a.target_type, a.target_id);
+    if (t) {
+      const curVis = (a.target_type === 'post' ? t.post && t.post.visibility : t.comment && t.comment.visibility) || 'visible';
+      if (curVis !== 'visible') {
+        if (a.target_type === 'post') db.prepare("UPDATE posts SET visibility = 'visible' WHERE id = ?").run(a.target_id);
+        else db.prepare("UPDATE comments SET visibility = 'visible' WHERE id = ?").run(a.target_id);
+        if (t.authorId) recordStandingEvent(t.authorId, VIOLATION_PENALTY, 'appeal_reversed');
+        logModAction(req.user.id, 'restore_' + a.target_type, a.target_type, a.target_id, t.communityId, 'appeal reversed', t.communityId ? 1 : 0);
+      }
+    }
+  }
   notify(a.user_id, req.user.id, decision === 'reversed' ? 'mod_restored' : 'mod_removed', null);
   res.json({ ok: true, decision });
 });

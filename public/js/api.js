@@ -56,6 +56,12 @@ const API = {
     if (t) params.push('t=' + encodeURIComponent(t));
     return this.get('/api/posts/feed/home' + (params.length ? '?' + params.join('&') : ''));
   },
+  discoverFeed(sort, t) {
+    const params = [];
+    if (sort) params.push('sort=' + encodeURIComponent(sort));
+    if (t) params.push('t=' + encodeURIComponent(t));
+    return this.get('/api/posts/feed/discover' + (params.length ? '?' + params.join('&') : ''));
+  },
   userPosts(id) { return this.get('/api/posts/user/' + id); },
   createPost(content, file) {
     const f = new FormData();
@@ -184,6 +190,7 @@ const API = {
   // Moderation (Phase 3/4)
   report(targetType, targetId, reasonCode, detail) { return this.post('/api/moderation/reports', { targetType, targetId, reasonCode, detail }); },
   modReports() { return this.get('/api/moderation/reports'); },
+  dismissReport(id) { return this.post('/api/moderation/reports/' + id + '/dismiss'); },
   modRemove(targetType, targetId, reason) { return this.post('/api/moderation/remove', { targetType, targetId, reason }); },
   modRestore(targetType, targetId) { return this.post('/api/moderation/restore', { targetType, targetId }); },
   modLock(postId, locked) { return this.post('/api/moderation/lock', { postId, locked }); },
@@ -191,7 +198,7 @@ const API = {
   communityBan(communityId, userId, reason) { return this.post('/api/moderation/community/' + communityId + '/ban', { userId, reason }); },
   communityUnban(communityId, userId) { return this.post('/api/moderation/community/' + communityId + '/unban', { userId }); },
   communityModLog(communityId) { return this.get('/api/moderation/community/' + communityId + '/log'); },
-  fileAppeal(message, modActionId) { return this.post('/api/moderation/appeals', { message, modActionId }); },
+  fileAppeal(message, targetType, targetId) { return this.post('/api/moderation/appeals', { message, targetType, targetId }); },
   modAppeals() { return this.get('/api/moderation/appeals'); },
   resolveAppeal(id, decision) { return this.post('/api/moderation/appeals/' + id + '/resolve', { decision }); },
 

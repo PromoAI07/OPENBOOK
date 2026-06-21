@@ -195,7 +195,7 @@
       const rep = e.target.closest('[data-report]');
       if (rep) { e.preventDefault(); e.stopPropagation(); reportModal(rep.getAttribute('data-report'), Number(rep.getAttribute('data-report-id'))); return; }
       const ap = e.target.closest('[data-appeal]');
-      if (ap) { e.preventDefault(); e.stopPropagation(); appealModal(); }
+      if (ap) { e.preventDefault(); e.stopPropagation(); appealModal(ap.getAttribute('data-appeal-type'), Number(ap.getAttribute('data-appeal-id')) || null); }
     });
   }
 
@@ -315,6 +315,7 @@
         '<button class="tab" data-feed="latest">Latest</button>' +
         '<button class="tab" data-feed="hot">Hot</button>' +
         '<button class="tab" data-feed="top">Top</button>' +
+        '<button class="tab" data-feed="discover">Discover</button>' +
       '</div><span style="flex:1"></span><span class="muted" id="feedHint" style="font-size:12px;align-self:center"></span></div></div>' +
       '<div id="feedPosts"><div class="card"><div class="empty">Loading your feed...</div></div></div>';
     wireComposer('feedPosts');
@@ -322,7 +323,9 @@
     const hint = document.getElementById('feedHint');
     function syncFeedUI() {
       view.querySelectorAll('.tab[data-feed]').forEach((t) => t.classList.toggle('active', t.getAttribute('data-feed') === feedMode));
-      hint.textContent = feedMode === 'latest' ? 'Friends, newest first' : 'Friends + your communities, ranked';
+      hint.textContent = feedMode === 'latest' ? 'Friends, newest first'
+        : feedMode === 'discover' ? 'Public posts from across OpenBook'
+        : 'Friends + your communities, ranked';
     }
     view.querySelectorAll('.tab[data-feed]').forEach((t) => {
       t.onclick = () => { feedMode = t.getAttribute('data-feed'); syncFeedUI(); loadFeedPosts(); };
@@ -340,6 +343,9 @@
       if (feedMode === 'latest') {
         const r = await API.feed();
         renderPosts(container, r.posts, 'Your feed is quiet for now. Add some friends or write your first post above.');
+      } else if (feedMode === 'discover') {
+        const r = await API.discoverFeed('hot');
+        renderMixedFeed(container, r.posts, 'Nothing to discover yet. Public community posts from across OpenBook will show up here.');
       } else {
         const r = await API.homeFeed(feedMode);
         renderMixedFeed(container, r.posts, 'Nothing ranked yet. Join a community or add some friends to fill your feed.');
@@ -422,14 +428,14 @@
     };
   }
 
-  function appealModal() {
+  function appealModal(targetType, targetId) {
     const m = modal('<div class="mh"><h3>Appeal a moderation action</h3></div><div class="mc">' +
       '<div class="field"><label>Why should this be reversed?</label><textarea class="input" id="apMsg" rows="4" placeholder="Explain your appeal"></textarea></div>' +
       '<button class="btn btn-primary btn-block" id="apSend">Submit appeal</button></div>');
     m.q('#apSend').onclick = async () => {
       const msg = m.q('#apMsg').value.trim(); if (!msg) { toast('Add a message'); return; }
       const btn = m.q('#apSend'); btn.disabled = true;
-      try { await API.fileAppeal(msg); m.close(); toast('Appeal submitted. A moderator will review it.'); }
+      try { await API.fileAppeal(msg, targetType || null, targetId || null); m.close(); toast('Appeal submitted. A moderator will review it.'); }
       catch (e) { toast(e.message); btn.disabled = false; }
     };
   }
@@ -468,11 +474,13 @@
           const row = el('<div class="card" style="margin:0 0 8px"><div style="font-size:13px"><b>' + esc(rep.reasonCode) + '</b> &#183; ' + esc(rep.targetType) + ' by ' + esc(rep.author ? rep.author.name : '?') + '</div>' +
             '<div class="shint" style="font-size:13px;margin:4px 0">' + esc((rep.preview || '').slice(0, 140)) + '</div>' +
             (rep.detail ? '<div class="ctime">reporter: ' + esc(rep.detail) + '</div>' : '') +
-            '<div style="margin-top:6px;display:flex;gap:6px">' +
+            '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">' +
             (rep.removed ? '<span class="pill">already removed</span>' : '<button class="btn btn-danger btn-sm" data-rm>Remove</button>') +
-            (rep.targetType === 'post' ? ' <button class="btn btn-sm" data-open>Open post</button>' : '') + '</div></div>');
+            '<button class="btn btn-sm" data-dismiss>Dismiss</button>' +
+            (rep.targetType === 'post' ? '<button class="btn btn-sm" data-open>Open post</button>' : '') + '</div></div>');
           const rm = row.querySelector('[data-rm]');
           if (rm) rm.onclick = async () => { try { await API.modRemove(rep.targetType, rep.targetId, 'report: ' + rep.reasonCode); toast('Removed'); load(); } catch (e) { toast(e.message); } };
+          row.querySelector('[data-dismiss]').onclick = async () => { try { await API.dismissReport(rep.id); toast('Dismissed'); load(); } catch (e) { toast(e.message); } };
           const op = row.querySelector('[data-open]');
           if (op) op.onclick = () => { m.close(); go('post', rep.targetId); };
           list.appendChild(row);
@@ -1894,6 +1902,10 @@
   }
 
   async function renderPost(id) {
+    // Reset mod state up front so a previous post's permissions can never leak
+    // into this render (including the load-failure early return below).
+    postMod = false;
+    postOwner = false;
     view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading post...</div></div>';
     let data;
     try { data = await API.getPost(id); } catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
@@ -1939,7 +1951,7 @@
       opsHtml += '<button class="btn btn-sm" data-modlock>' + (p.locked ? 'Unlock' : 'Lock') + '</button>';
       if (p.community) opsHtml += '<button class="btn btn-sm" data-modpin>' + (p.pinned ? 'Unpin' : 'Pin') + '</button>';
     }
-    if (postOwner && p.removed) opsHtml += '<button class="btn btn-sm" data-appeal>Appeal</button>';
+    if (postOwner && p.removed) opsHtml += '<button class="btn btn-sm" data-appeal data-appeal-type="post" data-appeal-id="' + p.id + '">Appeal</button>';
     pbody.querySelector('#postOps').innerHTML = opsHtml;
     const mrm = pbody.querySelector('[data-modremove]');
     if (mrm) mrm.onclick = async () => { if (!window.confirm('Remove this post?')) return; try { await API.modRemove('post', p.id, ''); toast('Removed'); renderPost(p.id); } catch (e) { toast(e.message); } };

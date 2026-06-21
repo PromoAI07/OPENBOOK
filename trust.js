@@ -30,7 +30,10 @@ function recordStandingEvent(userId, delta, cause) {
     .run(userId, 'standing', delta, cause);
   const u = db.prepare('SELECT standing FROM users WHERE id = ?').get(userId);
   if (!u) return null;
-  const standing = u.standing + delta;
+  // Clamp at zero so standing can never be driven negative (reach already floors
+  // at the FLOOR_AT threshold). No upper clamp, so future positive signals can
+  // still raise standing above the baseline.
+  const standing = Math.max(0, u.standing + delta);
   const reach = reachFromStanding(standing);
   db.prepare('UPDATE users SET standing = ?, reach_score = ? WHERE id = ?').run(standing, reach, userId);
   return { standing, reach_score: reach };
