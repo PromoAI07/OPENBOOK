@@ -356,6 +356,18 @@ db.exec(`
 // --- Analytics: a per-post view counter (opens of the post detail) ---
 addColumn('posts', 'views INTEGER NOT NULL DEFAULT 0', 'views');
 
+// --- Email verification (soft gate: browse freely, verify to post) ---
+// New signups start unverified; accounts that existed before this feature are
+// grandfathered as verified once (so the gate only applies going forward).
+{
+  const cols = db.prepare('PRAGMA table_info(users)').all();
+  if (!cols.some((c) => c.name === 'email_verified')) {
+    db.exec('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0');
+    db.exec('UPDATE users SET email_verified = 1');
+  }
+}
+addColumn('users', 'verify_token TEXT', 'verify_token');
+
 // Clear out sessions older than 30 days on startup.
 db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");
 

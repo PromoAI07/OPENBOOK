@@ -50,6 +50,35 @@ const authLimiter = rateLimit({
   message: { error: 'Too many attempts. Please wait a few minutes and try again.' },
 });
 
+// Soft email gate: unverified accounts can read and browse everything, but
+// cannot create content until they verify. GETs, auth routes, profile edits,
+// and notification reads stay open; everything else under /api needs a verified
+// email. (db is required lazily to avoid a circular import at module load.)
+const gateDb = require('./db');
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  if (!req.user) return next(); // requireAuth on the route handles the 401
+  if (req.path.startsWith('/auth')) return next();
+  if (req.path.startsWith('/users/me')) return next(); // profile + avatar edits
+  if (req.path.startsWith('/notifications')) return next(); // mark read
+  const u = gateDb.prepare('SELECT email_verified FROM users WHERE id = ?').get(req.user.id);
+  if (u && u.email_verified) return next();
+  return res.status(403).json({
+    error: 'Please verify your email to do that. Check your inbox, or resend the link from the banner at the top.',
+    code: 'UNVERIFIED',
+  });
+});
+
+// Public funding info for the Support page (links are set via env so they can be
+// changed without a code deploy). Empty values render as "coming soon".
+app.get('/api/support', (req, res) => {
+  res.json({
+    github: process.env.SUPPORT_GITHUB || '',
+    opencollective: process.env.SUPPORT_OPENCOLLECTIVE || '',
+    crypto: process.env.SUPPORT_CRYPTO || '',
+  });
+});
+
 // JSON API.
 app.use('/api/auth', authLimiter, require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));

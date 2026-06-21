@@ -29,6 +29,12 @@ function initSockets(io) {
           if (typeof ack === 'function') ack({ error: 'Invalid message' });
           return;
         }
+        // Soft email gate also applies to chat (re-checked live, not at connect).
+        const sender = db.prepare('SELECT email_verified FROM users WHERE id = ?').get(user.id);
+        if (!sender || !sender.email_verified) {
+          if (typeof ack === 'function') ack({ error: 'Verify your email to send messages.' });
+          return;
+        }
         const recipient = db.prepare('SELECT id FROM users WHERE id = ?').get(to);
         if (!recipient) {
           if (typeof ack === 'function') ack({ error: 'User not found' });

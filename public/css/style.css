@@ -299,6 +299,22 @@ textarea.input { resize: vertical; min-height: 60px; }
 .side-link .ic { font-size: 20px; width: 24px; text-align: center; }
 .side-link .side-badge { position: static; margin-left: auto; border: none; }
 
+/* ---------- Email verification banner ---------- */
+.verify-banner {
+  max-width: 1100px;
+  margin: 12px auto 0;
+  padding: 10px 16px;
+  background: #fff7e6;
+  border: 1px solid #f0c36d;
+  color: #6b4e00;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+}
+.verify-banner span { flex: 1; }
+
 /* ---------- Password show/hide ---------- */
 .pw-wrap { position: relative; }
 .pw-wrap .input { padding-right: 64px; }

@@ -35,6 +35,8 @@ const API = {
   login(email, password) { return this.post('/api/auth/login', { email, password }); },
   logout() { return this.post('/api/auth/logout'); },
   me() { return this.get('/api/auth/me'); },
+  resendVerification() { return this.post('/api/auth/resend-verification'); },
+  support() { return this.get('/api/support'); },
 
   // Users
   searchUsers(q) { return this.get('/api/users?q=' + encodeURIComponent(q || '')); },

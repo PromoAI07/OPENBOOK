@@ -120,7 +120,39 @@
     setupChrome();
     wireSocket();
     refreshBadges();
+
+    // Verification feedback from the email link (/app?verified=1).
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('verified') === '1') { ME.emailVerified = true; toast('Email verified. You can post now.'); }
+    else if (params.get('verified') === '0') { toast('That verification link was invalid or expired.'); }
+    if (params.has('verified')) window.history.replaceState({}, '', '/app');
+
+    renderVerifyBanner();
     go('feed');
+  }
+
+  // A dismissable-by-verifying banner shown to accounts that have not confirmed
+  // their email yet. They can browse, but the soft gate blocks posting.
+  function renderVerifyBanner() {
+    const existing = document.getElementById('verifyBanner');
+    if (ME.emailVerified) { if (existing) existing.remove(); return; }
+    if (existing) return;
+    const b = el(
+      '<div id="verifyBanner" class="verify-banner">' +
+      '<span>&#9993; Verify your email to start posting. We sent a link to <b>' + esc(ME.email || 'your inbox') + '</b>.</span>' +
+      '<button class="btn btn-sm" id="resendVerify">Resend email</button></div>'
+    );
+    const layout = document.querySelector('.layout');
+    layout.parentNode.insertBefore(b, layout);
+    b.querySelector('#resendVerify').onclick = async () => {
+      const btn = b.querySelector('#resendVerify');
+      btn.disabled = true;
+      try {
+        const r = await API.resendVerification();
+        toast(r.sent ? 'Verification email sent. Check your inbox.' : 'Saved. If email is not configured yet, ask the admin.');
+      } catch (e) { toast(e.message); }
+      btn.disabled = false;
+    };
   }
 
   /* ============================ chrome / nav ============================ */
@@ -208,6 +240,7 @@
     else if (name === 'post') renderPost(param);
     else if (name === 'dashboard') renderDashboard();
     else if (name === 'reels') renderReels();
+    else if (name === 'support') renderSupport();
     window.scrollTo(0, 0);
   }
 
@@ -223,6 +256,7 @@
       '<div class="side-link" data-go="friends"><span class="ic">&#128101;</span><span>Friends</span><span class="badge side-badge hidden" id="friendsBadge">0</span></div>' +
       '<div class="side-link" data-go="groups"><span class="ic">&#127760;</span><span>Groups</span></div>' +
       '<div class="side-link" data-go="reels"><span class="ic">&#127909;</span><span>Reels</span></div>' +
+      '<div class="side-link" data-go="support"><span class="ic">&#10084;&#65039;</span><span>Support OpenBook</span></div>' +
       '<div class="side-link" id="leftLogout"><span class="ic">&#128682;</span><span>Log out</span></div>' +
       '</div>';
     rail.querySelectorAll('[data-go]').forEach((b) =>
@@ -313,6 +347,47 @@
       return;
     }
     posts.forEach((p) => container.appendChild(p.community_id ? communityPostCard(p) : renderPostNode(p)));
+  }
+
+  /* ============================ support / funding ============================ */
+
+  async function renderSupport() {
+    view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading...</div></div>';
+    let links = {};
+    try { links = await API.support(); } catch (e) { links = {}; }
+
+    function linkCard(icon, title, desc, url, cta) {
+      const has = !!url;
+      return '<div class="card"><div style="display:flex;gap:12px;align-items:flex-start">' +
+        '<div style="font-size:26px">' + icon + '</div><div style="flex:1">' +
+        '<div style="font-weight:700">' + esc(title) + '</div>' +
+        '<div class="shint" style="font-size:13px;margin:2px 0 8px">' + esc(desc) + '</div>' +
+        (has
+          ? '<a class="btn btn-primary btn-sm" href="' + esc(safeHref(url)) + '" target="_blank" rel="noopener">' + esc(cta) + '</a>'
+          : '<span class="pill">Coming soon</span>') +
+        '</div></div></div>';
+    }
+
+    view.innerHTML =
+      '<div class="card"><div class="pname">&#10084;&#65039; Support OpenBook</div>' +
+      '<div class="shint" style="font-size:14px;line-height:1.6;margin-top:6px">' +
+      'OpenBook is free and open source, and it will stay that way. There is no paywall and we do not sell your data or run ads. ' +
+      'If you want to help keep it running and growing, here is how. Every bit funds development and hosting.</div></div>' +
+      linkCard('&#128150;', 'Become a Supporter', 'A small monthly amount unlocks a Supporter badge and perks (more coming). Cancel anytime.', '', 'Become a Supporter') +
+      linkCard('&#128081;', 'Sponsor on GitHub', 'Back the project directly through GitHub Sponsors.', links.github, 'Sponsor on GitHub') +
+      linkCard('&#129309;', 'Open Collective', 'Transparent, community funding where every expense is public.', links.opencollective, 'Give on Open Collective') +
+      '<div class="card"><div style="display:flex;gap:12px;align-items:flex-start">' +
+        '<div style="font-size:26px">&#8383;</div><div style="flex:1">' +
+        '<div style="font-weight:700">Crypto tip</div>' +
+        '<div class="shint" style="font-size:13px;margin:2px 0 8px">' +
+        (links.crypto ? 'Send any amount to the address below.' : 'A crypto tip address will appear here once set.') + '</div>' +
+        (links.crypto
+          ? '<code style="word-break:break-all;background:var(--hover);padding:6px 8px;border-radius:6px;display:inline-block">' + esc(links.crypto) + '</code>'
+          : '<span class="pill">Coming soon</span>') +
+        '</div></div></div>' +
+      '<div class="card"><div class="shint" style="font-size:12px">Why not ads? OpenBook is built on the promise that your data is yours. Surveillance ads would break that promise, so we will not run them.</div></div>';
+
+    renderRightRail();
   }
 
   /* ============================ dashboard ============================ */
