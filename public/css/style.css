@@ -187,7 +187,7 @@ textarea.input { resize: vertical; min-height: 60px; }
   gap: 12px;
   padding: 0 16px;
 }
-.topbar-left { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+.topbar-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
 .topbar .logo { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .topbar .logo .name { font-size: 22px; }
 .topbar .search {
@@ -204,9 +204,11 @@ textarea.input { resize: vertical; min-height: 60px; }
   outline: none;
 }
 
-/* Center: primary destination tabs, Facebook-style with an active underline. */
+/* Center: primary destination tabs, Facebook-style with an active underline.
+   Auto width with equal-width (flex:1) left and right zones keeps these tabs at
+   the true center of the viewport. */
 .nav-primary {
-  flex: 1;
+  flex: 0 0 auto;
   display: flex;
   align-items: stretch;
   justify-content: center;
@@ -235,8 +237,13 @@ textarea.input { resize: vertical; min-height: 60px; }
 .nav-tab:hover { background: var(--hover); }
 .nav-tab.active { color: var(--brand); border-bottom-color: var(--brand); background: transparent; }
 
-/* Right: utility cluster (messages, notifications, your avatar). */
-.topbar-right { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+/* Right: utility cluster (messages, notifications, your avatar). flex:1 mirrors
+   the left zone so the center tabs stay centered; content is pushed right. */
+.topbar-right { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; justify-content: flex-end; }
+
+/* Mobile bottom navigation: the primary tabs move here on small screens so they
+   are always visible and tappable (the top bar can't fit them on a phone). */
+.bottom-nav { display: none; }
 .topbar .nav { display: flex; gap: 4px; margin-left: auto; align-items: center; }
 .nav-btn {
   position: relative;
@@ -753,9 +760,26 @@ textarea.input { resize: vertical; min-height: 60px; }
   #leftRail { position: static; }
   #leftRail .card { display: flex; flex-direction: row; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 8px; }
   #leftRail .side-link { flex: 0 0 auto; white-space: nowrap; }
-  .nav-tab .tl { display: none; }
-  .nav-tab { min-width: 64px; padding: 0 10px; }
-  .topbar .search { width: 180px; }
+  /* Primary tabs move to the bottom bar on mobile, so hide them in the top bar
+     and let the search flex to fill the space next to the utility cluster. */
+  .nav-primary { display: none; }
+  .topbar .search { width: auto; flex: 1; min-width: 0; }
+  .topbar { gap: 8px; padding: 0 10px; }
+  /* Bottom navigation bar: the four primary destinations, always tappable. */
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 60;
+    height: 58px;
+    background: var(--card);
+    box-shadow: 0 -1px 8px rgba(0, 0, 0, 0.08);
+  }
+  .bottom-nav .nav-tab { flex: 1; min-width: 0; padding: 0; height: 100%; border-bottom: none; border-top: 3px solid transparent; }
+  .bottom-nav .nav-tab .tl { display: block; font-size: 10px; }
+  .bottom-nav .nav-tab.active { color: var(--brand); border-top-color: var(--brand); border-bottom-color: transparent; }
+  /* Leave room above the fixed bottom bar so content is never hidden behind it. */
+  .layout { padding-bottom: 76px; }
   .landing-grid { grid-template-columns: 1fr; gap: 24px; }
   .landing-pitch { text-align: center; }
   .landing-pitch h1 { font-size: 40px; }

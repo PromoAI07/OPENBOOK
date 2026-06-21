@@ -161,7 +161,9 @@
     setupChromeAvatar();
     document.getElementById('meBtn').onclick = () => go('profile', ME.id);
 
-    document.querySelectorAll('.topbar [data-nav]').forEach((b) => {
+    // Wire every nav target: top-bar logo + center tabs, the messages button,
+    // and the mobile bottom-nav tabs (all carry data-nav).
+    document.querySelectorAll('.topbar [data-nav], .bottom-nav [data-nav]').forEach((b) => {
       b.addEventListener('click', () => go(b.getAttribute('data-nav')));
     });
     document.getElementById('notifBtn').addEventListener('click', toggleNotifs);
