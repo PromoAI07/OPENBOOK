@@ -61,6 +61,7 @@ function publicUser(u) {
     avatar: u.avatar || '',
     cover: u.cover || '',
     bio: u.bio || '',
+    karma: u.karma || 0,
     created_at: u.created_at,
   };
 }

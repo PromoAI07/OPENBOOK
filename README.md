@@ -95,4 +95,6 @@ almost directly) and move uploads to object storage (S3 / Cloudflare R2).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+AGPL-3.0-or-later. See [LICENSE](LICENSE). If you run a modified version of
+OpenBook as a network service, you must make your modified source available to
+its users.

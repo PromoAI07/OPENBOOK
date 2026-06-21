@@ -5,6 +5,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { createSession, destroySession, publicUser } = require('../auth');
+const { recordStandingEvent, refreshTrustLevel, trustSnapshot } = require('../trust');
 
 const router = express.Router();
 
@@ -32,6 +33,8 @@ router.post('/signup', (req, res) => {
     .run(name, email, hash);
 
   createSession(info.lastInsertRowid, res);
+  // Start this account's audit trail at the baseline standing.
+  recordStandingEvent(info.lastInsertRowid, 0, 'account_created');
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
   res.json({ user: publicUser(user) });
 });
@@ -56,7 +59,10 @@ router.post('/logout', (req, res) => {
 
 router.get('/me', (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not logged in' });
-  res.json({ user: publicUser(req.user) });
+  // Keep the trust level current, then return it only to the account owner.
+  refreshTrustLevel(req.user.id);
+  const fresh = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  res.json({ user: publicUser(fresh), trust: trustSnapshot(fresh) });
 });
 
 module.exports = router;

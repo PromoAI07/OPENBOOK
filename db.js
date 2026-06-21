@@ -191,6 +191,37 @@ try {
 }
 db.exec('CREATE INDEX IF NOT EXISTS idx_posts_group ON posts(group_id)');
 
+// --- Phase 0: reputation scaffolding (see SPEC.md) ---
+// Two separate scores per user: karma (social, drives ranking only) and
+// standing (trust/safety, drives privileges and the shadowban trigger). Plus a
+// trust_level (TL0..TL4) and a reach_score multiplier used at ranking time.
+function addColumn(table, colDef, colName) {
+  try {
+    const cols = db.prepare('PRAGMA table_info(' + table + ')').all();
+    if (!cols.some((c) => c.name === colName)) db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + colDef);
+  } catch (e) {
+    try { db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + colDef); } catch (e2) { /* already present */ }
+  }
+}
+addColumn('users', 'karma INTEGER NOT NULL DEFAULT 0', 'karma');
+addColumn('users', 'standing INTEGER NOT NULL DEFAULT 100', 'standing');
+addColumn('users', 'reach_score REAL NOT NULL DEFAULT 1.0', 'reach_score');
+addColumn('users', 'trust_level INTEGER NOT NULL DEFAULT 0', 'trust_level');
+
+// Full audit trail for every standing/karma change (the transparency backbone).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS trust_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    score      TEXT    NOT NULL DEFAULT 'standing',
+    delta      INTEGER NOT NULL,
+    cause      TEXT    NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_trust_events_user ON trust_events(user_id);
+`);
+
 // Clear out sessions older than 30 days on startup.
 db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");
 

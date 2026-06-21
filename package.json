@@ -1,7 +1,8 @@
 {
   "name": "openbook",
   "version": "1.0.0",
-  "description": "OpenBook, a simple social network with profiles, feed, friends, notifications, real time chat and stories",
+  "description": "OpenBook, an open-source social network: profiles, feed, posts, friends, chat, stories, marketplace, groups, albums",
+  "license": "AGPL-3.0-or-later",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
