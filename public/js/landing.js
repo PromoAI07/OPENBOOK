@@ -25,6 +25,18 @@
     }
   }
 
+  // Show/hide password toggles.
+  document.querySelectorAll('.pw-toggle').forEach((b) => {
+    b.addEventListener('click', () => {
+      const inp = document.getElementById(b.getAttribute('data-pw'));
+      if (!inp) return;
+      const show = inp.type === 'password';
+      inp.type = show ? 'text' : 'password';
+      b.textContent = show ? 'Hide' : 'Show';
+      b.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    });
+  });
+
   function showAlert(el, message) {
     el.innerHTML = '<div class="alert">' + escapeHtml(message) + '</div>';
   }

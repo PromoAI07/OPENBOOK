@@ -338,6 +338,24 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_reel_comments_reel ON reel_comments(reel_id);
 `);
 
+// --- Username history (public trail of old display names) ---
+// Display-name changes are rate-limited (see routes/users.js) and each change
+// records the previous name here, so anyone viewing a profile can see what the
+// person used to be called.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS name_history (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    old_name   TEXT    NOT NULL,
+    changed_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_name_history_user ON name_history(user_id);
+`);
+
+// --- Analytics: a per-post view counter (opens of the post detail) ---
+addColumn('posts', 'views INTEGER NOT NULL DEFAULT 0', 'views');
+
 // Clear out sessions older than 30 days on startup.
 db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");
 

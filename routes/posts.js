@@ -9,7 +9,7 @@ const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
 const { notify } = require('../notify');
 const { areFriends, canViewPost, canInteractPost } = require('../visibility');
-const { decoratePost, voteTally, reactionSummary } = require('../postview');
+const { decoratePost, decoratePosts, voteTally, reactionSummary } = require('../postview');
 const { wilson, controversy, rankPosts } = require('../ranking');
 
 const router = express.Router();
@@ -58,7 +58,7 @@ router.get('/feed', requireAuth, (req, res) => {
        LIMIT 100`
     )
     .all(uid, uid, uid, uid);
-  res.json({ posts: rows.map((p) => decoratePost(p, uid)) });
+  res.json({ posts: decoratePosts(rows, uid) });
 });
 
 // Combined home feed (SPEC section 8): blends your network's personal posts
@@ -97,7 +97,7 @@ router.get('/feed/home', requireAuth, (req, res) => {
     )
     .all(uid);
 
-  const decorated = personal.concat(community).map((p) => decoratePost(p, uid));
+  const decorated = decoratePosts(personal.concat(community), uid);
 
   // Author reach multiplier (the graduated shadowban). Looked up here and folded
   // into the ranking only, never attached to the post, so reach stays invisible
@@ -134,15 +134,20 @@ router.get('/user/:id', requireAuth, (req, res) => {
   const rows = db
     .prepare('SELECT * FROM posts WHERE user_id = ? AND group_id IS NULL AND community_id IS NULL ORDER BY created_at DESC, id DESC')
     .all(id);
-  res.json({ posts: rows.map((p) => decoratePost(p, req.user.id)), locked: false });
+  res.json({ posts: decoratePosts(rows, req.user.id), locked: false });
 });
 
-// A single post (used by the community post detail view).
+// A single post (used by the community post detail view). Opening someone else's
+// post counts as a view (a simple opens-based metric for the author's analytics).
 router.get('/:id', requireAuth, (req, res) => {
   const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(Number(req.params.id));
   if (!post) return res.status(404).json({ error: 'Post not found' });
   if (!canViewPost(req.user.id, post)) {
     return res.status(403).json({ error: 'You cannot view this post' });
+  }
+  if (post.user_id !== req.user.id) {
+    db.prepare('UPDATE posts SET views = views + 1 WHERE id = ?').run(post.id);
+    post.views = (post.views || 0) + 1;
   }
   res.json({ post: decoratePost(post, req.user.id) });
 });

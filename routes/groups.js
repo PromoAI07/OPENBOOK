@@ -7,7 +7,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
-const { decoratePost } = require('../postview');
+const { decoratePost, decoratePosts } = require('../postview');
 
 const router = express.Router();
 
@@ -126,7 +126,7 @@ router.get('/:id/posts', requireAuth, (req, res) => {
   const rows = db
     .prepare('SELECT * FROM posts WHERE group_id = ? ORDER BY created_at DESC, id DESC LIMIT 100')
     .all(id);
-  res.json({ posts: rows.map((p) => decoratePost(p, req.user.id)), locked: false });
+  res.json({ posts: decoratePosts(rows, req.user.id), locked: false });
 });
 
 // Post into a group (members only).

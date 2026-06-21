@@ -8,7 +8,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
-const { decoratePost } = require('../postview');
+const { decoratePost, decoratePosts } = require('../postview');
 const { rankPosts, SORTS } = require('../ranking');
 
 const router = express.Router();
@@ -130,7 +130,7 @@ router.get('/:id/posts', requireAuth, (req, res) => {
   const rows = db
     .prepare("SELECT * FROM posts WHERE community_id = ? AND visibility = 'visible' ORDER BY created_at DESC, id DESC LIMIT 150")
     .all(id);
-  const decorated = rows.map((p) => decoratePost(p, req.user.id));
+  const decorated = decoratePosts(rows, req.user.id);
   const sort = SORTS.indexOf(req.query.sort) >= 0 ? req.query.sort : 'hot';
   const window = req.query.t || 'all';
   const ranked = rankPosts(decorated, sort, window).slice(0, 200);

@@ -41,6 +41,7 @@ const API = {
   getProfile(id) { return this.get('/api/users/' + id); },
   updateProfile(name, bio) { return this.put('/api/users/me', { name, bio }); },
   myStats() { return this.get('/api/users/me/stats'); },
+  myAnalytics() { return this.get('/api/users/me/analytics'); },
   uploadAvatar(file) { const f = new FormData(); f.append('image', file); return this.postForm('/api/users/me/avatar', f); },
   uploadCover(file) { const f = new FormData(); f.append('image', file); return this.postForm('/api/users/me/cover', f); },
   userFriends(id) { return this.get('/api/users/' + id + '/friends'); },

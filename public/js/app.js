@@ -325,10 +325,25 @@
     );
   }
 
+  function analyticsTable(title, rows, kind) {
+    if (!rows.length) return '';
+    let html = '<div class="card"><div class="section-title">' + esc(title) + '</div>' +
+      '<table class="analytics-table"><thead><tr><th>' + (kind === 'reel' ? 'Reel' : 'Post') +
+      '</th><th>Views</th><th>Likes</th><th>Comments</th></tr></thead><tbody>';
+    rows.forEach((r) => {
+      html += '<tr' + (kind === 'post' ? ' class="link" data-postrow="' + r.id + '"' : '') + '>' +
+        '<td>' + esc(r.label || '(untitled)') + (r.community ? ' <span class="pill">community</span>' : '') + '</td>' +
+        '<td>' + r.views + '</td><td>' + r.likes + '</td><td>' + r.comments + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    return html;
+  }
+
   async function renderDashboard() {
     view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading your dashboard...</div></div>';
-    let d;
-    try { d = await API.myStats(); } catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+    let d, a;
+    try { [d, a] = await Promise.all([API.myStats(), API.myAnalytics()]); }
+    catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
     const t = d.trust;
     const s = d.stats;
     const tlNames = ['New', 'Member', 'Regular', 'Trusted', 'Veteran'];
@@ -336,7 +351,16 @@
 
     view.innerHTML =
       '<div class="card"><div class="pname">Professional dashboard</div>' +
-      '<div class="shint" style="font-size:13px">Your reputation and activity on OpenBook, fully in the open.</div></div>' +
+      '<div class="shint" style="font-size:13px">Your reputation, activity, and content analytics on OpenBook, fully in the open.</div></div>' +
+      '<div class="section-title">Content analytics</div>' +
+      '<div class="dash-grid">' +
+        statCard(a.totals.views, 'Views / reach', 'Times your posts and reels were opened by others.') +
+        statCard(a.totals.likesReceived, 'Likes & reactions', 'Across your posts, comments and reels.') +
+        statCard(a.totals.commentsReceived, 'Comments received', '') +
+        statCard(a.totals.netVotes, 'Net votes', 'Upvotes minus downvotes on your community posts and comments.') +
+      '</div>' +
+      analyticsTable('Your recent posts', a.topPosts, 'post') +
+      analyticsTable('Your reels', a.reels, 'reel') +
       '<div class="section-title">Your reputation</div>' +
       '<div class="dash-grid">' +
         statCard(t.karma, 'Karma', 'From up and down votes. Affects ranking only, never your reach.') +
@@ -359,6 +383,8 @@
       'and only confirmed rule violations bring it down. Standing, not votes, is what controls your reach. So you can hold an unpopular ' +
       'opinion, collect downvotes, and still be seen, as long as your standing is healthy. The ranking and reputation rules are published ' +
       'in the open-source code.</div></div>';
+
+    view.querySelectorAll('[data-postrow]').forEach((tr) => (tr.onclick = () => go('post', Number(tr.getAttribute('data-postrow')))));
     renderRightRail();
   }
 
@@ -911,6 +937,9 @@
       '<div class="av-wrap">' + avatar(u, 130) + (isMe ? '<button class="cam" id="editAvatarBtn" title="Change photo">&#128247;</button>' : '') + '</div>' +
       '<div><div class="pname">' + esc(u.name) + '</div>' +
       '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + data.postsCount + ' posts</div>' +
+      (data.nameHistory && data.nameHistory.length
+        ? '<div class="pmeta" style="font-size:12px">Previously known as: ' + data.nameHistory.map((h) => esc(h.name)).join(', ') + '</div>'
+        : '') +
       (u.bio ? '<div style="margin-top:4px">' + esc(u.bio) + '</div>' : '') +
       '</div>' +
       '<div class="pactions">' + profileActions(data) + '</div>' +
@@ -973,7 +1002,8 @@
   function openEditProfile() {
     const m = modal(
       '<div class="mh"><h3>Edit profile</h3></div><div class="mc">' +
-      '<div class="field"><label>Name</label><input class="input" id="epName" value="' + esc(ME.name) + '"></div>' +
+      '<div class="field"><label>Name</label><input class="input" id="epName" value="' + esc(ME.name) + '">' +
+      '<div class="shint" style="font-size:12px">Name changes are limited (first after 30 days, then every 3 months, then yearly) and your old names stay visible on your profile.</div></div>' +
       '<div class="field"><label>Bio</label><textarea class="input" id="epBio" rows="3" placeholder="Tell people about yourself">' + esc(ME.bio || '') + '</textarea></div>' +
       '<button class="btn btn-primary btn-block" id="epSave">Save changes</button>' +
       '</div>'

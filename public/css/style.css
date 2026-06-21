@@ -299,6 +299,24 @@ textarea.input { resize: vertical; min-height: 60px; }
 .side-link .ic { font-size: 20px; width: 24px; text-align: center; }
 .side-link .side-badge { position: static; margin-left: auto; border: none; }
 
+/* ---------- Password show/hide ---------- */
+.pw-wrap { position: relative; }
+.pw-wrap .input { padding-right: 64px; }
+.pw-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--brand);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px 8px;
+}
+.pw-toggle:hover { text-decoration: underline; }
+
 /* ---------- Dashboard ---------- */
 .dash-grid {
   display: grid;
@@ -315,6 +333,11 @@ textarea.input { resize: vertical; min-height: 60px; }
 .stat .sval { font-size: 28px; font-weight: 800; color: var(--brand); line-height: 1.1; }
 .stat .slabel { font-weight: 700; margin-top: 4px; }
 .stat .shint { font-size: 12px; color: var(--text-soft); margin-top: 4px; }
+.analytics-table { width: 100%; border-collapse: collapse; }
+.analytics-table th, .analytics-table td { text-align: left; padding: 7px 8px; border-bottom: 1px solid #ececed; font-size: 13px; }
+.analytics-table th { color: var(--text-soft); font-weight: 600; }
+.analytics-table td:not(:first-child), .analytics-table th:not(:first-child) { text-align: right; width: 70px; }
+.analytics-table tr.link:hover td { background: var(--hover); }
 
 /* ---------- Reels (vertical video) ---------- */
 .reels-viewer {

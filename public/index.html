@@ -33,7 +33,10 @@
               </div>
               <div class="field">
                 <label for="loginPassword">Password</label>
-                <input class="input" type="password" id="loginPassword" placeholder="Your password" autocomplete="current-password" required />
+                <div class="pw-wrap">
+                  <input class="input" type="password" id="loginPassword" placeholder="Your password" autocomplete="current-password" required />
+                  <button type="button" class="pw-toggle" data-pw="loginPassword" aria-label="Show password">Show</button>
+                </div>
               </div>
               <button class="btn btn-primary btn-block" type="submit" id="loginBtn">Log in</button>
             </form>
@@ -58,7 +61,10 @@
               </div>
               <div class="field">
                 <label for="signupPassword">Password</label>
-                <input class="input" type="password" id="signupPassword" placeholder="At least 6 characters" autocomplete="new-password" required />
+                <div class="pw-wrap">
+                  <input class="input" type="password" id="signupPassword" placeholder="At least 6 characters" autocomplete="new-password" required />
+                  <button type="button" class="pw-toggle" data-pw="signupPassword" aria-label="Show password">Show</button>
+                </div>
               </div>
               <button class="btn btn-primary btn-block" type="submit" id="signupBtn">Sign up</button>
             </form>
