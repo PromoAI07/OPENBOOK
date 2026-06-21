@@ -1,0 +1,23 @@
+# Render Blueprint for OpenBook (https://render.com).
+#
+# Free web service: HTTPS is included automatically. Two free-tier caveats that
+# are fine for a demo:
+#   1. The service sleeps after ~15 min idle, so the first visit after a nap
+#      takes ~30-60s to wake up.
+#   2. The free disk is ephemeral, so the database and uploaded photos reset on
+#      each redeploy/restart. Perfect for letting people try it; not for keeping
+#      real data.
+#
+# For real persistence later: change `plan` to `starter`, add a Disk mounted at
+# /data, and add an env var DATA_DIR=/data. No code changes needed.
+services:
+  - type: web
+    name: openbook
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
