@@ -13,6 +13,7 @@ const { Server } = require('socket.io');
 const { attachUser } = require('./auth');
 const { setIO } = require('./notify');
 const { initSockets } = require('./sockets');
+const { logger } = require('./logger');
 
 const app = express();
 // Trust the hosting platform's reverse proxy so secure cookies and client IPs
@@ -24,6 +25,28 @@ const io = new Server(server);
 // Let the notification helper and chat handlers use the live io instance.
 setIO(io);
 initSockets(io);
+
+// Log every HTTP request once it completes: method, path, status, duration (ms).
+// Runs first so the timing covers the whole pipeline. Obvious static assets log
+// at debug, so production (info level) stays focused on API and page requests;
+// 4xx log at warn and 5xx at error.
+function isStaticAsset(p) {
+  return p.startsWith('/css/') || p.startsWith('/js/') || p.startsWith('/uploads/') ||
+    p.startsWith('/socket.io/') || /\.(css|js|map|png|jpe?g|gif|svg|ico|webp|mp4|woff2?)$/i.test(p);
+}
+app.use((req, res, next) => {
+  const start = process.hrtime.bigint();
+  res.on('finish', () => {
+    const ms = Math.round((Number(process.hrtime.bigint() - start) / 1e6) * 10) / 10;
+    const fields = { method: req.method, path: req.originalUrl || req.url, status: res.statusCode, ms };
+    let level = 'info';
+    if (res.statusCode >= 500) level = 'error';
+    else if (res.statusCode >= 400) level = 'warn';
+    else if (isStaticAsset(req.path)) level = 'debug';
+    logger[level](fields, 'request');
+  });
+  next();
+});
 
 // Security headers (clickjacking, MIME sniffing, HSTS in production, etc.).
 // CSP is left off so the CDN script and inline styles keep working; it can be
@@ -100,21 +123,25 @@ app.use('/api/moderation', require('./routes/moderation'));
 // The authenticated single page app shell.
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
 
-// Central error handler so upload errors and the like return clean JSON.
+// Central error handler so upload errors and the like return clean JSON. The
+// response is unchanged; we just log with a full stack trace for 5xx (and a
+// lighter line for expected 4xx) so failures are diagnosable.
 app.use((err, req, res, next) => {
   const status = err.status || (err.name === 'MulterError' ? 400 : 500);
   const message = err.code === 'LIMIT_FILE_SIZE'
     ? 'File is too large (images max 8 MB, reels max 60 MB)'
     : (err.message || 'Something went wrong');
-  if (status >= 500) console.error('[error]', err.message);
+  const where = { method: req.method, path: req.originalUrl || req.url, status };
+  if (status >= 500) logger.error({ err, ...where }, 'request error');
+  else logger.warn({ err: err.message, ...where }, 'request error');
   res.status(status).json({ error: message });
 });
 
 // Never let one stray async error take down the whole server for everyone.
-process.on('uncaughtException', (e) => console.error('[uncaughtException]', e && e.message));
-process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e && (e.message || e)));
+process.on('uncaughtException', (e) => logger.error({ err: e }, 'uncaughtException'));
+process.on('unhandledRejection', (e) => logger.error({ err: e instanceof Error ? e : new Error(String(e)) }, 'unhandledRejection'));
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log('OpenBook is running at http://localhost:' + PORT);
+  logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'OpenBook server started');
 });

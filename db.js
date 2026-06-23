@@ -8,6 +8,7 @@
 
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
+const { logger, DB_SLOW_MS } = require('./logger');
 
 // DATA_DIR lets a host put the database on a persistent volume; defaults to the
 // project folder for local development.
@@ -453,5 +454,37 @@ try {
 
 // Clear out sessions older than 30 days on startup.
 db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");
+
+// --- Query timing (observability only; no behavior change) ---
+// Wrap prepared-statement get/all/run so any query at or above DB_SLOW_MS is
+// logged with its timing and a short label. This is transparent: a Proxy times
+// those three methods and passes every other property/method through untouched,
+// so no call site changes and results are identical. Installed last so the
+// one-time startup migrations above are not themselves timed.
+function queryLabel(sql) {
+  return String(sql).replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+const _prepare = db.prepare.bind(db);
+db.prepare = function (sql) {
+  const stmt = _prepare(sql);
+  return new Proxy(stmt, {
+    get(target, prop) {
+      const value = target[prop];
+      if (typeof value !== 'function') return value;
+      if (prop === 'get' || prop === 'all' || prop === 'run') {
+        return function (...args) {
+          const start = process.hrtime.bigint();
+          const result = value.apply(target, args);
+          const ms = Number(process.hrtime.bigint() - start) / 1e6;
+          if (ms >= DB_SLOW_MS) {
+            logger.warn({ ms: Math.round(ms * 10) / 10, op: prop, query: queryLabel(sql) }, 'slow query');
+          }
+          return result;
+        };
+      }
+      return value.bind(target);
+    },
+  });
+};
 
 module.exports = db;
