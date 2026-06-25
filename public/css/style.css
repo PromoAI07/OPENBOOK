@@ -169,6 +169,79 @@ textarea.input { resize: vertical; min-height: 60px; }
 .landing-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .landing-logo .name { font-size: 34px; }
 
+/* Manifesto / promises checklist (left pitch column, visible during login + signup) */
+.promises { margin-top: 30px; max-width: 460px; }
+.landing-pitch .promises-eyebrow {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brand);
+  max-width: none;
+  margin: 0 0 16px;
+}
+.promise-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.promise {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  text-align: left;
+}
+.promise-check {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--brand-grad);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.35);
+  margin-top: 1px;
+}
+.promise-check svg { width: 15px; height: 15px; display: block; }
+.promise-text {
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--text-soft);
+}
+.promise-text strong {
+  display: block;
+  color: var(--text);
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 1px;
+}
+/* Supporting line sits muted and a touch smaller under each bold claim, so the
+   five headlines are the primary scan layer. */
+.promise-sub {
+  display: block;
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.promise-link {
+  color: var(--brand);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.promise-link:hover { color: var(--brand-dark); }
+/* Defense in depth: the entrance animation is JS-only (no opacity:0 default in
+   CSS), but if motion is reduced we also force rows visible so nothing can be
+   left hidden. */
+@media (prefers-reduced-motion: reduce) {
+  .promise { opacity: 1 !important; }
+}
+
 .auth-card {
   background: var(--card);
   border-radius: var(--radius-lg);
@@ -814,6 +887,10 @@ textarea.input { resize: vertical; min-height: 60px; }
   .landing-grid { grid-template-columns: 1fr; gap: 24px; }
   .landing-pitch { text-align: center; }
   .landing-pitch h1 { font-size: 40px; }
+  /* Center the manifesto block and left-align the eyebrow + each row inside it
+     for legibility (the column itself is centered on mobile). */
+  .promises { margin-left: auto; margin-right: auto; }
+  .promises-eyebrow, .promise { text-align: left; }
   .messenger { grid-template-columns: 1fr; }
   .messenger.show-thread .mlist { display: none; }
   .messenger:not(.show-thread) .mthread { display: none; }

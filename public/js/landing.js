@@ -80,4 +80,21 @@
   });
 
   animateCard();
+
+  // Progressive enhancement: stagger the promise rows in on load.
+  // The start state is set here in JS, so without JS the list is fully visible.
+  (function animatePromises() {
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const rows = document.querySelectorAll('.promise');
+    if (!window.anime || reduce || !rows.length) return;
+    anime.set(rows, { opacity: 0, translateY: 10 });
+    anime({
+      targets: rows,
+      opacity: [0, 1],
+      translateY: [10, 0],
+      duration: 480,
+      delay: anime.stagger(80, { start: 120 }),
+      easing: 'easeOutCubic'
+    });
+  })();
 })();
