@@ -534,6 +534,27 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code) WHERE referral_code IS NOT NULL;
 `);
 
+// --- Owner analytics (privacy-conscious, aggregate) ---
+// Coarse usage events for the admin dashboard only: page views, button clicks,
+// and visibility heartbeats (to estimate time on platform). We store an internal
+// user_id (nullable) + an opaque session id + a short label (a view name or a
+// button id), never message content or any personal data. Old events are pruned.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS analytics_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER,
+    session_id TEXT    NOT NULL DEFAULT '',
+    type       TEXT    NOT NULL,
+    label      TEXT    NOT NULL DEFAULT '',
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_analytics_type_time ON analytics_events(type, created_at);
+  CREATE INDEX IF NOT EXISTS idx_analytics_session   ON analytics_events(session_id);
+`);
+// Keep the analytics table from growing without bound.
+db.exec("DELETE FROM analytics_events WHERE created_at < datetime('now', '-90 days');");
+
 // Platform admins are designated by the ADMIN_EMAILS env var (comma separated).
 // The sync is two-way: when the list is set, clear all admin flags first and then
 // re-grant, so removing an email from the list actually demotes that user. (When

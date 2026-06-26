@@ -43,6 +43,7 @@ const API = {
   adminGrantTier(userId, tier, days) { return this.post('/api/admin/grant', { userId, tier, days }); },
   adminRevokeTier(userId) { return this.post('/api/admin/revoke', { userId }); },
   adminSupporters() { return this.get('/api/admin/supporters'); },
+  adminAnalytics() { return this.get('/api/admin/analytics'); },
   // Referrals
   myReferral() { return this.get('/api/referrals/me'); },
   referralLeaderboard() { return this.get('/api/referrals/leaderboard'); },

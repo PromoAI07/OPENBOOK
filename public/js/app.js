@@ -39,6 +39,40 @@
     }
   }
 
+  // --- Owner analytics: coarse, privacy-safe usage pings (page views, button
+  // clicks, visibility heartbeats for time-on-platform). Aggregate only, no
+  // content or personal data ever leaves the client here. ---
+  const AN = (function () {
+    let sid;
+    try { sid = sessionStorage.getItem('ob_sid'); if (!sid) { sid = Math.random().toString(36).slice(2) + Date.now().toString(36); sessionStorage.setItem('ob_sid', sid); } }
+    catch (e) { sid = 's' + Date.now(); }
+    let queue = [];
+    function flush(beacon) {
+      if (!queue.length) return;
+      const body = JSON.stringify({ session: sid, events: queue });
+      queue = [];
+      try {
+        if (beacon && navigator.sendBeacon) navigator.sendBeacon('/api/analytics', new Blob([body], { type: 'application/json' }));
+        else fetch('/api/analytics', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function () {});
+      } catch (e) {}
+    }
+    function push(type, label) { queue.push({ type: type, label: (label == null ? '' : ('' + label)).slice(0, 80) }); if (queue.length >= 12) flush(); }
+    setInterval(function () { if (document.visibilityState === 'visible') push('heartbeat', ''); flush(); }, 20000);
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') flush(true); });
+    window.addEventListener('pagehide', function () { flush(true); });
+    document.addEventListener('click', function (e) {
+      const node = (e.target && e.target.closest) ? e.target.closest('[data-track],[data-go],.nav-tab,.side-link,.btn') : null;
+      if (!node) return;
+      let label = node.getAttribute('data-track') || node.getAttribute('data-go');
+      if (!label) {
+        if (node.classList.contains('nav-tab')) label = 'tab:' + (node.textContent || '').trim().slice(0, 20);
+        else label = 'btn:' + ((node.textContent || '').trim().slice(0, 24) || node.tagName.toLowerCase());
+      }
+      push('click', label);
+    }, true);
+    return { page: function (name) { push('pageview', name); }, flush: flush };
+  })();
+
   const AVATAR_COLORS = ['#4f46e5', '#0ea5a4', '#e0245e', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#3b82f6'];
   function colorFor(name) {
     const s = name || '?';
@@ -282,6 +316,8 @@
     else if (name === 'reels') renderReels();
     else if (name === 'support') renderSupport();
     else if (name === 'invite') renderInvite();
+    else if (name === 'admin') renderAdmin();
+    try { AN.page(name); } catch (e) {}
     window.scrollTo(0, 0);
   }
 
@@ -299,6 +335,7 @@
       '<div class="side-link" data-go="reels"><span class="ic">&#127909;</span><span>Reels</span></div>' +
       '<div class="side-link" data-go="invite"><span class="ic">&#127881;</span><span>Invite friends</span></div>' +
       '<div class="side-link" data-go="support"><span class="ic">&#10084;&#65039;</span><span>Support OpenBook</span></div>' +
+      (ME && ME.isAdmin ? '<div class="side-link" data-go="admin"><span class="ic">&#128202;</span><span>Owner analytics</span></div>' : '') +
       '<div class="side-link" id="themeToggle"><span class="ic">' + (currentTheme() === 'dark' ? '&#9728;&#65039;' : '&#127769;') + '</span><span>' + (currentTheme() === 'dark' ? 'Light mode' : 'Dark mode') + '</span></div>' +
       '<div class="side-link" id="leftLogout"><span class="ic">&#128682;</span><span>Log out</span></div>' +
       '</div>';
@@ -526,6 +563,46 @@
       try { await navigator.clipboard.writeText(link); copyBtn.textContent = 'Copied!'; setTimeout(() => (copyBtn.textContent = 'Copy'), 1500); }
       catch (e) { const inp = view.querySelector('#inviteLink'); inp.select(); document.execCommand('copy'); copyBtn.textContent = 'Copied!'; setTimeout(() => (copyBtn.textContent = 'Copy'), 1500); }
     };
+    renderRightRail();
+  }
+
+  async function renderAdmin() {
+    if (!ME || !ME.isAdmin) { view.innerHTML = '<div class="card"><div class="empty">Admins only.</div></div>'; return; }
+    view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading analytics...</div></div>';
+    let d;
+    try { d = await API.adminAnalytics(); }
+    catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+    const t = d.totals;
+    function fmtDur(sec) { if (!sec) return '0s'; const m = Math.floor(sec / 60), s = sec % 60; return m ? (m + 'm ' + s + 's') : (s + 's'); }
+    function barList(rows) {
+      if (!rows || !rows.length) return '<div class="shint" style="font-size:13px">No data yet.</div>';
+      const max = Math.max.apply(null, rows.map((r) => r.c)) || 1;
+      return rows.map((r) => '<div class="bar-row"><span class="bar-label">' + esc(r.label) + '</span>' +
+        '<span class="bar-track"><span class="bar-fill" style="width:' + Math.round((r.c / max) * 100) + '%"></span></span>' +
+        '<span class="bar-val">' + r.c + '</span></div>').join('');
+    }
+    const signups = (d.signupsByDay || []).slice().reverse().map((r) => ({ label: r.d, c: r.c }));
+    view.innerHTML =
+      '<div class="card"><div class="pname">&#128202; Owner analytics</div>' +
+      '<div class="shint" style="font-size:13px">Private to platform admins. Aggregate usage only, no personal data.</div></div>' +
+      '<div class="section-title">Users</div><div class="dash-grid">' +
+        statCard(t.totalUsers, 'Total users', 'All registered accounts.') +
+        statCard(t.newUsers24h, 'New (24h)', '') +
+        statCard(t.newUsers7d, 'New (7 days)', '') +
+        statCard(t.activeUsers7d, 'Active (7 days)', 'Distinct users with any activity.') +
+        statCard(t.supporters, 'Supporters', 'Tiers active right now.') +
+        statCard(t.qualifiedReferrals, 'Qualified referrals', '') +
+      '</div>' +
+      '<div class="section-title">Engagement</div><div class="dash-grid">' +
+        statCard(fmtDur(t.avgSessionSec), 'Avg time / session', 'Estimated from active heartbeats.') +
+        statCard(t.totalSessions, 'Sessions', '') +
+        statCard(t.totalPageviews, 'Page views', '') +
+        statCard(t.totalClicks, 'Button clicks', '') +
+      '</div>' +
+      '<div class="card"><div class="section-title">Signups (last 14 days)</div>' + barList(signups) + '</div>' +
+      '<div class="card"><div class="section-title">Top entry pages</div>' + barList(d.entryPages) + '</div>' +
+      '<div class="card"><div class="section-title">Most viewed pages</div>' + barList(d.topPages) + '</div>' +
+      '<div class="card"><div class="section-title">Most clicked buttons</div>' + barList(d.topButtons) + '</div>';
     renderRightRail();
   }
 

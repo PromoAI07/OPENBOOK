@@ -43,6 +43,56 @@ router.post('/revoke', requireAuth, requireAdmin, (req, res) => {
   res.json({ ok: true, entitlements });
 });
 
+// Owner analytics: signups, usage, time on platform, top entry pages + buttons.
+// Aggregate only; computed live from the users + analytics_events tables.
+const HEARTBEAT_SEC = 20; // client sends a heartbeat every ~20s while visible
+router.get('/analytics', requireAuth, requireAdmin, (req, res) => {
+  const one = (sql, ...a) => db.prepare(sql).get(...a);
+  const many = (sql, ...a) => db.prepare(sql).all(...a);
+
+  const totalUsers = one('SELECT COUNT(*) c FROM users').c;
+  const newUsers24h = one("SELECT COUNT(*) c FROM users WHERE created_at >= datetime('now','-1 day')").c;
+  const newUsers7d = one("SELECT COUNT(*) c FROM users WHERE created_at >= datetime('now','-7 days')").c;
+  const signupsByDay = many(
+    "SELECT date(created_at) d, COUNT(*) c FROM users WHERE created_at >= datetime('now','-14 days') GROUP BY d ORDER BY d DESC"
+  );
+
+  const activeUsers7d = one(
+    "SELECT COUNT(DISTINCT user_id) c FROM analytics_events WHERE user_id IS NOT NULL AND created_at >= datetime('now','-7 days')"
+  ).c;
+  const totalPageviews = one("SELECT COUNT(*) c FROM analytics_events WHERE type='pageview'").c;
+  const totalClicks = one("SELECT COUNT(*) c FROM analytics_events WHERE type='click'").c;
+  const totalSessions = one("SELECT COUNT(DISTINCT session_id) c FROM analytics_events WHERE session_id != ''").c;
+
+  // Average time on platform per session: average heartbeats/session * interval.
+  const avgHb = one(
+    "SELECT AVG(hb) a FROM (SELECT session_id, COUNT(*) hb FROM analytics_events WHERE type='heartbeat' AND session_id != '' AND created_at >= datetime('now','-30 days') GROUP BY session_id)"
+  ).a;
+  const avgSessionSec = avgHb ? Math.round(avgHb * HEARTBEAT_SEC) : 0;
+
+  const topPages = many(
+    "SELECT label, COUNT(*) c FROM analytics_events WHERE type='pageview' AND label != '' GROUP BY label ORDER BY c DESC LIMIT 10"
+  );
+  // Entry pages: the first page viewed in each session (SQLite bare-column min).
+  const entryPages = many(
+    "SELECT label, COUNT(*) c FROM (SELECT session_id, label, MIN(created_at) t FROM analytics_events WHERE type='pageview' AND session_id != '' GROUP BY session_id) GROUP BY label ORDER BY c DESC LIMIT 10"
+  );
+  const topButtons = many(
+    "SELECT label, COUNT(*) c FROM analytics_events WHERE type='click' AND label != '' GROUP BY label ORDER BY c DESC LIMIT 10"
+  );
+
+  const supporters = one('SELECT COUNT(*) c FROM users WHERE supporter_tier > 0').c;
+  const qualifiedReferrals = one("SELECT COUNT(*) c FROM referrals WHERE status='qualified'").c;
+
+  res.json({
+    totals: { totalUsers, newUsers24h, newUsers7d, activeUsers7d, totalPageviews, totalClicks, totalSessions, avgSessionSec, supporters, qualifiedReferrals },
+    signupsByDay,
+    topPages,
+    entryPages,
+    topButtons,
+  });
+});
+
 // Current supporters (admin view).
 router.get('/supporters', requireAuth, requireAdmin, (req, res) => {
   const supporters = db.prepare(

@@ -88,6 +88,7 @@ app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth')) return next();
   if (req.path.startsWith('/users/me')) return next(); // profile + avatar edits
   if (req.path.startsWith('/notifications')) return next(); // mark read
+  if (req.path.startsWith('/analytics')) return next(); // coarse usage pings
   const u = gateDb.prepare('SELECT email_verified FROM users WHERE id = ?').get(req.user.id);
   if (u && u.email_verified) return next();
   return res.status(403).json({
@@ -130,6 +131,7 @@ app.use('/api/reels', require('./routes/reels'));
 app.use('/api/moderation', require('./routes/moderation'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/referrals', require('./routes/referrals'));
+app.use('/api/analytics', require('./routes/analytics'));
 
 // The authenticated single page app shell.
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
