@@ -27,7 +27,8 @@ function selfUser(u) {
   return Object.assign(publicUser(u), { email: u.email, emailVerified: !!u.email_verified, isAdmin: !!u.is_admin });
 }
 
-router.post('/signup', async (req, res) => {
+router.post('/signup', async (req, res, next) => {
+ try {
   const name = (req.body.name || '').trim();
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password || '';
@@ -85,6 +86,7 @@ router.post('/signup', async (req, res) => {
     if (process.env.NODE_ENV !== 'production') out.devVerifyLink = link; // dev testing convenience
   }
   res.json(out);
+ } catch (e) { next(e); }
 });
 
 // Click target from the verification email. Marks the account verified and
