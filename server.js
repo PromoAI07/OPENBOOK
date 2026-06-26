@@ -144,4 +144,6 @@ process.on('unhandledRejection', (e) => logger.error({ err: e instanceof Error ?
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'OpenBook server started');
+  // Phase 5: start the background vote-ring scan (no-op if SYBIL_JOB=0).
+  try { require('./antisybil').startSybilJobs(); } catch (e) { logger.error({ err: e }, 'failed to start sybil jobs'); }
 });

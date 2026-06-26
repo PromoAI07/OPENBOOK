@@ -12,6 +12,7 @@ const { areFriends, canViewPost, canInteractPost } = require('../visibility');
 const { decoratePost, decoratePosts, voteTally, reactionSummary } = require('../postview');
 const { wilson, controversy, rankPosts } = require('../ranking');
 const { isAdmin, isCommunityMod } = require('../moderation');
+const { trustRateLimit } = require('../antisybil');
 
 const router = express.Router();
 
@@ -204,8 +205,9 @@ router.get('/:id', requireAuth, (req, res) => {
   res.json({ post: decoratePost(post, req.user.id) });
 });
 
-// Create a plain (Facebook-style) post with text and/or an image.
-router.post('/', requireAuth, upload.single('image'), (req, res) => {
+// Create a plain (Facebook-style) post with text and/or an image. The trust
+// rate limiter runs before the upload is parsed so spam is rejected cheaply.
+router.post('/', requireAuth, trustRateLimit('post'), upload.single('image'), (req, res) => {
   const content = (req.body.content || '').trim();
   const image = req.file ? '/uploads/' + req.file.filename : '';
   if (!content && !image) {
@@ -297,7 +299,7 @@ router.get('/:id/comments', requireAuth, (req, res) => {
 });
 
 // Add a comment (optionally a reply to another comment via parent_id).
-router.post('/:id/comments', requireAuth, (req, res) => {
+router.post('/:id/comments', requireAuth, trustRateLimit('comment'), (req, res) => {
   const postId = Number(req.params.id);
   const content = (req.body.content || '').trim();
   if (!content) return res.status(400).json({ error: 'Comment cannot be empty' });

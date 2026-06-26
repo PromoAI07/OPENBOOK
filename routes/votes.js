@@ -11,6 +11,7 @@ const { requireAuth } = require('../auth');
 const { canInteractPost } = require('../visibility');
 const { recordKarmaEvent, refreshTrustLevel } = require('../trust');
 const { trustWeight } = require('../ranking');
+const { canDownvote, MIN_DOWNVOTE_TL } = require('../antisybil');
 
 const router = express.Router();
 
@@ -61,6 +62,16 @@ router.post('/', requireAuth, (req, res) => {
   // first so the weight is fresh; standing is never touched by voting.
   const tl = refreshTrustLevel(req.user.id);
   const weight = trustWeight(tl);
+
+  // Anti-sybil: applying a downvote needs a minimum trust level, so day-old
+  // sockpuppets cannot brigade. Upvotes and clearing an existing vote stay open.
+  if (effective === -1 && !canDownvote(tl)) {
+    return res.status(403).json({
+      error: 'New accounts cannot downvote yet. Spend a little time on OpenBook and your downvotes will unlock.',
+      code: 'DOWNVOTE_LOCKED',
+      minTrustLevel: MIN_DOWNVOTE_TL,
+    });
+  }
 
   if (effective === 0) {
     db.prepare('DELETE FROM votes WHERE user_id = ? AND target_type = ? AND target_id = ?')

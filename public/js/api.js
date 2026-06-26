@@ -31,7 +31,8 @@ const API = {
   postForm(url, formData) { return this.request('POST', url, formData, true); },
 
   // Auth
-  signup(name, email, password) { return this.post('/api/auth/signup', { name, email, password }); },
+  signup(name, email, password, extra) { return this.post('/api/auth/signup', Object.assign({ name, email, password }, extra || {})); },
+  signupChallenge() { return this.get('/api/auth/challenge'); },
   login(email, password) { return this.post('/api/auth/login', { email, password }); },
   logout() { return this.post('/api/auth/logout'); },
   me() { return this.get('/api/auth/me'); },

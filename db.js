@@ -436,6 +436,40 @@ db.exec(`
 addColumn('appeals', 'target_type TEXT', 'target_type');
 addColumn('appeals', 'target_id INTEGER', 'target_id');
 
+// --- Phase 5: anti-sybil (see SPEC.md section 5, antisybil.js) ---
+// devices: a coarse client fingerprint + IP per account, so concentration (many
+// accounts on one device/IP) can raise a soft flag. We never hard-block on this.
+// sybil_flags: the review queue the background vote-ring job and signup-risk
+// checks write to. Auto-actions stay gentle and appealable (logged in
+// trust_events); confirmed bans remain a separate, human moderation decision.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS devices (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    fingerprint TEXT    NOT NULL DEFAULT '',
+    ip          TEXT    NOT NULL DEFAULT '',
+    first_seen  TEXT    NOT NULL DEFAULT (datetime('now')),
+    last_seen   TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (user_id, fingerprint),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_devices_fp ON devices(fingerprint);
+  CREATE INDEX IF NOT EXISTS idx_devices_ip ON devices(ip);
+
+  CREATE TABLE IF NOT EXISTS sybil_flags (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    kind       TEXT    NOT NULL,
+    detail     TEXT    NOT NULL DEFAULT '',
+    score      REAL    NOT NULL DEFAULT 0,
+    status     TEXT    NOT NULL DEFAULT 'open',
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_sybil_flags_user   ON sybil_flags(user_id);
+  CREATE INDEX IF NOT EXISTS idx_sybil_flags_status ON sybil_flags(status);
+`);
+
 // Platform admins are designated by the ADMIN_EMAILS env var (comma separated).
 // The sync is two-way: when the list is set, clear all admin flags first and then
 // re-grant, so removing an email from the list actually demotes that user. (When

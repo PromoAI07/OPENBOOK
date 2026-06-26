@@ -8,22 +8,30 @@ const db = require('../db');
 const { createSession, destroySession, requireAuth, publicUser } = require('../auth');
 const { recordStandingEvent, refreshTrustLevel, trustSnapshot } = require('../trust');
 const { sendVerificationEmail, EMAIL_CONFIGURED } = require('../mailer');
+const {
+  isDisposableEmail, makeChallenge, verifyPoW, verifyTurnstile,
+  recordDevice, flagSignupRisk,
+} = require('../antisybil');
 
 const router = express.Router();
 
 function verifyLink(req, token) {
   return req.protocol + '://' + req.get('host') + '/api/auth/verify?token=' + encodeURIComponent(token);
 }
+
+// Issue a proof-of-work challenge for the signup form (anti-mass-signup cost).
+router.get('/challenge', (req, res) => res.json(makeChallenge()));
 // The self-facing user object includes the owner's own email + verification flag
 // (publicUser hides email from everyone else).
 function selfUser(u) {
   return Object.assign(publicUser(u), { email: u.email, emailVerified: !!u.email_verified, isAdmin: !!u.is_admin });
 }
 
-router.post('/signup', (req, res) => {
+router.post('/signup', async (req, res) => {
   const name = (req.body.name || '').trim();
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password || '';
+  const fingerprint = (req.body.fp || req.body.fingerprint || '').toString();
 
   if (!name || !email || !password) {
     return res.status(400).json({ error: 'Name, email and password are all required' });
@@ -33,6 +41,19 @@ router.post('/signup', (req, res) => {
   }
   if (password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
+  // Anti-sybil: block throwaway inboxes (cheap mass accounts).
+  if (isDisposableEmail(email)) {
+    return res.status(400).json({ error: 'Please use a permanent email address (disposable email providers are not allowed).' });
+  }
+  // Anti-sybil: lightweight proof-of-work, so mass signups are expensive. Off
+  // only if SIGNUP_POW=0; the signup form solves the challenge automatically.
+  if (!verifyPoW(req.body.powSalt, req.body.powNonce)) {
+    return res.status(400).json({ error: 'Could not verify your browser. Please refresh the page and try again.', code: 'POW_FAILED' });
+  }
+  // Anti-sybil: optional CAPTCHA. No-op unless TURNSTILE_SECRET is configured.
+  if (!(await verifyTurnstile(req.body.turnstileToken, req.ip))) {
+    return res.status(400).json({ error: 'CAPTCHA check failed. Please try again.', code: 'CAPTCHA_FAILED' });
   }
 
   const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
@@ -51,6 +72,10 @@ router.post('/signup', (req, res) => {
   createSession(info.lastInsertRowid, res);
   // Start this account's audit trail at the baseline standing.
   recordStandingEvent(info.lastInsertRowid, 0, 'account_created');
+  // Anti-sybil bookkeeping: remember this device/IP and flag (do not block) if
+  // the same device or IP already hosts several accounts.
+  recordDevice(info.lastInsertRowid, req.ip, fingerprint);
+  flagSignupRisk(info.lastInsertRowid, req.ip, fingerprint);
 
   const out = { user: selfUser(db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid)) };
   if (EMAIL_CONFIGURED) {
@@ -99,6 +124,8 @@ router.post('/login', (req, res) => {
   }
 
   createSession(user.id, res);
+  // Keep the device/IP record fresh so multi-account concentration stays visible.
+  recordDevice(user.id, req.ip, (req.body.fp || req.body.fingerprint || '').toString());
   res.json({ user: selfUser(user) });
 });
 
