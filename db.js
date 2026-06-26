@@ -13,7 +13,18 @@ const { logger, DB_SLOW_MS } = require('./logger');
 // DATA_DIR lets a host put the database on a persistent volume; defaults to the
 // project folder for local development.
 const DATA_DIR = process.env.DATA_DIR || __dirname;
-const db = new DatabaseSync(path.join(DATA_DIR, 'openbook.db'));
+const dbPath = path.join(DATA_DIR, 'openbook.db');
+// Loud diagnostic so the Render logs make persistence obvious. In production
+// without DATA_DIR, the database sits on EPHEMERAL storage and is wiped on every
+// redeploy/restart even if a paid disk is attached, because nothing points at it.
+if (process.env.NODE_ENV === 'production' && !process.env.DATA_DIR) {
+  logger.warn({ dbPath },
+    'DATA_DIR is NOT set: the database is on EPHEMERAL storage and WILL be wiped on every redeploy. ' +
+    'Set the DATA_DIR env var to your Render disk mount path (e.g. /data) so data persists.');
+} else {
+  logger.info({ dbPath, persistent: !!process.env.DATA_DIR }, 'database location');
+}
+const db = new DatabaseSync(dbPath);
 
 // WAL mode is faster and handles concurrent reads well.
 db.exec('PRAGMA journal_mode = WAL;');
