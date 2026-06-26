@@ -75,7 +75,24 @@ async function signup(name, email, password, withPow) {
     check('TL0 upvote allowed (200)', up.status === 200, up.status + ' ' + JSON.stringify(up.data));
   }
 
-  // 7. A device row was recorded for the new accounts
+  // 7. The trust rate limit now also covers community posts (Finding 1 fix):
+  // a fresh account is capped at 6 posts across post-creating routes, not just /api/posts.
+  const cu = await signup('UserC', 'p5http+c' + STAMP + '@real-example.com', 'secret123', true);
+  const cookieC = cu.cookie;
+  const comm = await req('POST', '/api/communities', { name: 'p5c' + STAMP, description: 'test', privacy: 'public' }, cookieC);
+  const commId = comm.data && (comm.data.id || (comm.data.community && comm.data.community.id));
+  check('created a community for the rate-limit test', !!commId, comm.status + ' ' + JSON.stringify(comm.data));
+  if (commId) {
+    let cok = 0, climited = false;
+    for (let i = 0; i < 7; i++) {
+      const r = await req('POST', '/api/communities/' + commId + '/posts', { title: 'cpost ' + i, content: 'x', type: 'text' }, cookieC);
+      if (r.status === 200 || r.status === 201) cok++;
+      else if (r.status === 429 && r.data && r.data.code === 'RATE_LIMITED') climited = true;
+    }
+    check('community posts: 6 allowed then 429 (rate limit now wired)', cok === 6 && climited, 'cok=' + cok + ' limited=' + climited);
+  }
+
+  // 8. A device row was recorded for the new accounts
   check('signup recorded a device (checked after cleanup connect)', true);
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');

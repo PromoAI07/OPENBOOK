@@ -8,6 +8,7 @@ const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
 const { decoratePost, decoratePosts } = require('../postview');
+const { trustRateLimit } = require('../antisybil');
 
 const router = express.Router();
 
@@ -130,7 +131,7 @@ router.get('/:id/posts', requireAuth, (req, res) => {
 });
 
 // Post into a group (members only).
-router.post('/:id/posts', requireAuth, upload.single('image'), (req, res) => {
+router.post('/:id/posts', requireAuth, trustRateLimit('post'), upload.single('image'), (req, res) => {
   const id = Number(req.params.id);
   const g = db.prepare('SELECT * FROM groups WHERE id = ?').get(id);
   if (!g) return res.status(404).json({ error: 'Group not found' });

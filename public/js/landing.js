@@ -123,14 +123,21 @@
     } catch (e) { return ''; }
   }
 
-  // Fetch a challenge and solve it. Returns the proof fields (or {} if the
-  // server has proof-of-work disabled, or the fetch fails).
+  // Fetch a challenge and solve it. Returns {} when the server has proof-of-work
+  // disabled (enabled === false). On a transient fetch failure we retry once,
+  // then throw a clear, retryable error rather than silently submitting an empty
+  // proof (which the server would reject with a misleading "verify your browser"),
+  // mirroring how the server fails OPEN on a CAPTCHA outage.
   async function signupProof() {
-    try {
-      const c = await API.signupChallenge();
-      if (!c || c.enabled === false || !c.salt) return {};
-      return { powSalt: c.salt, powNonce: solvePoW(c.salt, c.difficulty || 4) };
-    } catch (e) { return {}; }
+    let lastErr;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const c = await API.signupChallenge();
+        if (!c || c.enabled === false || !c.salt) return {}; // PoW is off, nothing to solve
+        return { powSalt: c.salt, powNonce: solvePoW(c.salt, c.difficulty || 4) };
+      } catch (e) { lastErr = e; }
+    }
+    throw new Error('Could not reach the server to verify your browser. Please try again in a moment.');
   }
 
   document.getElementById('loginForm').addEventListener('submit', async (e) => {

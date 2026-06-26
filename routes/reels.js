@@ -8,6 +8,7 @@ const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
 const { videoUpload } = require('../upload');
 const { notify } = require('../notify');
+const { trustRateLimit } = require('../antisybil');
 
 const router = express.Router();
 
@@ -45,7 +46,7 @@ router.get('/', requireAuth, (req, res) => {
 });
 
 // Post a reel (a video plus an optional caption).
-router.post('/', requireAuth, videoUpload.single('video'), (req, res) => {
+router.post('/', requireAuth, trustRateLimit('post'), videoUpload.single('video'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Choose a video to post' });
   const caption = (req.body.caption || '').trim();
   const video = '/uploads/' + req.file.filename;
@@ -99,7 +100,7 @@ router.get('/:id/comments', requireAuth, (req, res) => {
   });
 });
 
-router.post('/:id/comments', requireAuth, (req, res) => {
+router.post('/:id/comments', requireAuth, trustRateLimit('comment'), (req, res) => {
   const id = Number(req.params.id);
   const content = (req.body.content || '').trim();
   if (!content) return res.status(400).json({ error: 'Comment cannot be empty' });

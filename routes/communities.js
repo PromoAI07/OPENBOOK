@@ -10,6 +10,7 @@ const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
 const { decoratePost, decoratePosts } = require('../postview');
 const { rankPosts, SORTS } = require('../ranking');
+const { trustRateLimit } = require('../antisybil');
 
 const router = express.Router();
 
@@ -160,7 +161,7 @@ router.get('/:id/posts', requireAuth, (req, res) => {
 });
 
 // Create a post in a community (public: anyone; private: members only).
-router.post('/:id/posts', requireAuth, upload.single('image'), (req, res) => {
+router.post('/:id/posts', requireAuth, trustRateLimit('post'), upload.single('image'), (req, res) => {
   const id = Number(req.params.id);
   const c = db.prepare('SELECT * FROM communities WHERE id = ?').get(id);
   if (!c) return res.status(404).json({ error: 'Community not found' });

@@ -64,12 +64,16 @@ app.use(attachUser);
 app.use('/uploads', express.static(path.join(process.env.DATA_DIR || __dirname, 'uploads')));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Throttle auth attempts to slow brute force and signup abuse.
+// Throttle auth attempts to slow brute force and signup abuse. Only the mutating
+// auth calls (POST signup/login/logout/resend) need throttling; the read-only
+// GETs (the proof-of-work challenge and /me) are skipped so a shared NAT cannot
+// starve them out of this bucket and block legitimate signups.
 const authLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
   max: 50,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS',
   message: { error: 'Too many attempts. Please wait a few minutes and try again.' },
 });
 

@@ -6,6 +6,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
+const { trustRateLimit } = require('../antisybil');
 
 const router = express.Router();
 
@@ -51,7 +52,7 @@ router.get('/', requireAuth, (req, res) => {
 });
 
 // Post a new story (a photo plus an optional caption).
-router.post('/', requireAuth, upload.single('image'), (req, res) => {
+router.post('/', requireAuth, trustRateLimit('post'), upload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'A photo is required for a story' });
   const caption = (req.body.caption || '').trim();
   const url = '/uploads/' + req.file.filename;
