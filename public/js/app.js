@@ -59,6 +59,25 @@
       ';font-size:' + fs + 'px">' + esc(initial) + '</span>';
   }
 
+  // Supporter blue verified tick (any paid tier). Cosmetic only; it reflects
+  // supporter status, never reputation. Returns '' for free accounts.
+  function verifTick(user) {
+    if (!user || !user.verified) return '';
+    const label = (user.tierName ? user.tierName + ' supporter' : 'Verified supporter');
+    return ' <svg class="vtick" viewBox="0 0 24 24" role="img" aria-label="' + esc(label) + '"><title>' + esc(label) +
+      '</title><path d="M12 1.5l2.4 1.8 3 .1 .9 2.8 2.4 1.7-.9 2.8.9 2.8-2.4 1.7-.9 2.8-3 .1L12 22.5l-2.4-1.8-3-.1-.9-2.8L3.3 16l.9-2.8L3.3 10.4l2.4-1.7.9-2.8 3-.1L12 1.5z"/>' +
+      '<path class="vtick-check" d="M8.2 12.2l2.4 2.4 5-5"/></svg>';
+  }
+  // Small colored supporter badge (bronze/silver/gold). Shown on profiles.
+  function badgeChip(user) {
+    if (!user || !user.badge) return '';
+    const map = { bronze: 'Supporter', silver: 'Plus', gold: 'Premium' };
+    const label = map[user.badge] || 'Supporter';
+    return '<span class="badge-chip badge-' + esc(user.badge) + '">' + esc(label) + '</span>';
+  }
+  // Name plus tick, the standard way to print a user's display name.
+  function nameTick(user) { return esc(user.name) + verifTick(user); }
+
   function parseTime(iso) {
     if (!iso) return new Date();
     // sqlite returns "YYYY-MM-DD HH:MM:SS" in UTC.
@@ -395,8 +414,31 @@
 
   async function renderSupport() {
     view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading...</div></div>';
-    let links = {};
-    try { links = await API.support(); } catch (e) { links = {}; }
+    let links = {}, tiers = [], mine = null;
+    const [lk, tr, st] = await Promise.all([
+      API.support().catch(() => ({})),
+      API.tiers().then((r) => r.tiers).catch(() => []),
+      API.myStats().then((r) => r.supporter).catch(() => null),
+    ]);
+    links = lk || {}; tiers = tr || []; mine = st;
+    const curTier = mine ? mine.tier : 0;
+    const expiresNote = (mine && mine.tier > 0)
+      ? (mine.expires
+          ? '<div class="shint" style="font-size:12px;margin-top:6px">Your ' + esc(mine.tierName) + ' status is active until ' + esc(new Date(String(mine.expires).replace(' ', 'T') + 'Z').toLocaleDateString()) + '.</div>'
+          : '<div class="shint" style="font-size:12px;margin-top:6px">You are a ' + esc(mine.tierName) + ' supporter. Thank you!</div>')
+      : '';
+
+    function tierCard(t) {
+      const isCur = t.tier === curTier;
+      return '<div class="tier-card' + (isCur ? ' tier-current' : '') + '">' +
+        '<div class="tier-head"><span class="badge-chip badge-' + esc(t.badge) + '">' + esc(t.name) + '</span>' +
+        '<span class="tier-price">$' + Number(t.price) + '<span>/mo</span></span></div>' +
+        '<ul class="tier-perks">' + (t.perks || []).map((p) => '<li>' + esc(p) + '</li>').join('') + '</ul>' +
+        (isCur
+          ? '<span class="pill pill-ok">Your plan</span>'
+          : '<button class="btn btn-primary btn-sm" disabled title="Checkout is coming soon">Choose ' + esc(t.name) + '</button>') +
+        '</div>';
+    }
 
     function linkCard(icon, title, desc, url, cta) {
       const has = !!url;
@@ -413,9 +455,12 @@
     view.innerHTML =
       '<div class="card"><div class="pname">&#10084;&#65039; Support OpenBook</div>' +
       '<div class="shint" style="font-size:14px;line-height:1.6;margin-top:6px">' +
-      'OpenBook is free and open source, and it will stay that way. There is no paywall and we do not sell your data or run ads. ' +
-      'If you want to help keep it running and growing, here is how. Every bit funds development and hosting.</div></div>' +
-      linkCard('&#128150;', 'Become a Supporter', 'A small monthly amount unlocks a Supporter badge and perks (more coming). Cancel anytime.', '', 'Become a Supporter') +
+      'OpenBook is free and open source, and it will stay that way. There is no paywall and we never sell your data. ' +
+      'Supporter perks are cosmetic and convenience only: supporting us can never buy a place in the feed or extra weight in a vote. That stays equal for everyone.' +
+      expiresNote + '</div></div>' +
+      '<div class="section-title">Supporter tiers</div>' +
+      '<div class="tier-grid">' + tiers.map(tierCard).join('') + '</div>' +
+      '<div class="card"><div class="shint" style="font-size:12px">Paid checkout (card and crypto) is coming soon. For now you can back the project directly below.</div></div>' +
       linkCard('&#128081;', 'Sponsor on GitHub', 'Back the project directly through GitHub Sponsors.', links.github, 'Sponsor on GitHub') +
       linkCard('&#129309;', 'Open Collective', 'Transparent, community funding where every expense is public.', links.opencollective, 'Give on Open Collective') +
       '<div class="card"><div style="display:flex;gap:12px;align-items:flex-start">' +
@@ -567,6 +612,7 @@
         statCard(t.standing, 'Standing', 'Account safety score. This is what protects your reach. Votes never lower it.') +
         statCard('TL' + tl + ' ' + tlNames[tl], 'Trust level', 'Unlocks with account age and clean activity, never with money.') +
         statCard(timeAgo(d.created_at) + ' ago', 'Joined', '') +
+        statCard((d.supporter && d.supporter.tierName) || 'Free', 'Supporter tier', 'Cosmetic and convenience perks only. Never affects your reach, karma, or votes.') +
       '</div>' +
       '<div class="section-title">Your activity</div>' +
       '<div class="dash-grid">' +
@@ -754,7 +800,7 @@
     node.innerHTML =
       '<div class="post-head">' +
       avatar(p.author, 44) +
-      '<div class="meta"><div class="name" data-profile="' + p.author.id + '">' + esc(p.author.name) + '</div>' +
+      '<div class="meta"><div class="name" data-profile="' + p.author.id + '">' + esc(p.author.name) + verifTick(p.author) + '</div>' +
       '<div class="time">' + timeAgo(p.created_at) + editedMark + '</div></div>' +
       (mineP ? '<button class="menu-btn" data-edit="' + p.id + '" title="Edit post">&#9998;</button>' +
         '<button class="menu-btn" data-del="' + p.id + '" title="Delete post">&#128465;</button>' : '') +
@@ -869,7 +915,7 @@
     const node = el('<div class="comment"></div>');
     node.innerHTML =
       avatar(c.author, 32) +
-      '<div style="flex:1;min-width:0"><div class="bubble"><div class="name" data-profile="' + c.author.id + '">' + esc(c.author.name) + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="bubble"><div class="name" data-profile="' + c.author.id + '">' + esc(c.author.name) + verifTick(c.author) + '</div>' +
       linkify(esc(c.content)) + '</div>' +
       '<div class="cmeta"><span data-react></span><span class="time">' + timeAgo(c.created_at) + '</span>' +
       '<span data-sum></span>' +
@@ -1136,7 +1182,7 @@
       '<div class="profile-cover"' + coverStyle + '>' + (isMe ? '<button class="btn btn-sm edit-cover" id="editCoverBtn">&#128247; Edit cover</button>' : '') + '</div>' +
       '<div class="profile-head">' +
       '<div class="av-wrap">' + avatar(u, 130) + (isMe ? '<button class="cam" id="editAvatarBtn" title="Change photo">&#128247;</button>' : '') + '</div>' +
-      '<div><div class="pname">' + esc(u.name) + '</div>' +
+      '<div><div class="pname">' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
       '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + data.postsCount + ' posts</div>' +
       (data.nameHistory && data.nameHistory.length
         ? '<div class="pmeta" style="font-size:12px">Previously known as: ' + data.nameHistory.map((h) => esc(h.name)).join(', ') + '</div>'
@@ -1865,7 +1911,7 @@
       (p.type === 'link' && p.url ? '<a class="cpost-link" href="' + esc(safeHref(p.url)) + '" target="_blank" rel="noopener">' + esc(p.url) + '</a>' : '') +
       (p.content && p.type !== 'link' ? '<div class="cpost-snippet">' + esc((p.content || '').slice(0, 160)) + ((p.content || '').length > 160 ? '...' : '') + '</div>' : '') +
       thumb +
-      '<div class="cpost-meta">' + (p.community ? 'o/' + esc(p.community.name) + ' &#183; ' : '') + 'by ' + esc(p.author.name) + ' &#183; ' + timeAgo(p.created_at) + ' &#183; &#128172; ' + p.commentCount + '</div>';
+      '<div class="cpost-meta">' + (p.community ? 'o/' + esc(p.community.name) + ' &#183; ' : '') + 'by ' + esc(p.author.name) + verifTick(p.author) + ' &#183; ' + timeAgo(p.created_at) + ' &#183; &#128172; ' + p.commentCount + '</div>';
     card.appendChild(vc);
     card.appendChild(body);
     body.onclick = (e) => { if (e.target.tagName !== 'A') go('post', p.id); };
@@ -1954,7 +2000,7 @@
     const pbody = el('<div class="cpost-body"></div>');
     pbody.innerHTML =
       '<div class="cpost-meta">' + (p.community ? '<b class="link" data-comm="' + p.community.id + '">o/' + esc(p.community.name) + '</b> &#183; ' : '') +
-      'by <span class="link" data-profile="' + p.author.id + '">' + esc(p.author.name) + '</span> &#183; ' + timeAgo(p.created_at) +
+      'by <span class="link" data-profile="' + p.author.id + '">' + esc(p.author.name) + verifTick(p.author) + '</span> &#183; ' + timeAgo(p.created_at) +
       (p.edited ? ' &#183; <span class="edited-link" data-history>edited</span>' : '') + '</div>' +
       (p.removed ? '<div class="modbanner">This post was removed by a moderator.</div>' : '') +
       (p.locked ? '<div class="modbanner modbanner-soft">&#128274; Comments are locked.</div>' : '') +
@@ -2062,7 +2108,7 @@
     const mine = c.author.id === ME.id;
     const canModC = (postMod || postOwner) && !mine;
     main.innerHTML =
-      '<div class="cbubble' + (c.removed ? ' cremoved' : '') + '"><span class="cname link" data-profile="' + c.author.id + '">' + esc(c.author.name) + '</span> <span class="ctime">' + timeAgo(c.created_at) + '</span>' +
+      '<div class="cbubble' + (c.removed ? ' cremoved' : '') + '"><span class="cname link" data-profile="' + c.author.id + '">' + esc(c.author.name) + verifTick(c.author) + '</span> <span class="ctime">' + timeAgo(c.created_at) + '</span>' +
       '<div>' + linkify(esc(c.content)) + '</div></div>' +
       '<div class="cactions"><button class="clink" data-reply>Reply</button>' +
       (mine ? ' <button class="clink" data-delc>Delete</button>' : ' <button class="clink" data-report="comment" data-report-id="' + c.id + '">Report</button>') +
@@ -2141,7 +2187,7 @@
                   : '<button class="reel-act" data-report="reel" data-report-id="' + r.id + '"><span class="ra-ic">&#9873;</span><span class="ra-n">Report</span></button>') +
         '</div>' +
         '<div class="reel-meta">' + avatar(r.author, 36) +
-          '<div><div class="rname" data-profile="' + r.author.id + '">' + esc(r.author.name) + '</div>' +
+          '<div><div class="rname" data-profile="' + r.author.id + '">' + esc(r.author.name) + verifTick(r.author) + '</div>' +
           (r.caption ? '<div class="rcap">' + linkify(esc(r.caption)) + '</div>' : '') +
           '<div class="rviews">' + r.views + ' views</div></div>' +
         '</div>' +

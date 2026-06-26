@@ -106,6 +106,11 @@ app.get('/api/support', (req, res) => {
   });
 });
 
+// The supporter tiers and their perks, for the upgrade page (public).
+app.get('/api/tiers', (req, res) => {
+  res.json({ tiers: require('./entitlements').tierList() });
+});
+
 // JSON API.
 app.use('/api/auth', authLimiter, require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
@@ -123,6 +128,7 @@ app.use('/api/votes', require('./routes/votes'));
 app.use('/api/reactions', require('./routes/reactions'));
 app.use('/api/reels', require('./routes/reels'));
 app.use('/api/moderation', require('./routes/moderation'));
+app.use('/api/admin', require('./routes/admin'));
 
 // The authenticated single page app shell.
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));

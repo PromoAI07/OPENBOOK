@@ -5,6 +5,7 @@
 
 const crypto = require('crypto');
 const db = require('./db');
+const { publicTierFields } = require('./entitlements');
 
 const COOKIE_NAME = 'tb_session';
 const THIRTY_DAYS = 1000 * 60 * 60 * 24 * 30;
@@ -55,7 +56,7 @@ function requireAuth(req, res, next) {
 // Strip private fields (email, password hash) before sending a user to the client.
 function publicUser(u) {
   if (!u) return null;
-  return {
+  return Object.assign({
     id: u.id,
     name: u.name,
     avatar: u.avatar || '',
@@ -63,7 +64,7 @@ function publicUser(u) {
     bio: u.bio || '',
     karma: u.karma || 0,
     created_at: u.created_at,
-  };
+  }, publicTierFields(u)); // tier, tierName, verified (blue tick), badge
 }
 
 module.exports = {

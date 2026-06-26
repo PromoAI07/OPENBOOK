@@ -470,6 +470,31 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_sybil_flags_status ON sybil_flags(status);
 `);
 
+// --- Supporter tiers (entitlements; see entitlements.js) ---
+// Tier is cosmetic + capacity + convenience ONLY. It NEVER affects karma,
+// standing, reach_score, or voting weight (credible neutrality: money cannot buy
+// influence over the feed or the vote). supporter_expires NULL = permanent.
+// Payment wiring comes later; for now tiers are admin-grantable and will also be
+// granted as free months by the referral system.
+addColumn('users', 'supporter_tier INTEGER NOT NULL DEFAULT 0', 'supporter_tier');
+addColumn('users', 'supporter_since TEXT', 'supporter_since');
+addColumn('users', 'supporter_expires TEXT', 'supporter_expires');
+
+// A small, separate audit of tier grants/changes (kept apart from trust_events
+// so the karma/standing reputation trail stays clean).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS supporter_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    tier       INTEGER NOT NULL,
+    days       INTEGER,
+    cause      TEXT    NOT NULL DEFAULT '',
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_supporter_events_user ON supporter_events(user_id);
+`);
+
 // Platform admins are designated by the ADMIN_EMAILS env var (comma separated).
 // The sync is two-way: when the list is set, clear all admin flags first and then
 // re-grant, so removing an email from the list actually demotes that user. (When

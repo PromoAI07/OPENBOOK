@@ -5,6 +5,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
+const { entitlementsFor } = require('../entitlements');
 
 const router = express.Router();
 
@@ -99,7 +100,7 @@ router.post('/me/cover', requireAuth, upload.single('image'), (req, res) => {
 // graduated shadowban stays silent, even to the account owner).
 router.get('/me/stats', requireAuth, (req, res) => {
   const id = req.user.id;
-  const u = db.prepare('SELECT karma, standing, trust_level, created_at FROM users WHERE id = ?').get(id);
+  const u = db.prepare('SELECT karma, standing, trust_level, created_at, supporter_tier, supporter_since, supporter_expires FROM users WHERE id = ?').get(id);
   const posts = db.prepare('SELECT COUNT(*) c FROM posts WHERE user_id = ?').get(id).c;
   const comments = db.prepare('SELECT COUNT(*) c FROM comments WHERE user_id = ?').get(id).c;
   const communities = db.prepare('SELECT COUNT(*) c FROM community_members WHERE user_id = ?').get(id).c;
@@ -120,6 +121,7 @@ router.get('/me/stats', requireAuth, (req, res) => {
       trustLevel: u.trust_level || 0,
     },
     stats: { posts, comments, communities, friends, reactionsReceived },
+    supporter: entitlementsFor(u),
     created_at: u.created_at,
   });
 });

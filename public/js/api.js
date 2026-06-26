@@ -38,6 +38,11 @@ const API = {
   me() { return this.get('/api/auth/me'); },
   resendVerification() { return this.post('/api/auth/resend-verification'); },
   support() { return this.get('/api/support'); },
+  tiers() { return this.get('/api/tiers'); },
+  // Admin (supporter tiers)
+  adminGrantTier(userId, tier, days) { return this.post('/api/admin/grant', { userId, tier, days }); },
+  adminRevokeTier(userId) { return this.post('/api/admin/revoke', { userId }); },
+  adminSupporters() { return this.get('/api/admin/supporters'); },
 
   // Users
   searchUsers(q) { return this.get('/api/users?q=' + encodeURIComponent(q || '')); },

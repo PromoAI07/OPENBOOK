@@ -1,0 +1,145 @@
+// entitlements.js
+// Supporter tiers and the perks each one unlocks. This is the single source of
+// truth for "what does a paying supporter get".
+//
+// CREDIBLE-NEUTRALITY GUARDRAIL (the whole reason OpenBook exists): a tier may
+// only grant COSMETIC, CAPACITY, and CONVENIENCE perks. A tier must NEVER touch
+// karma, standing, reach_score, feed ranking, or voting weight. Money (and
+// referral rewards, which grant free tier time) can support the project and
+// unlock a badge or more upload room, but they can never buy a place in the feed
+// or extra weight in a community vote. Nothing in this file imports or changes
+// trust.js / ranking.js, by design.
+//
+// Payment is not wired yet. Tiers are granted by admins (routes/admin.js) and,
+// soon, as free months by the referral system. The grant path is the same
+// (grantTier), so billing will just call grantTier on a successful charge.
+
+const db = require('./db');
+
+// Tier 0 = free. 1 = Supporter ($1), 2 = Plus ($3), 3 = Premium ($10).
+// `verified` = the blue tick (paid-only). `badge` = the colored supporter badge.
+// `adFree` is an entitlement flag for when/if optional ads ever exist.
+// `perks` is the human-readable list shown on the upgrade page.
+const TIERS = {
+  0: {
+    tier: 0, name: 'Free', price: 0, badge: null, verified: false, adFree: false,
+    customization: 'none',
+    perks: ['Full access to OpenBook', 'Your data is never sold, ever', 'A vote on big changes'],
+  },
+  1: {
+    tier: 1, name: 'Supporter', price: 1, badge: 'bronze', verified: true, adFree: false,
+    customization: 'accent',
+    perks: ['Blue verified tick', 'Bronze Supporter badge', 'A profile accent color', 'Your name in the supporters credits', 'Early access to new features'],
+  },
+  2: {
+    tier: 2, name: 'Plus', price: 3, badge: 'silver', verified: true, adFree: true,
+    customization: 'themes',
+    perks: ['Everything in Supporter', 'Silver badge', 'Ad-free, forever (if ads ever launch)', 'Bigger uploads', 'Profile themes'],
+  },
+  3: {
+    tier: 3, name: 'Premium', price: 10, badge: 'gold', verified: true, adFree: true,
+    customization: 'full',
+    perks: ['Everything in Plus', 'Gold badge', 'Full profile customization', 'Largest uploads', 'Pro analytics', 'Propose features first'],
+  },
+};
+
+function tierConfig(tier) {
+  return TIERS[Math.max(0, Math.min(3, tier | 0))] || TIERS[0];
+}
+
+function parseTs(ts) {
+  if (!ts) return null;
+  const ms = Date.parse(String(ts).indexOf('T') >= 0 ? ts : String(ts).replace(' ', 'T') + 'Z');
+  return isNaN(ms) ? null : ms;
+}
+
+// The user's effective tier RIGHT NOW: drops to 0 if their supporter time has
+// lapsed. supporter_expires NULL means a permanent grant.
+function effectiveTier(user) {
+  if (!user) return 0;
+  const t = user.supporter_tier | 0;
+  if (t <= 0) return 0;
+  const exp = parseTs(user.supporter_expires);
+  if (exp != null && exp < Date.now()) return 0;
+  return Math.min(3, t);
+}
+
+// Compact fields safe to attach to ANY public user object (drives the tick +
+// badge in the UI). Never includes anything reach/standing related.
+function publicTierFields(user) {
+  const t = effectiveTier(user);
+  const cfg = tierConfig(t);
+  return { tier: t, tierName: cfg.name, verified: cfg.verified, badge: cfg.badge };
+}
+
+// The full entitlement set for the owner (dashboard / upgrade page).
+function entitlementsFor(user) {
+  const t = effectiveTier(user);
+  const cfg = tierConfig(t);
+  return {
+    tier: t,
+    tierName: cfg.name,
+    verified: cfg.verified,
+    badge: cfg.badge,
+    adFree: cfg.adFree,
+    customization: cfg.customization,
+    perks: cfg.perks,
+    since: user && user.supporter_since ? user.supporter_since : null,
+    expires: user && user.supporter_expires ? user.supporter_expires : null,
+  };
+}
+
+// The list shown on the upgrade / support page.
+function tierList() {
+  return [1, 2, 3].map((t) => {
+    const c = TIERS[t];
+    return { tier: c.tier, name: c.name, price: c.price, badge: c.badge, perks: c.perks };
+  });
+}
+
+// Grant (or change) a user's tier. days > 0 sets an expiry that many days out;
+// days falsy = permanent (expires NULL). tier 0 clears supporter status. This is
+// the ONE write path, shared by admin grants, the referral system, and (later)
+// billing webhooks, so the rules live in one place.
+function grantTier(userId, tier, days, cause) {
+  tier = Math.max(0, Math.min(3, tier | 0));
+  if (tier === 0) {
+    db.prepare('UPDATE users SET supporter_tier = 0, supporter_expires = NULL WHERE id = ?').run(userId);
+    logEvent(userId, 0, days, cause);
+    return effectiveSnapshot(userId);
+  }
+  if (days && Number(days) > 0) {
+    db.prepare(
+      "UPDATE users SET supporter_tier = ?, supporter_since = COALESCE(supporter_since, datetime('now')), supporter_expires = datetime('now', ?) WHERE id = ?"
+    ).run(tier, '+' + (Number(days) | 0) + ' days', userId);
+  } else {
+    db.prepare(
+      "UPDATE users SET supporter_tier = ?, supporter_since = COALESCE(supporter_since, datetime('now')), supporter_expires = NULL WHERE id = ?"
+    ).run(tier, userId);
+  }
+  logEvent(userId, tier, days, cause);
+  return effectiveSnapshot(userId);
+}
+
+function revokeTier(userId, cause) {
+  return grantTier(userId, 0, 0, cause || 'revoked');
+}
+
+// Lightweight audit of tier changes (transparency; separate from trust_events so
+// the reputation audit trail stays purely karma/standing).
+function logEvent(userId, tier, days, cause) {
+  try {
+    db.prepare('INSERT INTO supporter_events (user_id, tier, days, cause) VALUES (?, ?, ?, ?)')
+      .run(userId, tier, days ? (Number(days) | 0) : null, String(cause || ''));
+  } catch (e) { /* table is created in db.js; never let auditing break a grant */ }
+}
+
+function effectiveSnapshot(userId) {
+  const u = db.prepare('SELECT supporter_tier, supporter_since, supporter_expires FROM users WHERE id = ?').get(userId);
+  return entitlementsFor(u || {});
+}
+
+module.exports = {
+  TIERS, tierConfig, effectiveTier, publicTierFields, entitlementsFor,
+  tierList, grantTier, revokeTier,
+};

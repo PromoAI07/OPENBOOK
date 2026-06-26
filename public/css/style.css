@@ -265,6 +265,65 @@ textarea.input { resize: vertical; min-height: 60px; }
 .alert-ok { background: #e7f6ec; color: var(--green); }
 .hidden { display: none !important; }
 
+/* ---------- Supporter verified tick + badges + tiers ---------- */
+/* Blue verified tick shown next to supporter names. Cosmetic only. */
+.vtick {
+  width: 1em; height: 1em;
+  vertical-align: -0.14em;
+  margin-left: 2px;
+  fill: var(--brand);
+  flex: none;
+}
+.vtick-check { fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+html[data-theme="dark"] .vtick-check { stroke: #18191a; }
+
+/* Colored supporter badge chip. */
+.badge-chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #3a2a00;
+  vertical-align: middle;
+}
+.badge-bronze { background: linear-gradient(135deg, #e8b27a, #cd7f32); color: #3a2400; }
+.badge-silver { background: linear-gradient(135deg, #e4e7eb, #9aa4ad); color: #2a2f34; }
+.badge-gold   { background: linear-gradient(135deg, #ffe08a, #e3b341); color: #3a2c00; }
+
+.pill-ok { background: var(--brand-soft); color: var(--brand); font-weight: 700; }
+
+/* Tier cards on the Support / upgrade page. */
+.tier-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.tier-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tier-card.tier-current { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+.tier-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tier-price { font-size: 22px; font-weight: 800; color: var(--text); }
+.tier-price span { font-size: 12px; font-weight: 600; color: var(--text-soft); }
+.tier-perks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.tier-perks li { font-size: 13px; color: var(--text-soft); padding-left: 18px; position: relative; line-height: 1.35; }
+.tier-perks li::before { content: "\2713"; position: absolute; left: 0; color: var(--brand); font-weight: 800; }
+.tier-card .btn { width: 100%; }
+
+@media (max-width: 860px) {
+  .tier-grid { grid-template-columns: 1fr; }
+}
+
 /* ---------- Top bar ---------- */
 .topbar {
   position: sticky;
