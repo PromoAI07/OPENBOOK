@@ -167,7 +167,8 @@
     btn.textContent = 'Creating account...';
     try {
       const proof = await signupProof();
-      await API.signup(name, email, password, Object.assign({ fp: deviceFingerprint() }, proof));
+      const ref = new URLSearchParams(location.search).get('ref') || '';
+      await API.signup(name, email, password, Object.assign({ fp: deviceFingerprint(), ref: ref }, proof));
       window.location.href = '/app';
     } catch (err) {
       showAlert(document.getElementById('signupAlert'), err.message);

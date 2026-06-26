@@ -129,6 +129,7 @@ app.use('/api/reactions', require('./routes/reactions'));
 app.use('/api/reels', require('./routes/reels'));
 app.use('/api/moderation', require('./routes/moderation'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/referrals', require('./routes/referrals'));
 
 // The authenticated single page app shell.
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
@@ -156,4 +157,6 @@ server.listen(PORT, () => {
   logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'OpenBook server started');
   // Phase 5: start the background vote-ring scan (no-op if SYBIL_JOB=0).
   try { require('./antisybil').startSybilJobs(); } catch (e) { logger.error({ err: e }, 'failed to start sybil jobs'); }
+  // Referral: qualify pending referrals + pay rewards on a schedule.
+  try { require('./referrals').startReferralJobs(); } catch (e) { logger.error({ err: e }, 'failed to start referral jobs'); }
 });

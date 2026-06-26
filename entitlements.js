@@ -125,6 +125,28 @@ function revokeTier(userId, cause) {
   return grantTier(userId, 0, 0, cause || 'revoked');
 }
 
+// Extend supporter time without ever SHORTENING it: the new expiry is `days`
+// added to the later of (now, current unexpired expiry), and the tier becomes
+// the higher of the current effective tier and the granted tier. Used by the
+// referral system to grant free months (and reusable by billing renewals), so a
+// reward can never accidentally cut someone's existing paid time short.
+function extendTier(userId, tier, days, cause) {
+  tier = Math.max(0, Math.min(3, tier | 0));
+  const u = db.prepare('SELECT supporter_tier, supporter_expires FROM users WHERE id = ?').get(userId);
+  if (!u) return null;
+  const now = Date.now();
+  let baseMs = now;
+  const exp = parseTs(u.supporter_expires);
+  if (exp != null && exp > now) baseMs = exp;
+  const newExpiresMs = baseMs + (Number(days) || 0) * 86400000;
+  const newTier = Math.max(effectiveTier(u), tier);
+  const iso = new Date(newExpiresMs).toISOString().replace('T', ' ').slice(0, 19);
+  db.prepare("UPDATE users SET supporter_tier = ?, supporter_since = COALESCE(supporter_since, datetime('now')), supporter_expires = ? WHERE id = ?")
+    .run(newTier, iso, userId);
+  logEvent(userId, newTier, days, cause);
+  return effectiveSnapshot(userId);
+}
+
 // Lightweight audit of tier changes (transparency; separate from trust_events so
 // the reputation audit trail stays purely karma/standing).
 function logEvent(userId, tier, days, cause) {
@@ -141,5 +163,5 @@ function effectiveSnapshot(userId) {
 
 module.exports = {
   TIERS, tierConfig, effectiveTier, publicTierFields, entitlementsFor,
-  tierList, grantTier, revokeTier,
+  tierList, grantTier, revokeTier, extendTier,
 };

@@ -506,6 +506,34 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_supporter_events_user ON supporter_events(user_id);
 `);
 
+// --- Referral system (see referrals.js) ---
+// Each user gets a referral_code; new signups can carry ?ref=<code> which sets
+// referred_by and opens a pending referrals row. A referral only "qualifies"
+// once the invited account proves it is a real, retained human (account age +
+// real activity + healthy standing + a distinct device from the referrer, all
+// reusing the Phase 5 trust/anti-sybil signals). Every 5 qualified referrals
+// grants the referrer one free month of Premium via entitlements.grantTier;
+// referral_rewards_granted tracks how many months were already paid out so we
+// never double-grant. Referral rewards are tier time only, never karma/standing.
+addColumn('users', 'referral_code TEXT', 'referral_code');
+addColumn('users', 'referred_by INTEGER', 'referred_by');
+addColumn('users', 'referral_rewards_granted INTEGER NOT NULL DEFAULT 0', 'referral_rewards_granted');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS referrals (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    referrer_id  INTEGER NOT NULL,
+    invitee_id   INTEGER NOT NULL UNIQUE,
+    status       TEXT    NOT NULL DEFAULT 'pending',
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    qualified_at TEXT,
+    FOREIGN KEY (referrer_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (invitee_id)  REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id);
+  CREATE INDEX IF NOT EXISTS idx_referrals_status   ON referrals(status);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code) WHERE referral_code IS NOT NULL;
+`);
+
 // Platform admins are designated by the ADMIN_EMAILS env var (comma separated).
 // The sync is two-way: when the list is set, clear all admin flags first and then
 // re-grant, so removing an email from the list actually demotes that user. (When

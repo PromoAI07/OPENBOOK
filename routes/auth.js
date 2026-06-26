@@ -12,6 +12,7 @@ const {
   isDisposableEmail, makeChallenge, verifyPoW, verifyTurnstile,
   recordDevice, flagSignupRisk,
 } = require('../antisybil');
+const { ensureCode, attachReferral } = require('../referrals');
 
 const router = express.Router();
 
@@ -77,6 +78,11 @@ router.post('/signup', async (req, res, next) => {
   // the same device or IP already hosts several accounts.
   recordDevice(info.lastInsertRowid, req.ip, fingerprint);
   flagSignupRisk(info.lastInsertRowid, req.ip, fingerprint);
+  // Referral: give the new account its own invite code, and if they arrived via
+  // someone's ?ref code, open a pending referral (qualifies after 30 active days).
+  ensureCode(info.lastInsertRowid);
+  const refCode = (req.body.ref || '').toString().trim();
+  if (refCode) attachReferral(info.lastInsertRowid, refCode);
 
   const out = { user: selfUser(db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid)) };
   if (EMAIL_CONFIGURED) {

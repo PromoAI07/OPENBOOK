@@ -324,6 +324,17 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
   .tier-grid { grid-template-columns: 1fr; }
 }
 
+/* ---------- Invite / referrals ---------- */
+.invite-link-row { display: flex; gap: 8px; align-items: center; }
+.invite-link-row .input { flex: 1; min-width: 0; }
+.prog-wrap { height: 10px; background: var(--hover); border-radius: 999px; overflow: hidden; margin-top: 12px; }
+.prog-bar { height: 100%; background: var(--brand-grad); border-radius: 999px; transition: width 0.4s ease; }
+.lb-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.lb-row:last-child { border-bottom: none; }
+.lb-rank { width: 22px; text-align: center; font-weight: 800; color: var(--text-soft); flex: none; }
+.lb-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-count { font-weight: 800; color: var(--brand); flex: none; }
+
 /* ---------- Top bar ---------- */
 .topbar {
   position: sticky;

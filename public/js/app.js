@@ -281,6 +281,7 @@
     else if (name === 'dashboard') renderDashboard();
     else if (name === 'reels') renderReels();
     else if (name === 'support') renderSupport();
+    else if (name === 'invite') renderInvite();
     window.scrollTo(0, 0);
   }
 
@@ -296,6 +297,7 @@
       '<div class="side-link" data-go="friends"><span class="ic">&#128101;</span><span>Friends</span><span class="badge side-badge hidden" id="friendsBadge">0</span></div>' +
       '<div class="side-link" data-go="groups"><span class="ic">&#127760;</span><span>Groups</span></div>' +
       '<div class="side-link" data-go="reels"><span class="ic">&#127909;</span><span>Reels</span></div>' +
+      '<div class="side-link" data-go="invite"><span class="ic">&#127881;</span><span>Invite friends</span></div>' +
       '<div class="side-link" data-go="support"><span class="ic">&#10084;&#65039;</span><span>Support OpenBook</span></div>' +
       '<div class="side-link" id="themeToggle"><span class="ic">' + (currentTheme() === 'dark' ? '&#9728;&#65039;' : '&#127769;') + '</span><span>' + (currentTheme() === 'dark' ? 'Light mode' : 'Dark mode') + '</span></div>' +
       '<div class="side-link" id="leftLogout"><span class="ic">&#128682;</span><span>Log out</span></div>' +
@@ -474,6 +476,56 @@
         '</div></div></div>' +
       '<div class="card"><div class="shint" style="font-size:12px">Why not ads? OpenBook is built on the promise that your data is yours. Surveillance ads would break that promise, so we will not run them.</div></div>';
 
+    renderRightRail();
+  }
+
+  async function renderInvite() {
+    view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading...</div></div>';
+    let me, lb = [];
+    try { [me, lb] = await Promise.all([API.myReferral(), API.referralLeaderboard().then((r) => r.leaderboard).catch(() => [])]); }
+    catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+
+    const link = me.link || '';
+    const progress = Math.min(100, Math.round(((me.rewardEvery - me.toNextReward) / me.rewardEvery) * 100));
+    const badgeHtml = me.badge ? '<span class="badge-chip badge-' + esc(me.badge) + '">Inviter</span>' : '';
+
+    const lbHtml = lb.length
+      ? lb.map((u, i) => '<div class="lb-row"><span class="lb-rank">' + (i + 1) + '</span>' + avatar(u, 28) +
+          '<span class="lb-name">' + esc(u.name) + verifTick(u) + '</span><span class="lb-count">' + u.qualified + '</span></div>').join('')
+      : '<div class="shint" style="font-size:13px">No qualified invites yet. Be the first.</div>';
+
+    view.innerHTML =
+      '<div class="card"><div class="pname">&#127881; Invite friends &amp; family</div>' +
+      '<div class="shint" style="font-size:14px;line-height:1.6;margin-top:6px">' +
+      'Share OpenBook and grow it the honest way, no ads, no paid reach. For every <b>' + me.rewardEvery +
+      ' people</b> you invite who stay and use OpenBook as real humans for <b>' + me.qualifyDays +
+      ' days</b>, you earn <b>one free month of Premium</b> (the Gold badge, verified tick, and all premium perks). It stacks, so keep inviting.</div></div>' +
+
+      '<div class="card"><div class="section-title">Your invite link</div>' +
+      '<div class="invite-link-row">' +
+      '<input class="input" id="inviteLink" readonly value="' + esc(link) + '">' +
+      '<button class="btn btn-primary" id="copyInvite">Copy</button></div>' +
+      '<div class="shint" style="font-size:12px;margin-top:6px">Anyone who signs up from your link is tied to you automatically.</div></div>' +
+
+      '<div class="card"><div class="section-title">Your progress ' + badgeHtml + '</div>' +
+      '<div class="dash-grid">' +
+        statCard(me.qualified, 'Qualified invites', 'Friends who stayed ' + me.qualifyDays + '+ days as real, active humans.') +
+        statCard(me.pending, 'Pending', 'Invited, not yet past the ' + me.qualifyDays + '-day mark.') +
+        statCard(me.monthsEarned, 'Free months earned', 'Months of Premium credited to your account so far.') +
+      '</div>' +
+      '<div class="prog-wrap"><div class="prog-bar" style="width:' + progress + '%"></div></div>' +
+      '<div class="shint" style="font-size:13px;margin-top:6px"><b>' + me.toNextReward + '</b> more qualified invite' +
+      (me.toNextReward === 1 ? '' : 's') + ' until your next free month.</div></div>' +
+
+      '<div class="card"><div class="section-title">Top inviters</div>' + lbHtml + '</div>' +
+
+      '<div class="card"><div class="shint" style="font-size:12px">Why "qualified"? It keeps the rewards fair and bot-proof. A friend counts only after they stick around and genuinely use OpenBook, not the moment they sign up. Rewards are perks only and never affect anyone\'s feed ranking or votes.</div></div>';
+
+    const copyBtn = view.querySelector('#copyInvite');
+    copyBtn.onclick = async () => {
+      try { await navigator.clipboard.writeText(link); copyBtn.textContent = 'Copied!'; setTimeout(() => (copyBtn.textContent = 'Copy'), 1500); }
+      catch (e) { const inp = view.querySelector('#inviteLink'); inp.select(); document.execCommand('copy'); copyBtn.textContent = 'Copied!'; setTimeout(() => (copyBtn.textContent = 'Copy'), 1500); }
+    };
     renderRightRail();
   }
 
