@@ -140,7 +140,7 @@ app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.h
 app.use((err, req, res, next) => {
   const status = err.status || (err.name === 'MulterError' ? 400 : 500);
   const message = err.code === 'LIMIT_FILE_SIZE'
-    ? 'File is too large (images max 8 MB, reels max 60 MB)'
+    ? 'File is too large. Free accounts can upload up to 100 MB per file; upgrade to Plus or Premium for larger uploads.'
     : (err.message || 'Something went wrong');
   const where = { method: req.method, path: req.originalUrl || req.url, status };
   if (status >= 500) logger.error({ err, ...where }, 'request error');
