@@ -9,7 +9,7 @@
 
 const crypto = require('crypto');
 const db = require('./db');
-const { publicTierFields } = require('./entitlements');
+const { publicTierFields, effectiveTier } = require('./entitlements');
 
 const COOKIE_NAME = 'tb_session';
 const THIRTY_DAYS = 1000 * 60 * 60 * 24 * 30;
@@ -78,6 +78,11 @@ function publicUser(u) {
     founder: !!u.is_founder, // cosmetic Founder badge (never affects reputation)
     avatarPos: u.avatar_pos || '50% 50%', // drag-to-position focal points
     coverPos: u.cover_pos || '50% 50%',
+    // Links in the bio are made clickable only for paying supporters (Plus tier
+    // and up, which is $3+) OR long-standing trusted accounts (trust level 3+ /
+    // high standing). This is the standard anti-spam gate: a brand-new account
+    // cannot drop a clickable link, but an established or supporting member can.
+    bioLinks: effectiveTier(u) >= 2 || (u.trust_level || 0) >= 3 || (u.standing == null ? 100 : u.standing) >= 150,
   }, publicTierFields(u)); // tier, tierName, verified (blue tick), badge
 }
 

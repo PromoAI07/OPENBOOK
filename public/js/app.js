@@ -348,6 +348,7 @@
       '<div class="side-link" data-go="suggestions"><span class="ic">&#128161;</span><span>Suggestions</span></div>' +
       '<div class="side-link" data-go="invite"><span class="ic">&#127881;</span><span>Invite friends</span></div>' +
       '<div class="side-link" data-go="support"><span class="ic">&#10084;&#65039;</span><span>Support OpenBook</span></div>' +
+      '<a class="side-link" href="/mission" target="_blank" rel="noopener" style="text-decoration:none;color:inherit"><span class="ic">&#10024;</span><span>Our Mission</span></a>' +
       '<div class="side-link" id="themeToggle"><span class="ic">' + (currentTheme() === 'dark' ? '&#9728;&#65039;' : '&#127769;') + '</span><span>' + (currentTheme() === 'dark' ? 'Light mode' : 'Dark mode') + '</span></div>' +
       '<div class="side-link" id="leftLogout"><span class="ic">&#128682;</span><span>Log out</span></div>' +
       '</div>';
@@ -1462,6 +1463,21 @@
     }
   }
 
+  // Render a user's bio. URLs become clickable only when the server flags it
+  // (u.bioLinks: Plus tier $3+, or a long-standing trusted / high-standing
+  // account) - the anti-spam gate. Otherwise the URL shows as plain text.
+  function bioHtml(u) {
+    var raw = (u && u.bio) || '';
+    if (!raw) return '';
+    var safe = esc(raw);
+    if (u && u.bioLinks) {
+      safe = safe.replace(/(https?:\/\/[^\s<]+)/g, function (m) {
+        return '<a href="' + m + '" target="_blank" rel="noopener nofollow ugc" class="bio-link">' + m + '</a>';
+      });
+    }
+    return '<div class="profile-bio" style="margin-top:4px">' + safe + '</div>';
+  }
+
   async function renderProfile(id) {
     view.innerHTML = '<div class="card card-pad-0"><div class="empty" style="padding:40px">Loading profile...</div></div>';
     let data;
@@ -1482,7 +1498,7 @@
       (data.nameHistory && data.nameHistory.length
         ? '<div class="pmeta" style="font-size:12px">Previously known as: ' + data.nameHistory.map((h) => esc(h.name)).join(', ') + '</div>'
         : '') +
-      (u.bio ? '<div style="margin-top:4px">' + esc(u.bio) + '</div>' : '') +
+      bioHtml(u) +
       '</div>' +
       '<div class="pactions">' + profileActions(data) + '</div>' +
       '</div>' +
@@ -1602,7 +1618,8 @@
       '<div class="mh"><h3>Edit profile</h3></div><div class="mc">' +
       '<div class="field"><label>Name</label><input class="input" id="epName" value="' + esc(ME.name) + '">' +
       '<div class="shint" style="font-size:12px">Name changes are limited (first after 30 days, then every 3 months, then yearly) and your old names stay visible on your profile.</div></div>' +
-      '<div class="field"><label>Bio</label><textarea class="input" id="epBio" rows="3" placeholder="Tell people about yourself">' + esc(ME.bio || '') + '</textarea></div>' +
+      '<div class="field"><label>Bio</label><textarea class="input" id="epBio" rows="3" maxlength="300" placeholder="Tell people about yourself">' + esc(ME.bio || '') + '</textarea>' +
+      '<div class="shint" style="font-size:12px;display:flex;justify-content:space-between;gap:10px"><span>Links become clickable on <strong>Plus</strong> and above (or for long-standing trusted accounts).</span><span id="epBioCount" style="white-space:nowrap;color:var(--text-soft)"></span></div></div>' +
       '<button class="btn btn-primary btn-block" id="epSave">Save changes</button>' +
       '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +
       '<div class="shint" style="font-size:12px;margin-bottom:8px">Danger zone</div>' +
@@ -1610,6 +1627,8 @@
       '</div>' +
       '</div>'
     );
+    var _bioEl = m.q('#epBio'), _bioCount = m.q('#epBioCount');
+    if (_bioEl && _bioCount) { var _updBio = function () { _bioCount.textContent = _bioEl.value.length + ' / 300'; }; _bioEl.addEventListener('input', _updBio); _updBio(); }
     m.q('#epSave').onclick = async () => {
       const name = m.q('#epName').value.trim();
       const bio = m.q('#epBio').value.trim();
@@ -1998,10 +2017,12 @@
   async function renderGroups() {
     view.innerHTML =
       '<div class="card"><div class="mk-head"><div class="section-title" style="flex:1;margin:0">Groups</div>' +
-      '<button class="btn btn-primary btn-sm" id="createGroupBtn">&#10010; Create group</button></div></div>' +
+      '<button class="btn btn-primary btn-sm" id="createGroupBtn">&#10010; Create group</button></div>' +
+      '<div class="page-desc">Spaces you <strong>join to take part in</strong>, like Facebook groups. You join a group first, then you can post in it, and private groups are visible to members only. Looking for open spaces anyone can post in without joining? Those are <a href="#" id="descToComm">Communities</a>.</div></div>' +
       '<div class="card"><div class="section-title">Your groups</div><div id="myGroups" class="grp-grid"><div class="empty">Loading...</div></div></div>' +
       '<div class="card"><div class="section-title">Discover</div><div id="discoverGroups" class="grp-grid"><div class="empty">Loading...</div></div></div>';
     document.getElementById('createGroupBtn').onclick = openCreateGroup;
+    var _dC = document.getElementById('descToComm'); if (_dC) _dC.onclick = function (e) { e.preventDefault(); go('communities'); };
     try {
       const r = await API.groups();
       const mine = document.getElementById('myGroups');
@@ -2246,10 +2267,12 @@
   async function renderCommunities() {
     view.innerHTML =
       '<div class="card"><div class="mk-head"><div class="section-title" style="flex:1;margin:0">Communities</div>' +
-      '<button class="btn btn-primary btn-sm" id="createCommBtn">&#10010; Create community</button></div></div>' +
+      '<button class="btn btn-primary btn-sm" id="createCommBtn">&#10010; Create community</button></div>' +
+      '<div class="page-desc">Open spaces built around a topic, like subreddits. <strong>Subscribe to follow</strong> a public community in your home feed, but you can post and comment in any public one without joining. Looking for member-only spaces you join first? Those are <a href="#" id="descToGroups">Groups</a>.</div></div>' +
       '<div class="card"><div class="section-title">Your communities</div><div id="subComm" class="grp-grid"><div class="empty">Loading...</div></div></div>' +
       '<div class="card"><div class="section-title">Discover</div><div id="discComm" class="grp-grid"><div class="empty">Loading...</div></div></div>';
     document.getElementById('createCommBtn').onclick = openCreateCommunity;
+    var _dG = document.getElementById('descToGroups'); if (_dG) _dG.onclick = function (e) { e.preventDefault(); go('groups'); };
     try {
       const r = await API.communities();
       const sub = document.getElementById('subComm');

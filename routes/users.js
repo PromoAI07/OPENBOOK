@@ -56,7 +56,7 @@ router.get('/', requireAuth, async (req, res) => {
 // is rate-limited, and each change leaves a public trail in name_history.
 router.put('/me', requireAuth, async (req, res) => {
   const name = (req.body.name || '').trim();
-  const bio = (req.body.bio || '').trim();
+  const bio = (req.body.bio || '').trim().slice(0, 300); // bios are capped at 300 characters
   if (!name) return res.status(400).json({ error: 'Your name cannot be empty' });
 
   const cur = await db.prepare('SELECT name, created_at FROM users WHERE id = ?').get(req.user.id);

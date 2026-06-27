@@ -1049,6 +1049,21 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 .hist-when { font-size: 12px; color: var(--text-soft); margin-bottom: 4px; font-weight: 600; }
 .hist-title { font-weight: 700; margin-bottom: 2px; }
 
+/* ---------- Page descriptions (explain Groups vs Communities, etc.) ---------- */
+.page-desc { color: var(--text-soft); font-size: 13.5px; line-height: 1.55; padding: 6px 6px 2px; }
+.page-desc a { color: var(--brand); cursor: pointer; text-decoration: none; }
+.page-desc a:hover { text-decoration: underline; }
+
+/* ---------- Profile bio + clickable bio links (Plus tier / trusted accounts) ---------- */
+.profile-bio { white-space: pre-wrap; word-break: break-word; }
+.bio-link { color: var(--brand); text-decoration: underline; word-break: break-all; }
+
+/* ---------- Shared site footer (landing page + "Our Mission") ---------- */
+.site-footer { display: flex; gap: 18px; align-items: center; justify-content: center; flex-wrap: wrap; padding: 26px 16px 34px; color: var(--text-soft); font-size: 13px; }
+.site-footer a { color: var(--brand); text-decoration: none; }
+.site-footer a:hover { text-decoration: underline; }
+.site-footer-tag { color: var(--text-soft); }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 980px) {
   .layout { grid-template-columns: minmax(0, 1fr); max-width: 640px; }

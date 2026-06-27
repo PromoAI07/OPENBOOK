@@ -184,6 +184,9 @@ app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.h
 // Password-reset page (the target of the emailed link; the token is in the URL).
 app.get('/reset', (req, res) => res.sendFile(path.join(__dirname, 'public', 'reset.html')));
 
+// Public "Our Mission" page (open to everyone, logged in or out).
+app.get('/mission', (req, res) => res.sendFile(path.join(__dirname, 'public', 'mission.html')));
+
 // Separate owner-only analytics page. The PAGE ITSELF is gated here server-side:
 // a non-admin (or logged-out) visitor is bounced before the page even loads, and
 // the analytics API it calls is independently admin-only. admin.html lives

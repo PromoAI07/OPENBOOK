@@ -39,7 +39,7 @@ const TIERS = {
   2: {
     tier: 2, name: 'Plus', price: 3, badge: 'silver', verified: true, adFree: true,
     customization: 'themes',
-    perks: ['Everything in Supporter', 'Silver badge', '3 GB of media storage', 'Ad-free, forever (if ads ever launch)', 'Bigger uploads (250 MB per file)', 'Profile themes'],
+    perks: ['Everything in Supporter', 'Silver badge', '3 GB of media storage', 'Clickable links in your profile bio', 'Ad-free, forever (if ads ever launch)', 'Bigger uploads (250 MB per file)', 'Profile themes'],
   },
   3: {
     tier: 3, name: 'Premium', price: 10, badge: 'gold', verified: true, adFree: true,
