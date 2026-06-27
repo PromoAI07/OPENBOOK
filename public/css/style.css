@@ -857,6 +857,16 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 .sug-admin { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .sug-admin:empty { display: none; }
 
+/* ---------- Photo repositioning ---------- */
+.profile-cover .cover-tools { position: absolute; right: 14px; bottom: 14px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.cover-tools .cover-btn { background: rgba(255, 255, 255, 0.92); color: var(--text); }
+.profile-head .av-wrap .cam.cam-repos { right: auto; left: 4px; }
+.repos-frame { position: relative; overflow: hidden; background: #000; width: 100%; touch-action: none; cursor: grab; user-select: none; }
+.repos-frame:active { cursor: grabbing; }
+.repos-frame img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; user-select: none; }
+.rf-cover { aspect-ratio: 5 / 2; min-height: 150px; border-radius: 10px; }
+.rf-avatar { width: 260px; max-width: 80vw; aspect-ratio: 1 / 1; border-radius: 50%; margin: 0 auto; }
+
 /* ---------- Notifications dropdown ---------- */
 .dropdown {
   position: absolute; right: 16px; top: calc(var(--topbar-h) - 4px);

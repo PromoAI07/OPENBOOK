@@ -103,6 +103,21 @@ router.post('/me/cover', requireAuth, upload.single('image'), (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
+// Save the focal point (CSS object-position, e.g. "50% 30%") for the avatar and/or
+// cover, so the chosen part of each photo stays visible (drag to reposition).
+router.post('/me/photo-position', requireAuth, (req, res) => {
+  const re = /^\d{1,3}(\.\d+)?% \d{1,3}(\.\d+)?%$/;
+  const sets = [];
+  const vals = [];
+  if (typeof req.body.avatarPos === 'string' && re.test(req.body.avatarPos)) { sets.push('avatar_pos = ?'); vals.push(req.body.avatarPos); }
+  if (typeof req.body.coverPos === 'string' && re.test(req.body.coverPos)) { sets.push('cover_pos = ?'); vals.push(req.body.coverPos); }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing valid to update' });
+  vals.push(req.user.id);
+  db.prepare('UPDATE users SET ' + sets.join(', ') + ' WHERE id = ?').run(...vals);
+  const u = db.prepare('SELECT avatar_pos, cover_pos FROM users WHERE id = ?').get(req.user.id);
+  res.json({ avatarPos: u.avatar_pos, coverPos: u.cover_pos });
+});
+
 // Delete your account and everything in it. This is the "100% control" promise in
 // its strongest form: it wipes your uploaded media from storage (and purges the
 // CDN), then deletes your user row, which cascades your posts, comments, messages,

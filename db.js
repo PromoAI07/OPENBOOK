@@ -402,6 +402,10 @@ addColumn('users', 'reset_expires TEXT', 'reset_expires');
 addColumn('users', 'is_admin INTEGER NOT NULL DEFAULT 0', 'is_admin');
 // Founder badge flag (cosmetic). Synced from FOUNDER_EMAILS at boot (see below).
 addColumn('users', 'is_founder INTEGER NOT NULL DEFAULT 0', 'is_founder');
+// Focal point (object-position) for the avatar + cover, so users can drag-position
+// their photos like Facebook. Stored as a CSS position string, e.g. "50% 30%".
+addColumn('users', "avatar_pos TEXT NOT NULL DEFAULT '50% 50%'", 'avatar_pos');
+addColumn('users', "cover_pos TEXT NOT NULL DEFAULT '50% 50%'", 'cover_pos');
 addColumn('posts', 'locked INTEGER NOT NULL DEFAULT 0', 'locked');   // comments locked
 addColumn('posts', 'pinned INTEGER NOT NULL DEFAULT 0', 'pinned');   // pinned in its community
 

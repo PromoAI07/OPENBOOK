@@ -65,6 +65,7 @@ const API = {
   deleteAccount(password) { return this.request('DELETE', '/api/users/me', { password }); },
   uploadAvatar(file) { const f = new FormData(); f.append('image', file); return this.postForm('/api/users/me/avatar', f); },
   uploadCover(file) { const f = new FormData(); f.append('image', file); return this.postForm('/api/users/me/cover', f); },
+  photoPosition(body) { return this.post('/api/users/me/photo-position', body); },
   userFriends(id) { return this.get('/api/users/' + id + '/friends'); },
 
   // Posts

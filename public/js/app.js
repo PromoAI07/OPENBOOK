@@ -85,7 +85,8 @@
     size = size || 40;
     const dim = 'width:' + size + 'px;height:' + size + 'px;';
     if (user && user.avatar) {
-      return '<img class="avatar" style="' + dim + '" src="' + esc(user.avatar) + '" alt="">';
+      const pos = user.avatarPos ? 'object-position:' + esc(user.avatarPos) + ';' : '';
+      return '<img class="avatar" style="' + dim + pos + '" src="' + esc(user.avatar) + '" alt="">';
     }
     const initial = (((user && user.name) || '?').trim().charAt(0) || '?');
     const fs = Math.round(size * 0.42);
@@ -1469,13 +1470,13 @@
 
     const u = data.user;
     const isMe = data.friendStatus === 'self';
-    const coverStyle = u.cover ? ' style="background-image:url(\'' + esc(u.cover) + '\')"' : '';
+    const coverStyle = u.cover ? ' style="background-image:url(\'' + esc(u.cover) + '\');background-position:' + esc(u.coverPos || '50% 50%') + '"' : '';
 
     view.innerHTML =
       '<div class="card card-pad-0">' +
-      '<div class="profile-cover"' + coverStyle + '>' + (isMe ? '<button class="btn btn-sm edit-cover" id="editCoverBtn">&#128247; Edit cover</button>' : '') + '</div>' +
+      '<div class="profile-cover"' + coverStyle + '>' + (isMe ? '<div class="cover-tools"><button class="btn btn-sm cover-btn" id="editCoverBtn">&#128247; Edit cover</button>' + (u.cover ? '<button class="btn btn-sm cover-btn" id="reposCoverBtn">&#8597; Reposition</button>' : '') + '</div>' : '') + '</div>' +
       '<div class="profile-head">' +
-      '<div class="av-wrap">' + avatar(u, 130) + (isMe ? '<button class="cam" id="editAvatarBtn" title="Change photo">&#128247;</button>' : '') + '</div>' +
+      '<div class="av-wrap">' + avatar(u, 130) + (isMe ? '<button class="cam" id="editAvatarBtn" title="Change photo">&#128247;</button>' + (u.avatar ? '<button class="cam cam-repos" id="reposAvatarBtn" title="Reposition photo">&#10021;</button>' : '') : '') + '</div>' +
       '<div class="phead-main"><div class="pname">' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
       '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + data.postsCount + ' posts</div>' +
       (data.nameHistory && data.nameHistory.length
@@ -1533,11 +1534,67 @@
     const avBtn = document.getElementById('editAvatarBtn');
     const cvBtn = document.getElementById('editCoverBtn');
     if (avBtn) avBtn.onclick = () => pickImage(async (file) => {
-      try { ME = (await API.uploadAvatar(file)).user; toast('Profile photo updated'); setupChromeAvatar(); renderLeftRail(); renderProfile(ME.id); } catch (e) { toast(e.message); }
+      try { ME = (await API.uploadAvatar(file)).user; toast('Profile photo updated'); setupChromeAvatar(); renderLeftRail(); renderProfile(ME.id); openReposition('avatar'); } catch (e) { toast(e.message); }
     });
     if (cvBtn) cvBtn.onclick = () => pickImage(async (file) => {
-      try { await API.uploadCover(file); toast('Cover photo updated'); renderProfile(ME.id); } catch (e) { toast(e.message); }
+      try { const r = await API.uploadCover(file); if (r && r.user) ME.cover = r.user.cover; toast('Cover photo updated'); renderProfile(ME.id); openReposition('cover'); } catch (e) { toast(e.message); }
     });
+    const rAv = document.getElementById('reposAvatarBtn');
+    const rCv = document.getElementById('reposCoverBtn');
+    if (rAv) rAv.onclick = () => openReposition('avatar');
+    if (rCv) rCv.onclick = () => openReposition('cover');
+  }
+
+  // Drag-to-reposition for the avatar or cover photo (Facebook style). Shows the
+  // photo in a frame; dragging maps to a CSS object-position the server stores and
+  // every render then applies. The math: with object-fit cover the image overflows
+  // the frame by (scaledSize - frameSize); a drag of d px changes the position by
+  // d / overflow * 100 percent.
+  function openReposition(kind) {
+    const src = kind === 'cover' ? ME.cover : ME.avatar;
+    if (!src) { toast('Add a photo first'); return; }
+    const cur = String((kind === 'cover' ? ME.coverPos : ME.avatarPos) || '50% 50%').split(' ');
+    const pos = { x: parseFloat(cur[0]) || 50, y: parseFloat(cur[1]) || 50 };
+    const m = modal(
+      '<div class="mh"><h3>Reposition ' + (kind === 'cover' ? 'cover' : 'profile') + ' photo</h3></div><div class="mc">' +
+      '<div class="repos-frame ' + (kind === 'cover' ? 'rf-cover' : 'rf-avatar') + '"><img id="reposImg" src="' + esc(src) + '" draggable="false" alt=""></div>' +
+      '<div class="shint" style="font-size:12px;margin-top:8px;text-align:center">Drag the photo to choose what shows.</div>' +
+      '<button class="btn btn-primary btn-block" id="reposSave" style="margin-top:12px">Save position</button></div>'
+    );
+    const frame = m.q('.repos-frame');
+    const img = m.q('#reposImg');
+    let oX = 0, oY = 0;
+    function measure() {
+      const fw = frame.clientWidth, fh = frame.clientHeight, iw = img.naturalWidth, ih = img.naturalHeight;
+      if (!iw || !ih || !fw || !fh) return;
+      const scale = Math.max(fw / iw, fh / ih);
+      oX = Math.max(0, iw * scale - fw);
+      oY = Math.max(0, ih * scale - fh);
+      img.style.objectPosition = pos.x + '% ' + pos.y + '%';
+    }
+    if (img.complete) measure(); else img.onload = measure;
+    let dragging = false, lx = 0, ly = 0;
+    frame.addEventListener('pointerdown', (e) => { dragging = true; lx = e.clientX; ly = e.clientY; try { frame.setPointerCapture(e.pointerId); } catch (er) {} e.preventDefault(); });
+    frame.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
+      if (oX > 0) pos.x = Math.max(0, Math.min(100, pos.x - (dx / oX) * 100));
+      if (oY > 0) pos.y = Math.max(0, Math.min(100, pos.y - (dy / oY) * 100));
+      img.style.objectPosition = pos.x + '% ' + pos.y + '%';
+    });
+    frame.addEventListener('pointerup', () => { dragging = false; });
+    frame.addEventListener('pointercancel', () => { dragging = false; });
+    m.q('#reposSave').onclick = async () => {
+      const posStr = Math.round(pos.x) + '% ' + Math.round(pos.y) + '%';
+      try {
+        const r = await API.photoPosition(kind === 'cover' ? { coverPos: posStr } : { avatarPos: posStr });
+        ME.avatarPos = r.avatarPos; ME.coverPos = r.coverPos;
+        m.close();
+        toast('Position saved');
+        if (kind === 'avatar') { setupChromeAvatar(); renderLeftRail(); }
+        renderProfile(ME.id);
+      } catch (e) { toast(e.message); }
+    };
   }
 
   function openEditProfile() {

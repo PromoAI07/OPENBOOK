@@ -65,6 +65,8 @@ function publicUser(u) {
     karma: u.karma || 0,
     created_at: u.created_at,
     founder: !!u.is_founder, // cosmetic Founder badge (never affects reputation)
+    avatarPos: u.avatar_pos || '50% 50%', // drag-to-position focal points
+    coverPos: u.cover_pos || '50% 50%',
   }, publicTierFields(u)); // tier, tierName, verified (blue tick), badge
 }
 
