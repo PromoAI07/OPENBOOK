@@ -348,10 +348,16 @@
       '<div class="side-link" data-go="suggestions"><span class="ic">&#128161;</span><span>Suggestions</span></div>' +
       '<div class="side-link" data-go="invite"><span class="ic">&#127881;</span><span>Invite friends</span></div>' +
       '<div class="side-link" data-go="support"><span class="ic">&#10084;&#65039;</span><span>Support OpenBook</span></div>' +
-      '<a class="side-link" href="/mission" target="_blank" rel="noopener" style="text-decoration:none;color:inherit"><span class="ic">&#10024;</span><span>Our Mission</span></a>' +
       '<div class="side-link" id="themeToggle"><span class="ic">' + (currentTheme() === 'dark' ? '&#9728;&#65039;' : '&#127769;') + '</span><span>' + (currentTheme() === 'dark' ? 'Light mode' : 'Dark mode') + '</span></div>' +
       '<div class="side-link" id="leftLogout"><span class="ic">&#128682;</span><span>Log out</span></div>' +
-      '</div>';
+      '</div>' +
+      '<nav class="rail-foot">' +
+      '<a href="/mission">Our Mission</a>' +
+      '<a href="/privacy">Privacy Policy</a>' +
+      '<a href="/cookies">Cookies</a>' +
+      '<a href="https://github.com/PromoAI07/OPENBOOK" target="_blank" rel="noopener">Open source</a>' +
+      '<div class="rail-foot-copy">OpenBook. Your data is yours, always.</div>' +
+      '</nav>';
     rail.querySelectorAll('[data-go]').forEach((b) =>
       b.addEventListener('click', () => {
         const n = b.getAttribute('data-go');

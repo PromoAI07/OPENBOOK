@@ -1064,6 +1064,13 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 .site-footer a:hover { text-decoration: underline; }
 .site-footer-tag { color: var(--text-soft); }
 
+/* Facebook-style text links at the bottom of the left rail */
+.rail-foot { padding: 12px 10px 4px; line-height: 1.7; }
+.rail-foot a { color: var(--text-soft); font-size: 12px; text-decoration: none; }
+.rail-foot a:hover { color: var(--brand); text-decoration: underline; }
+.rail-foot a:not(:last-of-type)::after { content: "\00B7"; display: inline-block; margin: 0 6px; color: var(--text-soft); text-decoration: none; }
+.rail-foot-copy { margin-top: 7px; font-size: 11px; color: var(--text-soft); opacity: .75; }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 980px) {
   .layout { grid-template-columns: minmax(0, 1fr); max-width: 640px; }

@@ -187,6 +187,10 @@ app.get('/reset', (req, res) => res.sendFile(path.join(__dirname, 'public', 'res
 // Public "Our Mission" page (open to everyone, logged in or out).
 app.get('/mission', (req, res) => res.sendFile(path.join(__dirname, 'public', 'mission.html')));
 
+// Public Privacy Policy and Cookies pages (open to everyone, logged in or out).
+app.get('/privacy', (req, res) => res.sendFile(path.join(__dirname, 'public', 'privacy.html')));
+app.get('/cookies', (req, res) => res.sendFile(path.join(__dirname, 'public', 'cookies.html')));
+
 // Separate owner-only analytics page. The PAGE ITSELF is gated here server-side:
 // a non-admin (or logged-out) visitor is bounced before the page even loads, and
 // the analytics API it calls is independently admin-only. admin.html lives

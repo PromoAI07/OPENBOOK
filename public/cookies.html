@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cookies - OpenBook</title>
+  <meta name="description" content="How OpenBook uses cookies: the bare minimum to keep you logged in, and nothing for advertising or cross-site tracking. Ever." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%235b51e8'/><text x='16' y='23' font-size='20' fill='white' text-anchor='middle' font-family='Arial' font-weight='bold'>O</text></svg>" />
+  <script>try{var t=localStorage.getItem('ob_theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .doc-wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 80px; }
+    .doc-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 28px; }
+    .doc-brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; color: var(--brand); text-decoration: none; }
+    .doc-brand .mk { width: 34px; height: 34px; border-radius: 9px; background: var(--brand); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; }
+    .doc-back { color: var(--text-soft); text-decoration: none; font-size: 14px; white-space: nowrap; }
+    .doc-back:hover { color: var(--brand); }
+    .doc-wrap h1 { font-size: 34px; line-height: 1.15; margin: 0 0 10px; letter-spacing: -0.5px; }
+    .doc-lead { font-size: 18px; line-height: 1.5; color: var(--text); font-weight: 600; margin: 0 0 6px; }
+    .doc-updated { color: var(--text-soft); font-size: 13.5px; margin-bottom: 26px; }
+    .doc-wrap h2 { font-size: 21px; margin: 34px 0 10px; }
+    .doc-wrap p { font-size: 16.5px; line-height: 1.65; color: var(--text); margin: 0 0 14px; }
+    .doc-wrap strong { color: var(--text); }
+    .ck-table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 15px; }
+    .ck-table th, .ck-table td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .ck-table th { color: var(--text-soft); font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+    .ck-table td { color: var(--text); line-height: 1.5; }
+    .ck-table code { background: var(--brand-soft); color: var(--brand); padding: 2px 7px; border-radius: 6px; font-size: 13px; }
+    .promise-cards { display: grid; gap: 12px; margin: 10px 0 4px; }
+    .pc { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow); }
+    .pc h3 { margin: 0 0 4px; font-size: 16.5px; }
+    .pc p { font-size: 15px; margin: 0; color: var(--text-soft); }
+    .doc-cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
+    .doc-cta a { display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px; border-radius: 12px; text-decoration: none; font-weight: 600; }
+    .dc-primary { background: var(--brand); color: #fff; }
+    .dc-ghost { border: 1px solid var(--line); color: var(--text); }
+    @media (max-width: 560px) { .doc-wrap h1 { font-size: 27px; } .ck-table th:nth-child(3), .ck-table td:nth-child(3) { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">
+    <div class="doc-top">
+      <a class="doc-brand" href="/"><span class="mk">O</span> OpenBook</a>
+      <a class="doc-back" href="/">&larr; Back to OpenBook</a>
+    </div>
+
+    <h1>Cookies</h1>
+    <p class="doc-lead">We use the bare minimum needed to keep you logged in. Nothing for advertising, nothing that follows you around the web.</p>
+    <p class="doc-updated">Last updated June 2026.</p>
+
+    <p>A cookie is a small piece of data a website stores in your browser. Most big
+      platforms use them to track you across the internet and sell ads. We do not.
+      OpenBook is open source, so the exact cookies we set can be checked against the
+      code on
+      <a href="https://github.com/PromoAI07/OPENBOOK" target="_blank" rel="noopener noreferrer">GitHub</a>.</p>
+
+    <h2>What we actually store</h2>
+    <table class="ck-table">
+      <thead>
+        <tr><th>Name</th><th>Purpose</th><th>Type</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>session</code></td>
+          <td>Keeps you logged in so you do not have to type your password on every page. This is essential. Without it, the site cannot know it is you.</td>
+          <td>Essential cookie</td>
+        </tr>
+        <tr>
+          <td><code>ob_theme</code></td>
+          <td>Remembers whether you chose light or dark mode. This is stored in your browser's local storage, not sent to our server, and is purely your preference.</td>
+          <td>Browser preference</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>That is the whole list. If it ever grows, the change will appear in the public
+      code history first.</p>
+
+    <h2>What we never use</h2>
+    <div class="promise-cards">
+      <div class="pc"><h3>No advertising cookies.</h3>
+        <p>We do not sell ads, so there is nothing to track you for.</p></div>
+      <div class="pc"><h3>No third-party trackers.</h3>
+        <p>No Facebook pixel, no Google ad tags, no analytics that follow you onto other websites.</p></div>
+      <div class="pc"><h3>No cross-site profiling.</h3>
+        <p>We do not stitch your activity together with other sites to build a profile and sell it.</p></div>
+    </div>
+
+    <h2>Your control</h2>
+    <p>You can clear cookies any time from your browser settings. Clearing the
+      <code>session</code> cookie simply logs you out, and clearing
+      <code>ob_theme</code> just resets the site back to its default appearance.
+      Nothing else breaks.</p>
+
+    <h2>Learn more</h2>
+    <p>This page is part of how we keep our promise that <strong>your data is yours</strong>.
+      For the bigger picture, read our <a href="/privacy">Privacy Policy</a> and
+      <a href="/mission">our mission</a>.</p>
+
+    <div class="doc-cta">
+      <a class="dc-primary" href="/privacy">Read the Privacy Policy</a>
+      <a class="dc-ghost" href="https://github.com/PromoAI07/OPENBOOK" target="_blank" rel="noopener noreferrer">Read the code on GitHub</a>
+    </div>
+  </div>
+</body>
+</html>
