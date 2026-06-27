@@ -76,9 +76,10 @@ const API = {
     return this.get('/api/posts/feed/discover' + (params.length ? '?' + params.join('&') : ''));
   },
   userPosts(id) { return this.get('/api/posts/user/' + id); },
-  createPost(content, file) {
+  createPost(content, file, audience) {
     const f = new FormData();
     f.append('content', content || '');
+    if (audience) f.append('audience', audience);
     if (file) f.append('image', file);
     return this.postForm('/api/posts', f);
   },

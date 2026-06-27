@@ -752,7 +752,26 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 .contact { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 10px; cursor: pointer; }
 .contact:hover { background: var(--hover); }
 .contact .nm { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dot-online { width: 10px; height: 10px; border-radius: 50%; background: var(--green); }
+.dot-online { width: 10px; height: 10px; border-radius: 50%; background: var(--green); flex: 0 0 auto; }
+.dot-online.off { background: #9aa3ad; }
+/* Cosmetic Founder badge next to a name (distinct from supporter badges). */
+.founder-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; font-weight: 800; line-height: 1;
+  padding: 2px 7px; border-radius: 999px; vertical-align: middle;
+  color: #4a3200; background: linear-gradient(135deg, #ffd34d, #f7a823);
+  border: 1px solid rgba(0,0,0,0.08); white-space: nowrap;
+}
+/* Profile header name column: take the remaining width and let long names wrap
+   cleanly instead of being clipped under the avatar / cover overlap. */
+.profile-head .phead-main { flex: 1 1 auto; min-width: 0; }
+.profile-head .pname { overflow-wrap: anywhere; line-height: 1.2; }
+/* Composer audience (Public / Friends) selector. */
+.composer-audience {
+  font: inherit; font-size: 13px; padding: 6px 8px; margin-right: 8px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--card); color: var(--text); cursor: pointer;
+}
 
 /* ---------- Notifications dropdown ---------- */
 .dropdown {

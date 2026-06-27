@@ -62,6 +62,7 @@ function buildPostView(post, author, commentCount, reactions, tally, community, 
     content: post.content,
     image: post.image,
     created_at: post.created_at,
+    audience: post.audience || 'friends', // 'public' or 'friends' (personal posts)
     author: publicUser(author),
     commentCount,
     reactions,

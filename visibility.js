@@ -42,6 +42,9 @@ function canViewPost(viewerId, post) {
     if (!g) return false;
     return g.privacy === 'public' || isGroupMember(viewerId, post.group_id);
   }
+  // Personal post: public posts are visible to anyone; friends-only posts are
+  // visible to the author and accepted friends.
+  if (post.audience === 'public') return true;
   return areFriends(viewerId, post.user_id);
 }
 
@@ -56,6 +59,9 @@ function canInteractPost(viewerId, post) {
     return c.privacy === 'public' || isCommunityMember(viewerId, post.community_id);
   }
   if (post.group_id) return isGroupMember(viewerId, post.group_id);
+  // Public personal posts can be reacted to / commented on by anyone; friends-only
+  // posts stay friends + author.
+  if (post.audience === 'public') return true;
   return areFriends(viewerId, post.user_id);
 }
 

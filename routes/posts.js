@@ -142,18 +142,23 @@ router.get('/feed/home', requireAuth, (req, res) => {
   res.json({ posts: ranked, sort, window });
 });
 
-// Discover feed: public content from across OpenBook (every public community),
-// for finding people and communities you do not already follow. Personal posts
-// stay friends-only, so this is public-community content only. Ranked by the same
-// hot * reach formula, shadowbanned authors excluded. This is the surface that an
+// Discover feed: public content from across OpenBook, for finding people and
+// communities you do not already follow. Includes BOTH public personal posts
+// (audience = 'public') from anyone AND posts in public communities. Friends-only
+// personal posts and private community/group posts are excluded. Ranked by the
+// same hot * reach formula, shadowbanned authors excluded. This is the surface an
 // interest-based personalization layer will plug into as volume grows.
 router.get('/feed/discover', requireAuth, (req, res) => {
   const uid = req.user.id;
   const rows = db
     .prepare(
       `SELECT p.* FROM posts p
-       JOIN communities c ON c.id = p.community_id
-       WHERE c.privacy = 'public' AND p.visibility = 'visible'
+       LEFT JOIN communities c ON c.id = p.community_id
+       WHERE p.visibility = 'visible' AND p.group_id IS NULL
+         AND (
+           (p.community_id IS NULL AND p.audience = 'public')
+           OR (p.community_id IS NOT NULL AND c.privacy = 'public')
+         )
        ORDER BY p.created_at DESC, p.id DESC LIMIT 200`
     )
     .all();
@@ -177,15 +182,19 @@ router.get('/feed/discover', requireAuth, (req, res) => {
   res.json({ posts: ranked, sort, window });
 });
 
-// A user's wall (their plain posts only).
+// A user's wall (their plain posts only). Friends and the owner see everything;
+// anyone else sees only this person's PUBLIC posts. (No longer fully locked: a
+// stranger can see public posts on a profile, matching the public Discover feed.)
 router.get('/user/:id', requireAuth, (req, res) => {
   const id = Number(req.params.id);
-  if (!areFriends(req.user.id, id)) {
-    return res.json({ posts: [], locked: true });
-  }
-  const rows = db
-    .prepare('SELECT * FROM posts WHERE user_id = ? AND group_id IS NULL AND community_id IS NULL ORDER BY created_at DESC, id DESC')
-    .all(id);
+  const friend = areFriends(req.user.id, id); // also true when viewing yourself
+  const rows = friend
+    ? db
+        .prepare('SELECT * FROM posts WHERE user_id = ? AND group_id IS NULL AND community_id IS NULL ORDER BY created_at DESC, id DESC')
+        .all(id)
+    : db
+        .prepare("SELECT * FROM posts WHERE user_id = ? AND group_id IS NULL AND community_id IS NULL AND audience = 'public' ORDER BY created_at DESC, id DESC")
+        .all(id);
   res.json({ posts: decoratePosts(rows, req.user.id), locked: false });
 });
 
@@ -212,12 +221,16 @@ router.get('/:id', requireAuth, (req, res) => {
 router.post('/', requireAuth, trustRateLimit('post'), upload.single('image'), (req, res) => {
   const content = (req.body.content || '').trim();
   const image = req.file ? '/uploads/' + req.file.filename : '';
+  // Audience choice from the composer: 'public' (anyone, shows in Discover) or
+  // 'friends'. Default public so Discover stays lively; anything not exactly
+  // 'friends' is treated as public.
+  const audience = req.body.audience === 'friends' ? 'friends' : 'public';
   if (!content && !image) {
     return res.status(400).json({ error: 'Write something or add a photo' });
   }
   const info = db
-    .prepare('INSERT INTO posts (user_id, content, image) VALUES (?, ?, ?)')
-    .run(req.user.id, content, image);
+    .prepare('INSERT INTO posts (user_id, content, image, audience) VALUES (?, ?, ?, ?)')
+    .run(req.user.id, content, image, audience);
   const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(info.lastInsertRowid);
   res.json({ post: decoratePost(post, req.user.id) });
 });

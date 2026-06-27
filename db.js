@@ -279,6 +279,12 @@ addColumn('posts', "title TEXT NOT NULL DEFAULT ''", 'title');
 addColumn('posts', "type TEXT NOT NULL DEFAULT 'text'", 'type');
 addColumn('posts', "url TEXT NOT NULL DEFAULT ''", 'url');
 addColumn('posts', "visibility TEXT NOT NULL DEFAULT 'visible'", 'visibility');
+// Audience for a personal post: 'public' (anyone, shows in Discover) or 'friends'
+// (accepted friends + author only). Existing posts default to 'friends' so nothing
+// already shared privately is retroactively exposed; the composer defaults new
+// posts to 'public'. Community/group posts ignore this (their own privacy rules
+// in visibility.js apply).
+addColumn('posts', "audience TEXT NOT NULL DEFAULT 'friends'", 'audience');
 addColumn('comments', 'parent_id INTEGER', 'parent_id');
 addColumn('comments', "visibility TEXT NOT NULL DEFAULT 'visible'", 'visibility');
 db.exec('CREATE INDEX IF NOT EXISTS idx_posts_community ON posts(community_id)');
@@ -394,6 +400,8 @@ addColumn('users', 'reset_expires TEXT', 'reset_expires');
 // shadowban), and affected users are notified and can appeal. Nothing here is
 // driven by votes, only by confirmed actions.
 addColumn('users', 'is_admin INTEGER NOT NULL DEFAULT 0', 'is_admin');
+// Founder badge flag (cosmetic). Synced from FOUNDER_EMAILS at boot (see below).
+addColumn('users', 'is_founder INTEGER NOT NULL DEFAULT 0', 'is_founder');
 addColumn('posts', 'locked INTEGER NOT NULL DEFAULT 0', 'locked');   // comments locked
 addColumn('posts', 'pinned INTEGER NOT NULL DEFAULT 0', 'pinned');   // pinned in its community
 
@@ -598,6 +606,22 @@ try {
     db.prepare('UPDATE users SET is_admin = 1 WHERE lower(email) IN (' + ph + ')').run(...adminEmails);
   }
 } catch (e) { /* users table or column may not be ready on a brand new db */ }
+
+// Founder badge: designate the platform founder(s) by email (FOUNDER_EMAILS, comma
+// separated; defaults to the owner's account). Two-way sync like admins: clear all
+// then set the listed ones, so removing an email also removes the badge. Cosmetic
+// only (a badge next to the name); it never affects karma, standing, reach, or votes.
+try {
+  const founderEmails = (process.env.FOUNDER_EMAILS || 'nmservicesww@gmail.com')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (founderEmails.length) {
+    const ph = founderEmails.map(() => '?').join(',');
+    db.exec('UPDATE users SET is_founder = 0');
+    db.prepare('UPDATE users SET is_founder = 1 WHERE lower(email) IN (' + ph + ')').run(...founderEmails);
+  }
+} catch (e) { /* column may not be ready on a brand new db */ }
 
 // Clear out sessions older than 30 days on startup.
 db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");

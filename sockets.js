@@ -5,6 +5,7 @@
 const cookie = require('cookie');
 const db = require('./db');
 const { userFromToken, COOKIE_NAME } = require('./auth');
+const presence = require('./presence');
 
 function initSockets(io) {
   io.on('connection', (socket) => {
@@ -19,6 +20,15 @@ function initSockets(io) {
 
     socket.userId = user.id;
     socket.join('user:' + user.id);
+
+    // Presence: track this connection. If the user just came online, tell everyone
+    // so contacts lists can flip the dot to green in real time. (Broadcasting to
+    // all is fine at this scale; clients ignore ids not in their contacts.)
+    if (presence.markOnline(user.id)) io.emit('presence', { userId: user.id, online: true });
+
+    socket.on('disconnect', () => {
+      if (presence.markOffline(user.id)) io.emit('presence', { userId: user.id, online: false });
+    });
 
     // Send a direct message to another user.
     socket.on('message:send', (data, ack) => {

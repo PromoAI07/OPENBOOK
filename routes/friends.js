@@ -6,6 +6,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
 const { notify } = require('../notify');
+const presence = require('../presence');
 
 const router = express.Router();
 
@@ -20,7 +21,9 @@ router.get('/', requireAuth, (req, res) => {
        ORDER BY u.name`
     )
     .all(uid, uid, uid);
-  res.json({ users: rows.map(publicUser) });
+  // Attach live online state so the contacts list shows a green dot only when the
+  // person actually has an open connection (grey otherwise).
+  res.json({ users: rows.map((u) => Object.assign(publicUser(u), { online: presence.isOnline(u.id) })) });
 });
 
 // Incoming pending requests (people who want to be your friend).

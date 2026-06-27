@@ -7,6 +7,7 @@ window.Chat = (function () {
   const messageHandlers = [];
   const notifHandlers = [];
   const typingHandlers = [];
+  const presenceHandlers = [];
 
   function init() {
     if (socket) return;
@@ -16,6 +17,7 @@ window.Chat = (function () {
     socket.on('message:new', (m) => messageHandlers.forEach((h) => h(m)));
     socket.on('notification:new', (n) => notifHandlers.forEach((h) => h(n)));
     socket.on('typing', (t) => typingHandlers.forEach((h) => h(t)));
+    socket.on('presence', (p) => presenceHandlers.forEach((h) => h(p)));
   }
 
   function send(to, content) {
@@ -47,5 +49,6 @@ window.Chat = (function () {
     onMessage: (cb) => messageHandlers.push(cb),
     onNotif: (cb) => notifHandlers.push(cb),
     onTyping: (cb) => typingHandlers.push(cb),
+    onPresence: (cb) => presenceHandlers.push(cb),
   };
 })();

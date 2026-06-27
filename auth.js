@@ -64,6 +64,7 @@ function publicUser(u) {
     bio: u.bio || '',
     karma: u.karma || 0,
     created_at: u.created_at,
+    founder: !!u.is_founder, // cosmetic Founder badge (never affects reputation)
   }, publicTierFields(u)); // tier, tierName, verified (blue tick), badge
 }
 

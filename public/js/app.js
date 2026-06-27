@@ -93,14 +93,25 @@
       ';font-size:' + fs + 'px">' + esc(initial) + '</span>';
   }
 
-  // Supporter blue verified tick (any paid tier). Cosmetic only; it reflects
-  // supporter status, never reputation. Returns '' for free accounts.
+  // Cosmetic Founder badge for the platform founder(s). Never reputation.
+  function founderBadge(user) {
+    if (!user || !user.founder) return '';
+    return ' <span class="founder-badge" title="Founder of OpenBook">&#9733; Founder</span>';
+  }
+  // Supporter blue verified tick (any paid tier) plus the Founder badge if set.
+  // Both are cosmetic, never reputation. Appended to author names everywhere
+  // through this one helper, so the Founder badge follows the founder wherever
+  // they post or comment. Returns '' for a plain free account.
   function verifTick(user) {
-    if (!user || !user.verified) return '';
-    const label = (user.tierName ? user.tierName + ' supporter' : 'Verified supporter');
-    return ' <svg class="vtick" viewBox="0 0 24 24" role="img" aria-label="' + esc(label) + '"><title>' + esc(label) +
-      '</title><path d="M12 1.5l2.4 1.8 3 .1 .9 2.8 2.4 1.7-.9 2.8.9 2.8-2.4 1.7-.9 2.8-3 .1L12 22.5l-2.4-1.8-3-.1-.9-2.8L3.3 16l.9-2.8L3.3 10.4l2.4-1.7.9-2.8 3-.1L12 1.5z"/>' +
-      '<path class="vtick-check" d="M8.2 12.2l2.4 2.4 5-5"/></svg>';
+    let out = '';
+    if (user && user.verified) {
+      const label = (user.tierName ? user.tierName + ' supporter' : 'Verified supporter');
+      out += ' <svg class="vtick" viewBox="0 0 24 24" role="img" aria-label="' + esc(label) + '"><title>' + esc(label) +
+        '</title><path d="M12 1.5l2.4 1.8 3 .1 .9 2.8 2.4 1.7-.9 2.8.9 2.8-2.4 1.7-.9 2.8-3 .1L12 22.5l-2.4-1.8-3-.1-.9-2.8L3.3 16l.9-2.8L3.3 10.4l2.4-1.7.9-2.8 3-.1L12 1.5z"/>' +
+        '<path class="vtick-check" d="M8.2 12.2l2.4 2.4 5-5"/></svg>';
+    }
+    out += founderBadge(user);
+    return out;
   }
   // Small colored supporter badge (bronze/silver/gold). Shown on profiles.
   function badgeChip(user) {
@@ -804,6 +815,10 @@
       '<div class="actions">' +
       '<button class="icon-action" id="composerPhotoBtn">&#128247; Photo</button>' +
       '<span class="spacer"></span>' +
+      '<select class="composer-audience" id="composerAudience" title="Who can see this post">' +
+        '<option value="public">&#127758; Public</option>' +
+        '<option value="friends">&#128100; Friends only</option>' +
+      '</select>' +
       '<button class="btn btn-primary btn-sm" id="composerPost">Post</button>' +
       '</div>' +
       '<input type="file" id="composerFile" accept="image/*" class="hidden">' +
@@ -847,7 +862,9 @@
       btn.disabled = true;
       btn.textContent = 'Posting...';
       try {
-        const r = await API.createPost(content, selectedFile);
+        const audSel = document.getElementById('composerAudience');
+        const audience = audSel ? audSel.value : 'public';
+        const r = await API.createPost(content, selectedFile, audience);
         const container = document.getElementById(targetId);
         const empty = container.querySelector('.empty');
         if (empty) container.innerHTML = '';
@@ -1218,7 +1235,7 @@
       }
       list.innerHTML = '';
       r.users.forEach((u) => {
-        const c = el('<div class="contact">' + avatar(u, 36) + '<span class="nm">' + esc(u.name) + '</span><span class="dot-online"></span></div>');
+        const c = el('<div class="contact">' + avatar(u, 36) + '<span class="nm">' + esc(u.name) + verifTick(u) + '</span><span class="dot-online' + (u.online ? '' : ' off') + '" data-dot="' + u.id + '" title="' + (u.online ? 'Online' : 'Offline') + '"></span></div>');
         c.onclick = () => go('messages', u.id);
         list.appendChild(c);
       });
@@ -1341,7 +1358,7 @@
       '<div class="profile-cover"' + coverStyle + '>' + (isMe ? '<button class="btn btn-sm edit-cover" id="editCoverBtn">&#128247; Edit cover</button>' : '') + '</div>' +
       '<div class="profile-head">' +
       '<div class="av-wrap">' + avatar(u, 130) + (isMe ? '<button class="cam" id="editAvatarBtn" title="Change photo">&#128247;</button>' : '') + '</div>' +
-      '<div><div class="pname">' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
+      '<div class="phead-main"><div class="pname">' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
       '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + data.postsCount + ' posts</div>' +
       (data.nameHistory && data.nameHistory.length
         ? '<div class="pmeta" style="font-size:12px">Previously known as: ' + data.nameHistory.map((h) => esc(h.name)).join(', ') + '</div>'
@@ -1507,13 +1524,17 @@
     const u = data.user;
     thread.innerHTML =
       '<div class="thead"><button class="btn btn-ghost btn-sm" id="backToList">&#8592;</button>' +
-      avatar(u, 40) + '<div style="font-weight:700;flex:1">' + esc(u.name) + '</div></div>' +
+      '<span class="link" data-headprofile="' + u.id + '">' + avatar(u, 40) + '</span>' +
+      '<div class="link" style="font-weight:700;flex:1" data-headprofile="' + u.id + '">' + esc(u.name) + verifTick(u) + '</div></div>' +
       '<div class="mbody" id="mbody"></div>' +
       '<div class="mfoot"><input id="msgInput" placeholder="Type a message..." autocomplete="off"><button class="btn btn-primary" id="msgSend">Send</button></div>';
 
     const body = document.getElementById('mbody');
     data.messages.forEach((m) => body.appendChild(msgBubble(m)));
     scrollBottom(body);
+
+    // Jump to the other person's profile from the chat header (photo or name).
+    thread.querySelectorAll('[data-headprofile]').forEach((x) => (x.onclick = () => go('profile', u.id)));
 
     const back = document.getElementById('backToList');
     back.style.display = window.innerWidth <= 980 ? 'inline-flex' : 'none';
@@ -2500,6 +2521,13 @@
       }
     });
     Chat.onNotif((n) => setBadge('notifBadge', n.count));
+    // Live presence: flip the matching contact dot green/grey as friends come and go.
+    Chat.onPresence((p) => {
+      document.querySelectorAll('[data-dot="' + p.userId + '"]').forEach((d) => {
+        d.classList.toggle('off', !p.online);
+        d.title = p.online ? 'Online' : 'Offline';
+      });
+    });
   }
 
   /* ============================ go ============================ */
