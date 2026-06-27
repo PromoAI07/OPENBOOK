@@ -2464,11 +2464,25 @@
       if (f) { prev.classList.remove('hidden'); prev.innerHTML = '<video src="' + URL.createObjectURL(f) + '" style="max-height:220px;width:100%;border-radius:10px" muted controls></video>'; }
     };
     m.q('#reelPost').onclick = async () => {
-      const f = fileInput.files[0];
+      let f = fileInput.files[0];
       if (!f) { toast('Choose a video'); return; }
-      const btn = m.q('#reelPost'); btn.disabled = true; btn.textContent = 'Posting...';
-      try { await API.createReel(f, m.q('#reelCap').value.trim()); m.close(); toast('Reel posted'); renderReels(); }
-      catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Post reel'; }
+      const btn = m.q('#reelPost'); btn.disabled = true;
+      try {
+        // Compress in the browser before upload (Option B), so reels land on our
+        // servers small. Falls back to the original if it is not supported or fails.
+        if (window.VidCompress && window.VidCompress.supported() && /^video\//.test(f.type)) {
+          btn.textContent = 'Optimizing video...';
+          try {
+            const c = await window.VidCompress.compress(f, {
+              onProgress: (p) => { btn.textContent = 'Optimizing ' + Math.round(p * 100) + '%'; },
+            });
+            if (c && c.size && c.size < f.size) f = c;
+          } catch (e) { /* keep the original on any compression error */ }
+        }
+        btn.textContent = 'Posting...';
+        await API.createReel(f, m.q('#reelCap').value.trim());
+        m.close(); toast('Reel posted'); renderReels();
+      } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Post reel'; }
     };
   }
 
