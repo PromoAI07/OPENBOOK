@@ -195,6 +195,9 @@ app.get('/cookies', (req, res) => res.sendFile(path.join(__dirname, 'public', 'c
 // Public community roadmap page (the transparent, voted feature roadmap).
 app.get('/roadmap', (req, res) => res.sendFile(path.join(__dirname, 'public', 'roadmap.html')));
 
+// Public, site-wide moderation log (every public mod action, scannable by anyone).
+app.get('/mod-log', (req, res) => res.sendFile(path.join(__dirname, 'public', 'mod-log.html')));
+
 // Separate owner-only analytics page. The PAGE ITSELF is gated here server-side:
 // a non-admin (or logged-out) visitor is bounced before the page even loads, and
 // the analytics API it calls is independently admin-only. admin.html lives
@@ -244,6 +247,8 @@ require('./db').init()
       try { require('./export').startExportCleanupJob(); } catch (e) { logger.error({ err: e }, 'failed to start export cleanup job'); }
       // Roadmap: reconcile linked GitHub issues (no-op unless GITHUB_TOKEN is set).
       try { require('./roadmap-sync').startRoadmapJobs(); } catch (e) { logger.error({ err: e }, 'failed to start roadmap sync job'); }
+      // Jury: settle any community juries past their deadline (Phase 4).
+      try { require('./jury').startJuryJobs(); } catch (e) { logger.error({ err: e }, 'failed to start jury job'); }
     });
   })
   .catch((e) => {

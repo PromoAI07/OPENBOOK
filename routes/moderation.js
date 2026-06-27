@@ -12,7 +12,9 @@ const { recordStandingEvent } = require('../trust');
 const {
   VIOLATION_PENALTY, isAdmin, isCommunityMod,
   canModeratePost, canModerateComment, logModAction,
+  flagWeight, evaluateAndAutoHide,
 } = require('../moderation');
+const jury = require('../jury');
 
 const router = express.Router();
 
@@ -49,9 +51,21 @@ router.post('/reports', requireAuth, async (req, res) => {
   const t = await resolveTarget(targetType, targetId);
   if (!t) return res.status(404).json({ error: 'Content not found' });
   if (t.authorId === req.user.id) return res.status(400).json({ error: 'You cannot report your own content' });
-  await db.prepare('INSERT INTO reports (reporter_id, target_type, target_id, reason_code, detail) VALUES (?, ?, ?, ?, ?)')
-    .run(req.user.id, targetType, targetId, reasonCode, detail);
-  res.json({ ok: true });
+  // One open report per user per target (re-filing just updates the reason), so a
+  // single account cannot inflate the weighted-flag total by reporting repeatedly.
+  const existing = await db.prepare("SELECT id FROM reports WHERE reporter_id = ? AND target_type = ? AND target_id = ? AND status = 'open'").get(req.user.id, targetType, targetId);
+  const weight = flagWeight(req.user);
+  if (existing) {
+    await db.prepare('UPDATE reports SET reason_code = ?, detail = ?, weight = ? WHERE id = ?').run(reasonCode, detail, weight, existing.id);
+  } else {
+    await db.prepare('INSERT INTO reports (reporter_id, target_type, target_id, reason_code, detail, weight) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(req.user.id, targetType, targetId, reasonCode, detail, weight);
+  }
+  // Karma-weighted auto-hide: sum trusted flags and hide (pending review) if they
+  // cross the threshold. Logs the exact math to the public mod log; standing is
+  // never touched here.
+  const result = await evaluateAndAutoHide(targetType, targetId, t.communityId);
+  res.json({ ok: true, autoHidden: !!result.hidden });
 });
 
 // Open reports the current user may handle: admins see all, community mods see
@@ -195,6 +209,30 @@ router.post('/community/:id/unban', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Site-wide public mod log (transparency, no login required) ----
+// Every public moderation action across the whole platform, newest first: human
+// removals, karma-weighted auto-hides (with the math), jury outcomes, bans, and
+// PII-free account-deletion notices. This is the "nothing is hidden" promise made
+// scannable by anyone, member or not. Optional ?action= filter.
+router.get('/log', async (req, res) => {
+  const action = (req.query.action || '').toString().slice(0, 40);
+  const rows = action
+    ? await db.prepare("SELECT * FROM mod_actions WHERE is_public = 1 AND action = ? ORDER BY id DESC LIMIT 200").all(action)
+    : await db.prepare("SELECT * FROM mod_actions WHERE is_public = 1 ORDER BY id DESC LIMIT 200").all();
+  res.json({
+    log: await Promise.all(rows.map(async (r) => ({
+      id: r.id,
+      action: r.action,
+      targetType: r.target_type,
+      targetId: r.target_id,
+      communityId: r.community_id,
+      reason: r.reason,
+      created_at: r.created_at,
+      actor: r.actor_id ? publicUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(r.actor_id)) : null,
+    }))),
+  });
+});
+
 // ---- Public mod log (transparency) ----
 router.get('/community/:id/log', requireAuth, async (req, res) => {
   const communityId = Number(req.params.id);
@@ -210,6 +248,73 @@ router.get('/community/:id/log', requireAuth, async (req, res) => {
       actor: publicUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(r.actor_id)),
     }))),
   });
+});
+
+// ---- Community jury (Phase 4) ----
+
+// The current user's open jury duties: cases they were selected for. Jurors see
+// the content to judge, but NOT who wrote it or who flagged it (blind review).
+router.get('/jury', requireAuth, async (req, res) => {
+  const rows = await db.prepare(
+    "SELECT j.* FROM juries j JOIN jury_members m ON m.jury_id = j.id WHERE m.user_id = ? AND j.status = 'open' ORDER BY j.created_at DESC"
+  ).all(req.user.id);
+  const out = [];
+  for (const j of rows) {
+    const me = await db.prepare('SELECT vote FROM jury_members WHERE jury_id = ? AND user_id = ?').get(j.id, req.user.id);
+    const t = await resolveTarget(j.target_type, j.target_id);
+    out.push({
+      id: j.id,
+      targetType: j.target_type,
+      targetId: j.target_id,
+      reasonCode: j.reason_code,
+      size: j.size,
+      created_at: j.created_at,
+      expires_at: j.expires_at,
+      myVote: me ? me.vote : null,
+      preview: t ? ((t.post ? (t.post.title || t.post.content) : t.comment ? t.comment.content : '') || '') : '',
+      gone: !t,
+    });
+  }
+  res.json({ duties: out });
+});
+
+// One case in detail (content only, author hidden), for a juror or an admin.
+router.get('/jury/:id', requireAuth, async (req, res) => {
+  const j = await db.prepare('SELECT * FROM juries WHERE id = ?').get(Number(req.params.id));
+  if (!j) return res.status(404).json({ error: 'Case not found' });
+  const member = await db.prepare('SELECT * FROM jury_members WHERE jury_id = ? AND user_id = ?').get(j.id, req.user.id);
+  if (!member && !isAdmin(req.user)) return res.status(403).json({ error: 'You are not on this jury' });
+  const t = await resolveTarget(j.target_type, j.target_id);
+  res.json({
+    jury: {
+      id: j.id,
+      targetType: j.target_type,
+      targetId: j.target_id,
+      reasonCode: j.reason_code,
+      size: j.size,
+      status: j.status,
+      outcome: j.outcome,
+      myVote: member ? member.vote : null,
+      created_at: j.created_at,
+      expires_at: j.expires_at,
+      // Content only, no author identity (blind review of the content itself).
+      content: t ? {
+        title: t.post ? t.post.title : '',
+        body: t.post ? t.post.content : (t.comment ? t.comment.content : ''),
+        image: t.post ? t.post.image : '',
+      } : null,
+    },
+  });
+});
+
+// Cast a Keep / Remove ballot. Settles automatically when a majority is reached.
+router.post('/jury/:id/vote', requireAuth, async (req, res) => {
+  try {
+    const result = await jury.castVote(Number(req.params.id), req.user.id, req.body.vote);
+    res.json({ ok: true, settled: !!result.settled });
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Could not record your vote' });
+  }
 });
 
 // ---- Appeals (no secret-forever shadowbans) ----

@@ -329,6 +329,7 @@
     else if (name === 'support') renderSupport();
     else if (name === 'invite') renderInvite();
     else if (name === 'suggestions') renderSuggestions();
+    else if (name === 'jury') renderJury();
     try { AN.page(name); } catch (e) {}
     window.scrollTo(0, 0);
   }
@@ -346,6 +347,7 @@
       '<div class="side-link" data-go="groups"><span class="ic">&#127760;</span><span>Groups</span></div>' +
       '<div class="side-link" data-go="reels"><span class="ic">&#127909;</span><span>Reels</span></div>' +
       '<div class="side-link" data-go="suggestions"><span class="ic">&#128161;</span><span>Suggestions</span></div>' +
+      '<div class="side-link" data-go="jury"><span class="ic">&#9878;&#65039;</span><span>Jury duty</span><span class="badge side-badge hidden" id="juryBadge">0</span></div>' +
       '<div class="side-link" data-go="invite"><span class="ic">&#127881;</span><span>Invite friends</span></div>' +
       '<div class="side-link" data-go="support"><span class="ic">&#10084;&#65039;</span><span>Support OpenBook</span></div>' +
       '<div class="side-link" id="themeToggle"><span class="ic">' + (currentTheme() === 'dark' ? '&#9728;&#65039;' : '&#127769;') + '</span><span>' + (currentTheme() === 'dark' ? 'Light mode' : 'Dark mode') + '</span></div>' +
@@ -354,6 +356,7 @@
       '<nav class="rail-foot">' +
       '<a href="/mission">Our Mission</a>' +
       '<a href="/roadmap">Roadmap</a>' +
+      '<a href="/mod-log">Transparency Log</a>' +
       '<a href="/privacy">Privacy Policy</a>' +
       '<a href="/cookies">Cookies</a>' +
       '<a href="https://github.com/PromoAI07/OPENBOOK" target="_blank" rel="noopener">Open source</a>' +
@@ -369,6 +372,60 @@
     document.getElementById('themeToggle').addEventListener('click', toggleTheme);
     document.getElementById('leftLogout').addEventListener('click', doLogout);
     refreshBadges();
+    refreshJuryBadge();
+  }
+
+  // Light fetch to show a count on the "Jury duty" rail entry when the user has
+  // open cases they have not yet voted on.
+  function refreshJuryBadge() {
+    API.juryDuties().then(({ duties }) => {
+      const open = (duties || []).filter((d) => !d.myVote && !d.gone).length;
+      const b = document.getElementById('juryBadge');
+      if (!b) return;
+      if (open > 0) { b.textContent = open; b.classList.remove('hidden'); }
+      else b.classList.add('hidden');
+    }).catch(() => {});
+  }
+
+  async function renderJury() {
+    view.innerHTML =
+      '<div class="card"><div class="pname">&#9878;&#65039; Jury duty</div>' +
+      '<div class="shint" style="font-size:13px;line-height:1.5">You were randomly selected to help decide whether flagged content should stay or go. Judge the content, not the person. You are anonymous, the majority decides, and the outcome (with the ballot) is posted to the public <a href="/mod-log" target="_blank" style="color:var(--brand)">transparency log</a>.</div></div>' +
+      '<div id="juryList"><div class="card"><div class="empty">Loading your cases...</div></div></div>';
+    try {
+      const { duties } = await API.juryDuties();
+      const list = document.getElementById('juryList');
+      if (!duties.length) {
+        list.innerHTML = '<div class="card"><div class="empty">No open cases right now. If you are picked for a jury, it will show up here and in your notifications.</div></div>';
+        return;
+      }
+      list.innerHTML = '';
+      duties.forEach((d) => {
+        const actions = d.myVote
+          ? '<div class="shint" style="font-size:12px">You voted <b>' + esc(d.myVote) + '</b>. Waiting on the rest of the panel of ' + d.size + '.</div>'
+          : '<div class="row" style="gap:8px"><button class="btn btn-primary" data-keep="' + d.id + '">Keep</button><button class="btn" data-remove="' + d.id + '" style="color:#e5484d">Remove</button></div>';
+        const card = el(
+          '<div class="card">' +
+          '<div class="shint" style="font-size:12px;margin-bottom:6px">Flagged for: <b>' + esc(d.reasonCode || 'other') + '</b> &middot; panel of ' + d.size + '</div>' +
+          '<div style="margin:6px 0 10px;white-space:pre-wrap;word-break:break-word">' + (d.gone ? '<i>(content is no longer available)</i>' : esc(d.preview || '(no text content)')) + '</div>' +
+          actions + '</div>'
+        );
+        list.appendChild(card);
+      });
+      list.querySelectorAll('[data-keep]').forEach((b) => (b.onclick = () => castJury(b.getAttribute('data-keep'), 'keep')));
+      list.querySelectorAll('[data-remove]').forEach((b) => (b.onclick = () => castJury(b.getAttribute('data-remove'), 'remove')));
+    } catch (e) {
+      document.getElementById('juryList').innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>';
+    }
+  }
+
+  async function castJury(id, vote) {
+    try {
+      const r = await API.juryVote(id, vote);
+      toast(r.settled ? 'Your vote settled the case. Thank you.' : 'Vote recorded. Thank you for serving.');
+      renderJury();
+      refreshJuryBadge();
+    } catch (e) { toast(e.message); }
   }
 
   /* ---------- theme (light / dark) ---------- */
@@ -1895,6 +1952,7 @@
       case 'friend_accept': return ' accepted your friend request';
       case 'mod_removed': return ' (a moderator) removed your content';
       case 'mod_restored': return ' (a moderator) restored your content';
+      case 'jury_duty': return ': you were picked for a community jury';
       default: return ' interacted with you';
     }
   }

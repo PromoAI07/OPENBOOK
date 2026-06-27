@@ -542,6 +542,49 @@ db.init = async function init() {
   await addColumn('appeals', 'target_type TEXT', 'target_type');
   await addColumn('appeals', 'target_id INTEGER', 'target_id');
 
+  // Phase 3 upgrade (karma-weighted flagging): each report stores the reporter's
+  // flag weight at file time (proportional to their standing + trust level), so
+  // the auto-hide threshold sums trusted flags without re-deriving old standing.
+  await addColumn('reports', 'weight REAL NOT NULL DEFAULT 1', 'weight');
+
+  // --- Phase 4: the community jury (decentralized moderation) ---
+  // When flagged content is auto-hidden, an odd-sized panel of randomly chosen,
+  // pristine-standing, established users is convened to decide Keep or Remove. The
+  // majority verdict executes automatically and the full case file (ballot
+  // breakdown + outcome) is published to the public mod log. Jurors are anonymous
+  // to each other and to the author.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS juries (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      target_type  TEXT    NOT NULL,
+      target_id    INTEGER NOT NULL,
+      community_id INTEGER,
+      reason_code  TEXT    NOT NULL DEFAULT '',
+      size         INTEGER NOT NULL DEFAULT 5,
+      status       TEXT    NOT NULL DEFAULT 'open',   -- open | decided | expired
+      outcome      TEXT,                               -- keep | remove
+      keep_votes   INTEGER NOT NULL DEFAULT 0,
+      remove_votes INTEGER NOT NULL DEFAULT 0,
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      decided_at   TEXT,
+      expires_at   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_juries_status ON juries(status);
+    CREATE INDEX IF NOT EXISTS idx_juries_target ON juries(target_type, target_id);
+
+    CREATE TABLE IF NOT EXISTS jury_members (
+      jury_id    INTEGER NOT NULL,
+      user_id    INTEGER NOT NULL,
+      vote       TEXT,                                 -- NULL until cast: keep | remove
+      voted_at   TEXT,
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (jury_id, user_id),
+      FOREIGN KEY (jury_id) REFERENCES juries(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id)  ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_jury_members_user ON jury_members(user_id);
+  `);
+
   // --- Phase 5: anti-sybil (see SPEC.md section 5, antisybil.js) ---
   // devices: a coarse client fingerprint + IP per account, so concentration (many
   // accounts on one device/IP) can raise a soft flag. We never hard-block on this.

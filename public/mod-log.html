@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Moderation Log - OpenBook</title>
+  <meta name="description" content="OpenBook's public moderation log. Every removal, auto-hide, jury verdict, and ban is recorded in the open, with the reason and the math behind it." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%235b51e8'/><text x='16' y='23' font-size='20' fill='white' text-anchor='middle' font-family='Arial' font-weight='bold'>O</text></svg>" />
+  <script>try{var t=localStorage.getItem('ob_theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .ml-wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 80px; }
+    .ml-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
+    .ml-brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; color: var(--brand); text-decoration: none; }
+    .ml-brand .mk { width: 34px; height: 34px; border-radius: 9px; background: var(--brand); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; }
+    .ml-back { color: var(--text-soft); text-decoration: none; font-size: 14px; white-space: nowrap; }
+    .ml-back:hover { color: var(--brand); }
+    .ml-wrap h1 { font-size: 32px; line-height: 1.15; margin: 0 0 8px; letter-spacing: -0.5px; }
+    .ml-lead { font-size: 17px; line-height: 1.5; color: var(--text-soft); margin: 0 0 22px; max-width: 720px; }
+    .ml-row { display: flex; gap: 12px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 9px; background: var(--card); }
+    .ml-ic { flex: none; width: 34px; height: 34px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; font-size: 17px; background: var(--brand-soft); }
+    .ml-body { flex: 1; min-width: 0; }
+    .ml-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .ml-action { font-weight: 700; font-size: 14.5px; }
+    .ml-actor { font-size: 12.5px; color: var(--text-soft); }
+    .ml-time { font-size: 12px; color: var(--text-soft); margin-left: auto; white-space: nowrap; }
+    .ml-reason { font-size: 13.5px; color: var(--text); line-height: 1.5; margin: 4px 0 0; }
+    .ml-tag { font-size: 11px; color: var(--text-soft); background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 1px 8px; }
+    .ml-empty { color: var(--text-soft); font-size: 14px; padding: 20px 4px; }
+    @media (max-width: 560px) { .ml-wrap h1 { font-size: 26px; } .ml-time { margin-left: 0; width: 100%; } }
+  </style>
+</head>
+<body>
+  <div class="ml-wrap">
+    <div class="ml-top">
+      <a class="ml-brand" href="/"><span class="mk">O</span> OpenBook</a>
+      <a class="ml-back" href="/">&larr; Back to OpenBook</a>
+    </div>
+
+    <h1>Public Moderation Log</h1>
+    <p class="ml-lead">Every moderation action on OpenBook is recorded here, in the open. When content is removed, auto-hidden by community flags, sent to a jury, or an account is banned, the action, the reason, and the math behind it are public. No secret rules, no silent removals.</p>
+
+    <div id="log"><div class="ml-empty">Loading the log...</div></div>
+  </div>
+
+  <script>
+    (function () {
+      var ICONS = { auto_hide: '👁️', remove_post: '🚫', remove_comment: '🚫', restore_post: '↩️', restore_comment: '↩️', ban: '⛔', unban: '✅', lock: '🔒', unlock: '🔓', pin: '📌', account_deleted: '🗑️', jury_verdict: '⚖️', jury_opened: '⚖️' };
+      var LABELS = { auto_hide: 'Auto-hidden by community flags', remove_post: 'Post removed', remove_comment: 'Comment removed', restore_post: 'Post restored', restore_comment: 'Comment restored', ban: 'User banned from community', unban: 'User unbanned', lock: 'Thread locked', unlock: 'Thread unlocked', pin: 'Post pinned', account_deleted: 'Account deleted', jury_verdict: 'Community jury verdict', jury_opened: 'Community jury convened' };
+      function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
+      function when(ts) {
+        if (!ts) return '';
+        var d = new Date(ts.indexOf('T') >= 0 ? ts : ts.replace(' ', 'T') + 'Z');
+        if (isNaN(d)) return esc(ts);
+        return d.toLocaleString();
+      }
+      function row(e) {
+        var icon = ICONS[e.action] || '📝';
+        var label = LABELS[e.action] || e.action;
+        var actor = e.actor ? esc(e.actor.name) : 'OpenBook';
+        var tag = e.targetType ? '<span class="ml-tag">' + esc(e.targetType) + (e.targetId ? ' #' + esc(e.targetId) : '') + '</span>' : '';
+        var reason = e.reason ? '<p class="ml-reason">' + esc(e.reason) + '</p>' : '';
+        return '<div class="ml-row"><div class="ml-ic">' + icon + '</div><div class="ml-body">' +
+          '<div class="ml-head"><span class="ml-action">' + esc(label) + '</span>' + tag +
+          '<span class="ml-actor">by ' + actor + '</span>' +
+          '<span class="ml-time">' + when(e.created_at) + '</span></div>' + reason + '</div></div>';
+      }
+      fetch('/api/moderation/log').then(function (r) { return r.json(); }).then(function (data) {
+        var el = document.getElementById('log');
+        var list = (data && data.log) || [];
+        el.innerHTML = list.length ? list.map(row).join('') : '<div class="ml-empty">No public moderation actions yet. When there are, they will appear here.</div>';
+      }).catch(function () {
+        document.getElementById('log').innerHTML = '<div class="ml-empty">Could not load the log right now.</div>';
+      });
+    })();
+  </script>
+</body>
+</html>
