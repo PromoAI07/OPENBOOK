@@ -16,6 +16,13 @@ const { ensureCode, attachReferral } = require('../referrals');
 
 const router = express.Router();
 
+// Email sending (Resend) and the "must verify to post" gate are DECOUPLED on
+// purpose. Adding RESEND_API_KEY makes password-reset and any verification
+// emails deliverable, but new signups are only FORCED to verify when
+// REQUIRE_EMAIL_VERIFICATION=1. This lets the owner have working password reset
+// while keeping signups frictionless until they choose to require verification.
+const REQUIRE_EMAIL_VERIFICATION = process.env.REQUIRE_EMAIL_VERIFICATION === '1';
+
 function verifyLink(req, token) {
   return req.protocol + '://' + req.get('host') + '/api/auth/verify?token=' + encodeURIComponent(token);
 }
@@ -66,7 +73,7 @@ router.post('/signup', async (req, res, next) => {
   // If no mail provider is configured we cannot deliver a verification link, so
   // auto-verify rather than lock people out. The gate only bites once email is
   // set up (RESEND_API_KEY). This keeps the live demo usable before that.
-  const verified = EMAIL_CONFIGURED ? 0 : 1;
+  const verified = (EMAIL_CONFIGURED && REQUIRE_EMAIL_VERIFICATION) ? 0 : 1;
   const info = db
     .prepare('INSERT INTO users (name, email, password_hash, verify_token, email_verified) VALUES (?, ?, ?, ?, ?)')
     .run(name, email, hash, token, verified);
@@ -85,7 +92,7 @@ router.post('/signup', async (req, res, next) => {
   if (refCode) attachReferral(info.lastInsertRowid, refCode);
 
   const out = { user: selfUser(db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid)) };
-  if (EMAIL_CONFIGURED) {
+  if (EMAIL_CONFIGURED && REQUIRE_EMAIL_VERIFICATION) {
     const link = verifyLink(req, token);
     // Fire and forget so signup is never blocked by the mail provider.
     sendVerificationEmail(email, link, name).catch(() => {});
