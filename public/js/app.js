@@ -316,7 +316,6 @@
     else if (name === 'reels') renderReels();
     else if (name === 'support') renderSupport();
     else if (name === 'invite') renderInvite();
-    else if (name === 'admin') renderAdmin();
     try { AN.page(name); } catch (e) {}
     window.scrollTo(0, 0);
   }
@@ -335,7 +334,6 @@
       '<div class="side-link" data-go="reels"><span class="ic">&#127909;</span><span>Reels</span></div>' +
       '<div class="side-link" data-go="invite"><span class="ic">&#127881;</span><span>Invite friends</span></div>' +
       '<div class="side-link" data-go="support"><span class="ic">&#10084;&#65039;</span><span>Support OpenBook</span></div>' +
-      (ME && ME.isAdmin ? '<div class="side-link" data-go="admin"><span class="ic">&#128202;</span><span>Owner analytics</span></div>' : '') +
       '<div class="side-link" id="themeToggle"><span class="ic">' + (currentTheme() === 'dark' ? '&#9728;&#65039;' : '&#127769;') + '</span><span>' + (currentTheme() === 'dark' ? 'Light mode' : 'Dark mode') + '</span></div>' +
       '<div class="side-link" id="leftLogout"><span class="ic">&#128682;</span><span>Log out</span></div>' +
       '</div>';

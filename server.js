@@ -136,6 +136,17 @@ app.use('/api/analytics', require('./routes/analytics'));
 // The authenticated single page app shell.
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
 
+// Separate owner-only analytics page. The PAGE ITSELF is gated here server-side:
+// a non-admin (or logged-out) visitor is bounced before the page even loads, and
+// the analytics API it calls is independently admin-only. admin.html lives
+// OUTSIDE public/ so it can never be served by the static handler. This is the
+// "totally separate, admin-only" entrance, not a button in the normal app.
+app.get('/admin', (req, res) => {
+  if (!req.user) return res.redirect('/');
+  if (!req.user.is_admin) return res.redirect('/app');
+  res.sendFile(path.join(__dirname, 'admin.html'));
+});
+
 // Central error handler so upload errors and the like return clean JSON. The
 // response is unchanged; we just log with a full stack trace for 5xx (and a
 // lighter line for expected 4xx) so failures are diagnosable.

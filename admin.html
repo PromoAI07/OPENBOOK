@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenBook Owner Analytics</title>
+  <script>try{var t=localStorage.getItem('ob_theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .admin-wrap { max-width: 920px; margin: 0 auto; padding: 24px; }
+    .admin-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    .admin-stat { padding: 16px; }
+    .admin-stat .num { font-size: 26px; font-weight: 800; color: var(--text); line-height: 1.1; }
+    .admin-stat .lbl { font-size: 13px; font-weight: 600; color: var(--text-soft); margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="admin-wrap">
+    <div class="admin-top">
+      <div class="pname">&#128202; Owner analytics</div>
+      <a class="btn" href="/app">Back to OpenBook</a>
+    </div>
+    <div id="view"><div class="card"><div class="empty" style="padding:40px">Loading...</div></div></div>
+    <div class="shint" style="font-size:12px;margin-top:16px">Private to the platform owner. Aggregate usage only, no personal data.</div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    (function () {
+      var view = document.getElementById('view');
+      function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]); }); }
+      function statCard(v, l, h) {
+        return '<div class="card admin-stat"><div class="num">' + esc(v) + '</div><div class="lbl">' + esc(l) + '</div>' +
+          (h ? '<div class="shint" style="font-size:12px;margin-top:2px">' + esc(h) + '</div>' : '') + '</div>';
+      }
+      function fmtDur(sec) { if (!sec) return '0s'; var m = Math.floor(sec / 60), s = sec % 60; return m ? (m + 'm ' + s + 's') : (s + 's'); }
+      function barList(rows) {
+        if (!rows || !rows.length) return '<div class="shint" style="font-size:13px">No data yet.</div>';
+        var max = Math.max.apply(null, rows.map(function (r) { return r.c; })) || 1;
+        return rows.map(function (r) {
+          return '<div class="bar-row"><span class="bar-label">' + esc(r.label) + '</span>' +
+            '<span class="bar-track"><span class="bar-fill" style="width:' + Math.round((r.c / max) * 100) + '%"></span></span>' +
+            '<span class="bar-val">' + r.c + '</span></div>';
+        }).join('');
+      }
+      API.adminAnalytics().then(function (d) {
+        var t = d.totals;
+        var signups = (d.signupsByDay || []).slice().reverse().map(function (r) { return { label: r.d, c: r.c }; });
+        view.innerHTML =
+          '<div class="section-title">Users</div><div class="dash-grid">' +
+            statCard(t.totalUsers, 'Total users', 'All registered accounts.') +
+            statCard(t.newUsers24h, 'New (24h)', '') +
+            statCard(t.newUsers7d, 'New (7 days)', '') +
+            statCard(t.activeUsers7d, 'Active (7 days)', 'Distinct users with any activity.') +
+            statCard(t.supporters, 'Supporters', 'Tiers active right now.') +
+            statCard(t.qualifiedReferrals, 'Qualified referrals', '') +
+          '</div>' +
+          '<div class="section-title">Engagement</div><div class="dash-grid">' +
+            statCard(fmtDur(t.avgSessionSec), 'Avg time / session', 'Estimated from active heartbeats.') +
+            statCard(t.totalSessions, 'Sessions', '') +
+            statCard(t.totalPageviews, 'Page views', '') +
+            statCard(t.totalClicks, 'Button clicks', '') +
+          '</div>' +
+          '<div class="card"><div class="section-title">Signups (last 14 days)</div>' + barList(signups) + '</div>' +
+          '<div class="card"><div class="section-title">Top entry pages</div>' + barList(d.entryPages) + '</div>' +
+          '<div class="card"><div class="section-title">Most viewed pages</div>' + barList(d.topPages) + '</div>' +
+          '<div class="card"><div class="section-title">Most clicked buttons</div>' + barList(d.topButtons) + '</div>';
+      }).catch(function () {
+        view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Access denied. This page is for the platform owner only. <a href="/app">Back to OpenBook</a></div></div>';
+      });
+    })();
+  </script>
+</body>
+</html>
