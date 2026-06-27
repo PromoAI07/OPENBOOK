@@ -804,16 +804,27 @@
     );
   }
 
+  // Background styles for colored / "imaged" text posts (Facebook-style status).
+  const BG_STYLES = ['cbg-1', 'cbg-2', 'cbg-3', 'cbg-4', 'cbg-5', 'cbg-6'];
+
   function composerHtml() {
     const first = esc((ME.name || '').split(' ')[0] || 'there');
+    let swatches = '<button class="cbg-swatch cbg-none on" data-bg="" title="No background">Aa</button>';
+    BG_STYLES.forEach((b) => { swatches += '<button class="cbg-swatch ' + b + '" data-bg="' + b + '" title="Background"></button>'; });
     return (
       '<div class="card composer" id="composer">' +
       '<div class="row">' + avatar(ME, 40) +
       '<textarea id="composerText" rows="1" placeholder="What is on your mind, ' + first + '?"></textarea>' +
       '</div>' +
+      '<div class="cbg-strip hidden" id="composerBgStrip">' + swatches + '</div>' +
+      '<div class="cpoll hidden" id="composerPoll"></div>' +
+      '<div class="cfile-chip hidden" id="composerFileChip"></div>' +
       '<div class="preview hidden" id="composerPreview"></div>' +
       '<div class="actions">' +
-      '<button class="icon-action" id="composerPhotoBtn">&#128247; Photo</button>' +
+      '<button class="icon-action" id="composerPhotoBtn" title="Photo">&#128247;</button>' +
+      '<button class="icon-action" id="composerFileBtn" title="Attach a file">&#128206;</button>' +
+      '<button class="icon-action" id="composerPollBtn" title="Create a poll">&#128202;</button>' +
+      '<button class="icon-action" id="composerBgBtn" title="Background color">&#127912;</button>' +
       '<span class="spacer"></span>' +
       '<select class="composer-audience" id="composerAudience" title="Who can see this post">' +
         '<option value="public">&#127758; Public</option>' +
@@ -822,6 +833,7 @@
       '<button class="btn btn-primary btn-sm" id="composerPost">Post</button>' +
       '</div>' +
       '<input type="file" id="composerFile" accept="image/*" class="hidden">' +
+      '<input type="file" id="composerDoc" class="hidden">' +
       '</div>'
     );
   }
@@ -829,24 +841,76 @@
   function wireComposer(targetId) {
     targetId = targetId || 'feedPosts';
     const fileInput = document.getElementById('composerFile');
+    const docInput = document.getElementById('composerDoc');
     const preview = document.getElementById('composerPreview');
     const textArea = document.getElementById('composerText');
-    let selectedFile = null;
+    const bgStrip = document.getElementById('composerBgStrip');
+    const pollBox = document.getElementById('composerPoll');
+    const fileChip = document.getElementById('composerFileChip');
+    let selectedFile = null; // image
+    let selectedDoc = null;  // generic file attachment
+    let bgValue = '';
+    let pollOn = false;
 
+    function clearBg() {
+      bgValue = '';
+      textArea.className = '';
+      bgStrip.querySelectorAll('.cbg-swatch').forEach((s) => s.classList.toggle('on', s.getAttribute('data-bg') === ''));
+    }
+    function clearImage() { selectedFile = null; fileInput.value = ''; preview.classList.add('hidden'); preview.innerHTML = ''; }
+
+    // ---- photo ----
     document.getElementById('composerPhotoBtn').onclick = () => fileInput.click();
-
     fileInput.onchange = () => {
       selectedFile = fileInput.files[0] || null;
       if (selectedFile) {
+        clearBg(); // a photo post is not a colored-text post
         const url = URL.createObjectURL(selectedFile);
         preview.innerHTML = '<img src="' + url + '"><button class="remove" id="composerRemove">&times;</button>';
         preview.classList.remove('hidden');
-        document.getElementById('composerRemove').onclick = () => {
-          selectedFile = null;
-          fileInput.value = '';
-          preview.classList.add('hidden');
-          preview.innerHTML = '';
-        };
+        document.getElementById('composerRemove').onclick = clearImage;
+      }
+    };
+
+    // ---- file attachment ----
+    document.getElementById('composerFileBtn').onclick = () => docInput.click();
+    docInput.onchange = () => {
+      selectedDoc = docInput.files[0] || null;
+      if (selectedDoc) {
+        fileChip.innerHTML = '&#128206; <span>' + esc(selectedDoc.name) + '</span> <button class="remove" id="composerDocRemove">&times;</button>';
+        fileChip.classList.remove('hidden');
+        document.getElementById('composerDocRemove').onclick = () => { selectedDoc = null; docInput.value = ''; fileChip.classList.add('hidden'); fileChip.innerHTML = ''; };
+      }
+    };
+
+    // ---- background color (text-only posts) ----
+    document.getElementById('composerBgBtn').onclick = () => bgStrip.classList.toggle('hidden');
+    bgStrip.querySelectorAll('.cbg-swatch').forEach((s) => {
+      s.onclick = () => {
+        bgValue = s.getAttribute('data-bg') || '';
+        bgStrip.querySelectorAll('.cbg-swatch').forEach((x) => x.classList.toggle('on', x === s));
+        textArea.className = bgValue ? ('composer-bg ' + bgValue) : '';
+        if (bgValue) clearImage(); // colored-text posts are text only
+      };
+    });
+
+    // ---- poll ----
+    function addPollOpt() {
+      const idx = pollBox.querySelectorAll('.cpoll-opt').length;
+      if (idx >= 6) return;
+      const row = el('<div class="cpoll-row"><input class="input cpoll-opt" type="text" maxlength="120" placeholder="Option ' + (idx + 1) + '"></div>');
+      pollBox.insertBefore(row, pollBox.querySelector('.cpoll-add'));
+    }
+    document.getElementById('composerPollBtn').onclick = () => {
+      pollOn = !pollOn;
+      if (pollOn) {
+        pollBox.innerHTML = '<button class="btn btn-soft btn-sm cpoll-add" id="composerAddOpt">+ Add option</button>';
+        addPollOpt(); addPollOpt();
+        document.getElementById('composerAddOpt').onclick = addPollOpt;
+        pollBox.classList.remove('hidden');
+        if (!textArea.value) textArea.placeholder = 'Ask a question...';
+      } else {
+        pollBox.classList.add('hidden'); pollBox.innerHTML = '';
       }
     };
 
@@ -857,31 +921,34 @@
 
     document.getElementById('composerPost').onclick = async () => {
       const content = textArea.value.trim();
-      if (!content && !selectedFile) { toast('Write something or add a photo'); return; }
+      const pollOptions = pollOn ? Array.prototype.slice.call(pollBox.querySelectorAll('.cpoll-opt')).map((i) => i.value.trim()).filter(Boolean) : [];
+      const isPoll = pollOptions.length >= 2;
+      if (pollOn && !isPoll) { toast('A poll needs at least 2 options'); return; }
+      if (!content && !selectedFile && !selectedDoc && !isPoll) { toast('Write something, or add a photo, file, or poll'); return; }
       const btn = document.getElementById('composerPost');
-      btn.disabled = true;
-      btn.textContent = 'Posting...';
+      btn.disabled = true; btn.textContent = 'Posting...';
       try {
+        let fileUrl = '', fileName = '';
+        if (selectedDoc) { btn.textContent = 'Uploading file...'; const up = await API.uploadPostFile(selectedDoc); fileUrl = up.url; fileName = up.name; btn.textContent = 'Posting...'; }
         const audSel = document.getElementById('composerAudience');
         const audience = audSel ? audSel.value : 'public';
-        const r = await API.createPost(content, selectedFile, audience);
+        const r = await API.createPost(content, selectedFile, audience, { bg: selectedFile ? '' : bgValue, fileUrl: fileUrl, fileName: fileName, pollOptions: pollOptions });
         const container = document.getElementById(targetId);
         const empty = container.querySelector('.empty');
         if (empty) container.innerHTML = '';
         const node = renderPostNode(r.post);
         container.prepend(node);
         if (window.anime) anime({ targets: node, opacity: [0, 1], translateY: [-10, 0], duration: 300, easing: 'easeOutCubic' });
-        textArea.value = '';
-        textArea.style.height = 'auto';
-        selectedFile = null;
-        fileInput.value = '';
-        preview.classList.add('hidden');
-        preview.innerHTML = '';
+        // reset the whole composer
+        textArea.value = ''; textArea.style.height = 'auto'; clearBg();
+        clearImage();
+        selectedDoc = null; docInput.value = ''; fileChip.classList.add('hidden'); fileChip.innerHTML = '';
+        pollOn = false; pollBox.classList.add('hidden'); pollBox.innerHTML = '';
+        bgStrip.classList.add('hidden');
       } catch (e) {
         toast(e.message);
       }
-      btn.disabled = false;
-      btn.textContent = 'Post';
+      btn.disabled = false; btn.textContent = 'Post';
     };
   }
 
@@ -961,6 +1028,45 @@
     return wrap;
   }
 
+  // Poll rendering: each option is a clickable bar that fills to its share once
+  // the viewer has voted. Wired by wirePoll.
+  function pollHtml(p) {
+    const poll = p.poll;
+    if (!poll) return '';
+    const total = poll.totalVotes || 0;
+    const voted = poll.myVote != null;
+    let h = '<div class="poll">';
+    poll.options.forEach((o) => {
+      const pct = total ? Math.round((o.votes / total) * 100) : 0;
+      h += '<button class="poll-opt' + (poll.myVote === o.id ? ' mine' : '') + '" data-opt="' + o.id + '">' +
+        '<span class="poll-fill" style="width:' + (voted ? pct : 0) + '%"></span>' +
+        '<span class="poll-text">' + esc(o.text) + '</span>' +
+        (voted ? '<span class="poll-pct">' + pct + '%</span>' : '') +
+        '</button>';
+    });
+    h += '<div class="poll-total">' + total + ' vote' + (total === 1 ? '' : 's') + (voted ? '' : ' &#183; tap to vote') + '</div></div>';
+    return h;
+  }
+  function fileChipHtml(p) {
+    const key = String(p.file_url).replace(/^\/uploads\//, '');
+    const href = '/download/' + encodeURIComponent(key) + '?n=' + encodeURIComponent(p.file_name || 'file');
+    return '<a class="file-chip" href="' + esc(href) + '" target="_blank" rel="noopener">&#128206; <span>' + esc(p.file_name || 'Download file') + '</span></a>';
+  }
+  function wirePoll(node, p) {
+    const pollEl = node.querySelector('.poll');
+    if (!pollEl || !p.poll) return;
+    pollEl.querySelectorAll('.poll-opt').forEach((b) => {
+      b.onclick = async () => {
+        try {
+          const r = await API.pollVote(p.id, Number(b.getAttribute('data-opt')));
+          p.poll = r.poll;
+          pollEl.outerHTML = pollHtml(p);
+          wirePoll(node, p);
+        } catch (e) { toast(e.message); }
+      };
+    });
+  }
+
   function renderPostNode(p) {
     const node = el('<div class="card post" data-post="' + p.id + '"></div>');
     node._post = p;
@@ -981,8 +1087,12 @@
       (mineP ? '<button class="menu-btn" data-edit="' + p.id + '" title="Edit post">&#9998;</button>' +
         '<button class="menu-btn" data-del="' + p.id + '" title="Delete post">&#128465;</button>' : '') +
       '</div>' +
-      (p.content ? '<div class="post-body">' + linkify(esc(p.content)) + '</div>' : '') +
+      (p.content ? (p.bg
+        ? '<div class="post-bg ' + esc(p.bg) + '">' + esc(p.content) + '</div>'
+        : '<div class="post-body">' + linkify(esc(p.content)) + '</div>') : '') +
       (p.image ? '<div class="post-image"><img src="' + esc(p.image) + '" alt=""></div>' : '') +
+      (p.poll ? pollHtml(p) : '') +
+      (p.file_url ? fileChipHtml(p) : '') +
       '<div class="post-stats"></div>' +
       '<div class="post-actions">' +
       '<span data-vote></span>' +
@@ -993,6 +1103,7 @@
       '<div class="comments hidden" data-comments="' + p.id + '"></div>';
     const voteSlot = node.querySelector('[data-vote]');
     if (voteSlot) voteSlot.appendChild(voteControl('post', p.id, p.score || 0, p.myVote || 0, true));
+    wirePoll(node, p);
     renderStats(node);
     wirePost(node, p);
   }

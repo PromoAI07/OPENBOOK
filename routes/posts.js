@@ -6,7 +6,7 @@
 const express = require('express');
 const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
-const { upload } = require('../upload');
+const { upload, fileUpload } = require('../upload');
 const { notify } = require('../notify');
 const { areFriends, canViewPost, canInteractPost } = require('../visibility');
 const { decoratePost, decoratePosts, voteTally, reactionSummary } = require('../postview');
@@ -225,14 +225,59 @@ router.post('/', requireAuth, trustRateLimit('post'), upload.single('image'), (r
   // 'friends'. Default public so Discover stays lively; anything not exactly
   // 'friends' is treated as public.
   const audience = req.body.audience === 'friends' ? 'friends' : 'public';
-  if (!content && !image) {
-    return res.status(400).json({ error: 'Write something or add a photo' });
+  // Colored/"imaged" text background (only for text-only posts, never with an image).
+  const bg = String(req.body.bg || '').slice(0, 24).replace(/[^a-z0-9-]/gi, '');
+  // Attached file: a previously-uploaded /uploads/<key> from POST /upload-file.
+  const fileUrl = /^\/uploads\/[A-Za-z0-9._-]+$/.test(req.body.fileUrl || '') ? req.body.fileUrl : '';
+  const fileName = fileUrl ? String(req.body.fileName || 'file').slice(0, 200) : '';
+  // Poll options (composer sends a JSON array of strings).
+  let pollOptions = [];
+  if (req.body.pollOptions) {
+    try {
+      const arr = JSON.parse(req.body.pollOptions);
+      if (Array.isArray(arr)) pollOptions = arr.map((s) => String(s).trim()).filter(Boolean).slice(0, 8);
+    } catch (e) { /* ignore malformed poll */ }
   }
+  const isPoll = pollOptions.length >= 2;
+
+  if (!content && !image && !fileUrl && !isPoll) {
+    return res.status(400).json({ error: 'Write something, or add a photo, file, or poll' });
+  }
+  const type = isPoll ? 'poll' : 'text';
   const info = db
-    .prepare('INSERT INTO posts (user_id, content, image, audience) VALUES (?, ?, ?, ?)')
-    .run(req.user.id, content, image, audience);
-  const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(info.lastInsertRowid);
+    .prepare('INSERT INTO posts (user_id, content, image, audience, bg, file_url, file_name, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(req.user.id, content, image, audience, image ? '' : bg, fileUrl, fileName, type);
+  const postId = info.lastInsertRowid;
+  if (isPoll) {
+    const ins = db.prepare('INSERT INTO poll_options (post_id, text, position) VALUES (?, ?, ?)');
+    pollOptions.forEach((t, i) => ins.run(postId, t.slice(0, 120), i));
+  }
+  const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(postId);
   res.json({ post: decoratePost(post, req.user.id) });
+});
+
+// Upload a file attachment for a post (documents etc.). Returns a stable
+// /uploads/<key> the composer then includes when creating the post. Rate-limited
+// like other content creation.
+router.post('/upload-file', requireAuth, trustRateLimit('post'), fileUpload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file was uploaded' });
+  res.json({ url: '/uploads/' + req.file.filename, name: req.file.originalname || 'file' });
+});
+
+// Vote (or change your vote) on a poll. One vote per user per poll.
+router.post('/:id/poll/vote', requireAuth, (req, res) => {
+  const postId = Number(req.params.id);
+  const optionId = Number(req.body.optionId);
+  const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(postId);
+  if (!post || post.type !== 'poll') return res.status(404).json({ error: 'Poll not found' });
+  if (!canViewPost(req.user.id, post)) return res.status(403).json({ error: 'You cannot vote on this poll' });
+  const opt = db.prepare('SELECT id FROM poll_options WHERE id = ? AND post_id = ?').get(optionId, postId);
+  if (!opt) return res.status(400).json({ error: 'Invalid option' });
+  db.prepare(
+    "INSERT INTO poll_votes (post_id, user_id, option_id) VALUES (?, ?, ?) " +
+    "ON CONFLICT(post_id, user_id) DO UPDATE SET option_id = excluded.option_id, created_at = datetime('now')"
+  ).run(postId, req.user.id, optionId);
+  res.json({ poll: decoratePost(db.prepare('SELECT * FROM posts WHERE id = ?').get(postId), req.user.id).poll });
 });
 
 // Delete one of your own posts.
@@ -245,6 +290,7 @@ router.delete('/:id', requireAuth, (req, res) => {
   db.prepare('DELETE FROM posts WHERE id = ?').run(post.id);
   // The bytes go too, not just the row: this is the "you can truly delete" promise.
   if (post.image) cleanup.deleteMedia(post.image, post.user_id);
+  if (post.file_url) cleanup.deleteMedia(post.file_url, post.user_id);
   // Close any open reports for this now-deleted post so they do not orphan.
   db.prepare("UPDATE reports SET status = 'resolved' WHERE target_type = 'post' AND target_id = ? AND status = 'open'").run(post.id);
   res.json({ ok: true });

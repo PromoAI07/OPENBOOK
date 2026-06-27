@@ -53,7 +53,21 @@ function reactionSummary(targetType, targetId, userId) {
 // (decoratePost) and batch (decoratePosts) paths funnel through here so they
 // always return a byte-identical shape; ranking.js and the frontend depend on
 // these exact fields.
-function buildPostView(post, author, commentCount, reactions, tally, community, myVote) {
+// Poll data for a poll post: options with vote counts, the total, and the
+// viewer's own choice (null if they have not voted).
+function pollData(postId, viewerId) {
+  const opts = db.prepare('SELECT id, text FROM poll_options WHERE post_id = ? ORDER BY position, id').all(postId);
+  if (!opts.length) return null;
+  const counts = db.prepare('SELECT option_id, COUNT(*) c FROM poll_votes WHERE post_id = ? GROUP BY option_id').all(postId);
+  const cmap = {};
+  counts.forEach((r) => { cmap[r.option_id] = r.c; });
+  let total = 0;
+  const options = opts.map((o) => { const v = cmap[o.id] || 0; total += v; return { id: o.id, text: o.text, votes: v }; });
+  const mine = db.prepare('SELECT option_id FROM poll_votes WHERE post_id = ? AND user_id = ?').get(postId, viewerId);
+  return { options, totalVotes: total, myVote: mine ? mine.option_id : null };
+}
+
+function buildPostView(post, author, commentCount, reactions, tally, community, myVote, viewerId) {
   return {
     id: post.id,
     title: post.title || '',
@@ -63,6 +77,10 @@ function buildPostView(post, author, commentCount, reactions, tally, community, 
     image: post.image,
     created_at: post.created_at,
     audience: post.audience || 'friends', // 'public' or 'friends' (personal posts)
+    bg: post.bg || '',                    // colored/"imaged" text background id
+    file_url: post.file_url || '',        // attached document download path
+    file_name: post.file_name || '',
+    poll: post.type === 'poll' ? pollData(post.id, viewerId) : null,
     author: publicUser(author),
     commentCount,
     reactions,
@@ -101,7 +119,7 @@ function decoratePost(post, viewerId) {
     if (c) community = { id: c.id, name: c.name };
   }
 
-  return buildPostView(post, author, commentCount, reactions, tally, community, myPostVote(post.id, viewerId));
+  return buildPostView(post, author, commentCount, reactions, tally, community, myPostVote(post.id, viewerId), viewerId);
 }
 
 // Batch version of decoratePost: resolves every per-post field with a handful of
@@ -207,7 +225,7 @@ function decoratePosts(posts, viewerId) {
     const tally = tallies.get(post.id) || { score: 0, up: 0, down: 0, effUp: 0, effDown: 0 };
     const community = post.community_id ? communities.get(post.community_id) || null : null;
     const myVote = myVotes.has(post.id) ? myVotes.get(post.id) : 0;
-    return buildPostView(post, authors.get(post.user_id), commentCounts.get(post.id) || 0, reactions, tally, community, myVote);
+    return buildPostView(post, authors.get(post.user_id), commentCounts.get(post.id) || 0, reactions, tally, community, myVote, viewerId);
   });
 }
 

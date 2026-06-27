@@ -76,13 +76,19 @@ const API = {
     return this.get('/api/posts/feed/discover' + (params.length ? '?' + params.join('&') : ''));
   },
   userPosts(id) { return this.get('/api/posts/user/' + id); },
-  createPost(content, file, audience) {
+  createPost(content, file, audience, opts) {
+    opts = opts || {};
     const f = new FormData();
     f.append('content', content || '');
     if (audience) f.append('audience', audience);
     if (file) f.append('image', file);
+    if (opts.bg) f.append('bg', opts.bg);
+    if (opts.fileUrl) { f.append('fileUrl', opts.fileUrl); f.append('fileName', opts.fileName || 'file'); }
+    if (opts.pollOptions && opts.pollOptions.length) f.append('pollOptions', JSON.stringify(opts.pollOptions));
     return this.postForm('/api/posts', f);
   },
+  uploadPostFile(file) { const f = new FormData(); f.append('file', file); return this.postForm('/api/posts/upload-file', f); },
+  pollVote(postId, optionId) { return this.post('/api/posts/' + postId + '/poll/vote', { optionId }); },
   deletePost(id) { return this.del('/api/posts/' + id); },
   editPost(id, fields) { return this.put('/api/posts/' + id, fields); },
   postHistory(id) { return this.get('/api/posts/' + id + '/history'); },

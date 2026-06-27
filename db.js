@@ -591,6 +591,36 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_user_media_key  ON user_media(key);
 `);
 
+// --- Rich posts: colored/"imaged" text backgrounds, file attachments, polls ---
+// bg: a background style id for short text-only posts (Facebook-style colored
+// status). file_url/file_name: an attached document. Polls reuse posts.type='poll'
+// with their options + votes in their own tables.
+addColumn('posts', "bg TEXT NOT NULL DEFAULT ''", 'bg');
+addColumn('posts', "file_url TEXT NOT NULL DEFAULT ''", 'file_url');
+addColumn('posts', "file_name TEXT NOT NULL DEFAULT ''", 'file_name');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS poll_options (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id   INTEGER NOT NULL,
+    text      TEXT    NOT NULL,
+    position  INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_poll_options_post ON poll_options(post_id);
+
+  CREATE TABLE IF NOT EXISTS poll_votes (
+    post_id    INTEGER NOT NULL,
+    user_id    INTEGER NOT NULL,
+    option_id  INTEGER NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (post_id, user_id),
+    FOREIGN KEY (post_id)   REFERENCES posts(id)        ON DELETE CASCADE,
+    FOREIGN KEY (user_id)   REFERENCES users(id)        ON DELETE CASCADE,
+    FOREIGN KEY (option_id) REFERENCES poll_options(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_poll_votes_post ON poll_votes(post_id);
+`);
+
 // Platform admins are designated by the ADMIN_EMAILS env var (comma separated).
 // The sync is two-way: when the list is set, clear all admin flags first and then
 // re-grant, so removing an email from the list actually demotes that user. (When

@@ -63,6 +63,16 @@ function videoFilter(req, file, cb) {
   if (/^video\//.test(file.mimetype)) cb(null, true);
   else cb(Object.assign(new Error('Only video files are allowed'), { status: 400 }));
 }
+// Generic file attachments: allow most things but block types that could execute
+// or run script if a browser ever opened them inline. Downloads are also served
+// with Content-Disposition: attachment (see server.js) as a second layer.
+const FILE_DENY = /\.(html?|xhtml|svg|js|mjs|exe|bat|cmd|com|sh|msi|dll|scr|jar|app|php|phtml|asp|aspx|jsp|cgi|vbs|ps1)$/i;
+function fileFilter(req, file, cb) {
+  if (FILE_DENY.test(file.originalname || '')) {
+    return cb(Object.assign(new Error('That file type is not allowed.'), { status: 400 }));
+  }
+  cb(null, true);
+}
 
 // Per-file size limit by the uploader's tier. Free = 100 MB; paid tiers larger.
 const TIER_UPLOAD_MB = [100, 100, 250, 1024]; // index by effective tier 0..3
@@ -133,7 +143,7 @@ function assertQuota(user, addBytes, cleanupFn) {
 // leaves the file on disk (local) or pushes it to the egress-free backend (s3)
 // under a content-addressed key. Records the object in user_media so it can be
 // counted toward quota and truly deleted later.
-async function finalize(req, isImage) {
+async function finalize(req, kind) {
   const f = req.file;
   if (!f) return;
   const remote = storage.isRemote();
@@ -143,7 +153,7 @@ async function finalize(req, isImage) {
   const rmTmp = (p) => () => { try { fs.unlinkSync(p); } catch (e) {} };
 
   // -------- images (jpeg/png/webp/etc; not gif/svg) --------
-  if (isImage && /^image\//.test(f.mimetype || '') && !/gif|svg/i.test(f.mimetype)) {
+  if (kind === 'image' && /^image\//.test(f.mimetype || '') && !/gif|svg/i.test(f.mimetype)) {
     if (!remote) {
       await compressImageLocal(req); // sets f.filename/path/mimetype on disk
       key = f.filename;
@@ -170,7 +180,7 @@ async function finalize(req, isImage) {
     }
   }
   // -------- gif / svg images: never re-encode; just store --------
-  else if (isImage) {
+  else if (kind === 'image') {
     if (!remote) {
       key = f.filename;
       try { bytes = fs.statSync(f.path).size; } catch (e) { bytes = 0; }
@@ -186,7 +196,7 @@ async function finalize(req, isImage) {
     }
   }
   // -------- video --------
-  else {
+  else if (kind === 'video') {
     let current = f.path;
     let ext = path.extname(f.filename).toLowerCase() || '.mp4';
     if (TRANSCODE) {
@@ -208,6 +218,22 @@ async function finalize(req, isImage) {
       f.path = null;
     }
   }
+  // -------- any other file (documents etc.): store as-is, no processing --------
+  else {
+    const current = f.path;
+    const ext = path.extname(f.filename).toLowerCase() || '';
+    try { bytes = fs.statSync(current).size; } catch (e) { bytes = 0; }
+    assertQuota(req.user, bytes, rmTmp(current));
+    if (!remote) {
+      key = path.basename(current);
+      f.path = current;
+    } else {
+      const hash = await hashFile(current);
+      key = hash + ext;
+      await storage.put(key, current, f.mimetype);
+      f.path = null;
+    }
+  }
 
   f.filename = key;
   cleanup.recordUpload(userId, key, bytes);
@@ -215,15 +241,15 @@ async function finalize(req, isImage) {
 
 // Build a middleware that mirrors multer's .single(field): applies the per-tier
 // limit per request, then runs the optimisation + storage pipeline.
-function singleFactory(filter, isImage, capMb) {
+function singleFactory(filter, kind, capMb) {
   return function (field) {
     return function (req, res, next) {
       let limitBytes = limitBytesFor(req.user);
-      if (capMb) limitBytes = Math.min(limitBytes, capMb * 1024 * 1024); // hard cap (e.g. video 50 MB)
+      if (capMb) limitBytes = Math.min(limitBytes, capMb * 1024 * 1024); // hard cap (e.g. video 50 MB, files 25 MB)
       const mw = multer({ storage: diskStorage, fileFilter: filter, limits: { fileSize: limitBytes } }).single(field);
       mw(req, res, (err) => {
         if (err) return next(err);
-        finalize(req, isImage).then(() => next()).catch((e) => {
+        finalize(req, kind).then(() => next()).catch((e) => {
           // Errors with an explicit status (quota 413, etc.) always surface so
           // the user sees a clear message, in either backend mode.
           if (e && e.status) return next(e);
@@ -243,10 +269,13 @@ function singleFactory(filter, isImage, capMb) {
 }
 
 // Same shape the routes already use: upload.single('image') / videoUpload.single('video').
-const upload = { single: singleFactory(imageFilter, true) };
+const upload = { single: singleFactory(imageFilter, 'image') };
 // Videos (reels) are capped at 50 MB on upload (override with VIDEO_MAX_MB) and
 // then transcoded toward a small target (~8 MB) where ffmpeg is available.
 const VIDEO_MAX_MB = Number(process.env.VIDEO_MAX_MB || 50);
-const videoUpload = { single: singleFactory(videoFilter, false, VIDEO_MAX_MB) };
+const videoUpload = { single: singleFactory(videoFilter, 'video', VIDEO_MAX_MB) };
+// Generic file attachments for posts (documents etc.), capped at 25 MB.
+const FILE_MAX_MB = Number(process.env.FILE_MAX_MB || 25);
+const fileUpload = { single: singleFactory(fileFilter, 'file', FILE_MAX_MB) };
 
-module.exports = { upload, videoUpload, UP_DIR, uploadLimitMb, TIER_UPLOAD_MB };
+module.exports = { upload, videoUpload, fileUpload, UP_DIR, uploadLimitMb, TIER_UPLOAD_MB };

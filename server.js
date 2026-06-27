@@ -80,6 +80,25 @@ app.use('/uploads', (req, res, next) => {
   return res.redirect(302, mediaStore.publicUrl(key));
 });
 app.use('/uploads', express.static(path.join(process.env.DATA_DIR || __dirname, 'uploads')));
+
+// File-attachment downloads. Forces a safe attachment download (Content-Disposition
+// + octet-stream) so an uploaded document can never run inline as a page in the
+// user's session. In s3 mode the bytes come from the CDN (redirect).
+app.get('/download/:key', (req, res) => {
+  const key = String(req.params.key || '');
+  if (!/^[A-Za-z0-9._-]+$/.test(key)) return res.status(400).end();
+  const name = (req.query.n ? String(req.query.n) : key).replace(/[^A-Za-z0-9._ ()-]/g, '_').slice(0, 200) || 'file';
+  res.setHeader('Content-Disposition', 'attachment; filename="' + name + '"');
+  if (mediaStore.isRemote()) {
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    return res.redirect(302, mediaStore.publicUrl(key));
+  }
+  res.setHeader('Content-Type', 'application/octet-stream');
+  return res.sendFile(path.join(process.env.DATA_DIR || __dirname, 'uploads', key), (err) => {
+    if (err && !res.headersSent) res.status(404).end();
+  });
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Throttle auth attempts to slow brute force and signup abuse. Only the mutating
