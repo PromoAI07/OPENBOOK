@@ -96,6 +96,26 @@
             <div class="auth-switch">
               New to OpenBook? <button type="button" id="toSignup">Create an account</button>
             </div>
+            <div class="auth-switch">
+              <button type="button" id="toForgot">Forgot your password?</button>
+            </div>
+          </div>
+
+          <!-- Forgot-password view -->
+          <div id="forgotView" class="hidden">
+            <h2>Reset your password</h2>
+            <p class="sub">Enter your email and we will send you a reset link.</p>
+            <div id="forgotAlert"></div>
+            <form id="forgotForm">
+              <div class="field">
+                <label for="forgotEmail">Email</label>
+                <input class="input" type="email" id="forgotEmail" placeholder="you@example.com" autocomplete="email" required />
+              </div>
+              <button class="btn btn-primary btn-block" type="submit" id="forgotBtn">Send reset link</button>
+            </form>
+            <div class="auth-switch">
+              <button type="button" id="forgotToLogin">Back to login</button>
+            </div>
           </div>
 
           <!-- Signup view -->

@@ -7,7 +7,7 @@ const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { createSession, destroySession, requireAuth, publicUser } = require('../auth');
 const { recordStandingEvent, refreshTrustLevel, trustSnapshot } = require('../trust');
-const { sendVerificationEmail, EMAIL_CONFIGURED } = require('../mailer');
+const { sendVerificationEmail, sendPasswordResetEmail, EMAIL_CONFIGURED } = require('../mailer');
 const {
   isDisposableEmail, makeChallenge, verifyPoW, verifyTurnstile,
   recordDevice, flagSignupRisk,
@@ -120,6 +120,38 @@ router.post('/resend-verification', requireAuth, (req, res) => {
   sendVerificationEmail(u.email, link, u.name).catch(() => {});
   if (process.env.NODE_ENV !== 'production') out.devVerifyLink = link;
   res.json(out);
+});
+
+// Forgot password: email a one-time reset link. Always returns a generic ok so
+// the response never reveals whether an account exists for that email.
+router.post('/forgot-password', (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase();
+  const out = { ok: true };
+  if (!email) return res.json(out);
+  const u = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  if (u) {
+    const token = crypto.randomBytes(24).toString('hex');
+    db.prepare("UPDATE users SET reset_token = ?, reset_expires = datetime('now', '+1 hour') WHERE id = ?").run(token, u.id);
+    const link = req.protocol + '://' + req.get('host') + '/reset?token=' + encodeURIComponent(token);
+    sendPasswordResetEmail(u.email, link, u.name).catch(() => {});
+    if (process.env.NODE_ENV !== 'production') out.devResetLink = link; // dev testing only
+  }
+  res.json(out);
+});
+
+// Complete a password reset using the emailed token.
+router.post('/reset-password', (req, res) => {
+  const token = (req.body.token || '').toString();
+  const password = req.body.password || '';
+  if (!token) return res.status(400).json({ error: 'Missing reset token' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const u = db.prepare("SELECT * FROM users WHERE reset_token = ? AND reset_expires >= datetime('now')").get(token);
+  if (!u) return res.status(400).json({ error: 'This reset link is invalid or has expired. Please request a new one.' });
+  const hash = bcrypt.hashSync(password, 10);
+  db.prepare('UPDATE users SET password_hash = ?, reset_token = NULL, reset_expires = NULL WHERE id = ?').run(hash, u.id);
+  // Log out any existing sessions so an old/leaked session cannot outlive a reset.
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+  res.json({ ok: true });
 });
 
 router.post('/login', (req, res) => {

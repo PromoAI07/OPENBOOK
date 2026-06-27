@@ -58,8 +58,49 @@ async function sendVerificationEmail(to, link, name) {
   }
 }
 
+function resetEmailHtml(name, link) {
+  return (
+    '<div style="font-family:Arial,Helvetica,sans-serif;max-width:480px;margin:0 auto;color:#1c1c28">' +
+    '<h2 style="color:#4f46e5">Reset your OpenBook password</h2>' +
+    '<p>Hi' + (name ? ' ' + escapeHtml(name) : '') + ', we got a request to reset your password. Click below to choose a new one. This link expires in 1 hour.</p>' +
+    '<p style="margin:24px 0"><a href="' + link + '" style="background:#4f46e5;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:700">Reset my password</a></p>' +
+    '<p style="font-size:13px;color:#65656f">Or paste this link into your browser:<br>' + link + '</p>' +
+    '<p style="font-size:12px;color:#9a9aa5">If you did not request this, you can safely ignore this email; your password will not change.</p>' +
+    '</div>'
+  );
+}
+
+// Send the password-reset email. Returns { sent: boolean, link: string }.
+async function sendPasswordResetEmail(to, link, name) {
+  if (!RESEND_API_KEY) {
+    console.log('[mailer] RESEND_API_KEY not set. Password reset link for ' + to + ':\n  ' + link);
+    return { sent: false, link };
+  }
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + RESEND_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: EMAIL_FROM,
+        to: [to],
+        subject: 'Reset your OpenBook password',
+        html: resetEmailHtml(name, link),
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.error('[mailer] Resend returned ' + res.status + ': ' + body);
+      return { sent: false, link };
+    }
+    return { sent: true, link };
+  } catch (e) {
+    console.error('[mailer] send failed: ' + (e && e.message));
+    return { sent: false, link };
+  }
+}
+
 // True when real sending is configured (used to decide whether to surface the
 // dev link in API responses).
 const EMAIL_CONFIGURED = !!RESEND_API_KEY;
 
-module.exports = { sendVerificationEmail, EMAIL_CONFIGURED };
+module.exports = { sendVerificationEmail, sendPasswordResetEmail, EMAIL_CONFIGURED };

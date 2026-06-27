@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reset your OpenBook password</title>
+  <script>try{var t=localStorage.getItem('ob_theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <main class="landing">
+    <div class="landing-grid" style="grid-template-columns:1fr;max-width:440px">
+      <section>
+        <div class="auth-card">
+          <div class="landing-logo" style="margin-bottom:14px">
+            <span class="brand-mark">O</span><span class="brand name">OpenBook</span>
+          </div>
+          <h2>Choose a new password</h2>
+          <p class="sub">Enter a new password for your account.</p>
+          <div id="alert"></div>
+          <form id="resetForm">
+            <div class="field">
+              <label for="pw">New password</label>
+              <div class="pw-wrap">
+                <input class="input" type="password" id="pw" placeholder="At least 6 characters" autocomplete="new-password" required />
+                <button type="button" class="pw-toggle" data-pw="pw" aria-label="Show password">Show</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="pw2">Confirm new password</label>
+              <input class="input" type="password" id="pw2" placeholder="Repeat the password" autocomplete="new-password" required />
+            </div>
+            <button class="btn btn-primary btn-block" type="submit" id="resetBtn">Update password</button>
+          </form>
+          <div class="auth-switch"><a href="/">Back to login</a></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script>
+    (function () {
+      var token = new URLSearchParams(location.search).get('token') || '';
+      var alertEl = document.getElementById('alert');
+      function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]);});}
+      function show(msg, ok){ alertEl.innerHTML = '<div class="alert' + (ok ? ' alert-ok' : '') + '">' + esc(msg) + '</div>'; }
+
+      if (!token) show('This reset link is missing its token. Please use the link from your email, or request a new one.');
+
+      document.querySelectorAll('.pw-toggle').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var inp = document.getElementById(b.getAttribute('data-pw'));
+          var showing = inp.type === 'password';
+          inp.type = showing ? 'text' : 'password';
+          b.textContent = showing ? 'Hide' : 'Show';
+        });
+      });
+
+      document.getElementById('resetForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var btn = document.getElementById('resetBtn');
+        var pw = document.getElementById('pw').value;
+        var pw2 = document.getElementById('pw2').value;
+        if (pw.length < 6) { show('Password must be at least 6 characters.'); return; }
+        if (pw !== pw2) { show('The two passwords do not match.'); return; }
+        if (!token) { show('Missing reset token.'); return; }
+        btn.disabled = true; btn.textContent = 'Updating...';
+        try {
+          await API.resetPassword(token, pw);
+          show('Password updated. You can now log in with your new password.', true);
+          document.getElementById('resetForm').style.display = 'none';
+          setTimeout(function () { location.href = '/'; }, 2000);
+        } catch (err) {
+          show(err.message);
+          btn.disabled = false; btn.textContent = 'Update password';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -136,6 +136,9 @@ app.use('/api/analytics', require('./routes/analytics'));
 // The authenticated single page app shell.
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
 
+// Password-reset page (the target of the emailed link; the token is in the URL).
+app.get('/reset', (req, res) => res.sendFile(path.join(__dirname, 'public', 'reset.html')));
+
 // Separate owner-only analytics page. The PAGE ITSELF is gated here server-side:
 // a non-admin (or logged-out) visitor is bounced before the page even loads, and
 // the analytics API it calls is independently admin-only. admin.html lives

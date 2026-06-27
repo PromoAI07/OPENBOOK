@@ -37,6 +37,8 @@ const API = {
   logout() { return this.post('/api/auth/logout'); },
   me() { return this.get('/api/auth/me'); },
   resendVerification() { return this.post('/api/auth/resend-verification'); },
+  forgotPassword(email) { return this.post('/api/auth/forgot-password', { email }); },
+  resetPassword(token, password) { return this.post('/api/auth/reset-password', { token, password }); },
   support() { return this.get('/api/support'); },
   tiers() { return this.get('/api/tiers'); },
   // Admin (supporter tiers)

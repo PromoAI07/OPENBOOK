@@ -380,6 +380,12 @@ addColumn('posts', 'views INTEGER NOT NULL DEFAULT 0', 'views');
 }
 addColumn('users', 'verify_token TEXT', 'verify_token');
 
+// --- Password reset (forgot password) ---
+// A one-time token + expiry, set when a reset is requested and cleared once the
+// password is changed. Delivered by the same mailer as verification.
+addColumn('users', 'reset_token TEXT', 'reset_token');
+addColumn('users', 'reset_expires TEXT', 'reset_expires');
+
 // --- Phase 3/4: moderation, reports, bans, appeals, shadowban ---
 // Moderation power is distributed: post creators moderate their own threads,
 // community mods moderate their community, platform admins handle only sitewide

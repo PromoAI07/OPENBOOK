@@ -19,6 +19,33 @@
     animateCard();
   });
 
+  const forgotView = document.getElementById('forgotView');
+  document.getElementById('toForgot').addEventListener('click', () => {
+    loginView.classList.add('hidden');
+    forgotView.classList.remove('hidden');
+    animateCard();
+  });
+  document.getElementById('forgotToLogin').addEventListener('click', () => {
+    forgotView.classList.add('hidden');
+    loginView.classList.remove('hidden');
+    animateCard();
+  });
+  document.getElementById('forgotForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('forgotBtn');
+    const email = document.getElementById('forgotEmail').value.trim();
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+    try {
+      await API.forgotPassword(email);
+    } catch (err) { /* never reveal whether the email exists */ }
+    // Always show the same message (anti account-enumeration).
+    document.getElementById('forgotAlert').innerHTML =
+      '<div class="alert alert-ok">If an account exists for that email, a password reset link is on its way. Check your inbox.</div>';
+    btn.disabled = false;
+    btn.textContent = 'Send reset link';
+  });
+
   function animateCard() {
     if (window.anime) {
       anime({ targets: '#authCard', opacity: [0.4, 1], translateY: [8, 0], duration: 350, easing: 'easeOutCubic' });
