@@ -10,8 +10,7 @@ down voting, karma), and it is built on one idea most platforms get wrong:
 ![Node](https://img.shields.io/badge/Node-24%2B-339933?logo=node.js&logoColor=white)
 [![Live demo](https://img.shields.io/badge/demo-openbook--w8gi.onrender.com-4f46e5)](https://openbook-w8gi.onrender.com)
 
-> **Live demo:** https://openbook-w8gi.onrender.com
-> (Free hosting, so the first load can take ~30 seconds to wake up.)
+> **Live demo:** https://openbook.space
 
 > OpenBook is an independent open-source project. It is not affiliated with,
 > endorsed by, or connected to Meta, Facebook, or Reddit.
@@ -76,18 +75,21 @@ black box.
 ## Tech stack
 
 - **Backend:** Node.js + Express
-- **Database:** Node's built-in `node:sqlite` (a single file, no native build step)
+- **Database:** [libSQL / Turso](https://turso.tech) over `@libsql/client` (a networked SQLite). With `LIBSQL_URL` unset it falls back to a local SQLite file, so local development needs zero setup
 - **Real-time:** Socket.IO
 - **Auth:** bcryptjs hashing, httpOnly session cookies
-- **Other:** multer (uploads), helmet, express-rate-limit
+- **Media:** multer + sharp, stored either on disk (`local`) or in an S3-compatible, egress-free bucket like Cloudflare R2 / Backblaze B2 (`s3`)
+- **Other:** helmet, express-rate-limit, express-async-errors
 - **Frontend:** plain HTML, CSS, and JavaScript with anime.js (no build step)
 
-No build tooling, no framework lock-in, and the whole database is one file you
-can copy or delete.
+No build tooling and no framework lock-in. The database speaks plain SQLite
+(libSQL): locally it is still a single file you can copy or delete, and in
+production it is a managed Turso database, so the web service stays stateless
+and deploys with zero downtime.
 
 ## Getting started
 
-Requires **Node.js 24 or newer** (the built-in SQLite module ships with Node 24).
+Requires **Node.js 24 or newer** (pinned in `package.json`).
 
 ```bash
 git clone https://github.com/PromoAI07/OPENBOOK.git
@@ -108,43 +110,66 @@ in production:
 | Variable | Purpose |
 |---|---|
 | `NODE_ENV` | Set to `production` to enable secure cookies and HTTPS behavior |
-| `DATA_DIR` | Folder for the database and uploads (point this at a persistent disk) |
-| `PORT` | Port to listen on (default 3000) |
+| `LIBSQL_URL` | Turso/libSQL database URL (`libsql://<db>-<org>.turso.io`). **Unset = a local SQLite file** (perfect for dev) |
+| `LIBSQL_AUTH_TOKEN` | Auth token for the Turso database |
+| `MEDIA_BACKEND` | `local` (default, files on disk) or `s3` (S3-compatible object storage: Cloudflare R2 / Backblaze B2) |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Object-storage credentials (required when `MEDIA_BACKEND=s3`) |
+| `MEDIA_CDN_BASE` | Public base URL that serves the bucket (e.g. an R2 public URL), no trailing slash |
+| `ADMIN_EMAILS` | Comma-separated emails granted the owner analytics panel at `/admin` |
+| `FOUNDER_EMAILS` | Comma-separated emails that get the cosmetic Founder badge |
+| `DATA_DIR` | Folder for the local-file database + upload staging (only needed in `local` mode; defaults to the app folder) |
 | `RESEND_API_KEY` | Enables email verification via [Resend](https://resend.com). When unset, signups are auto-verified so the app is never locked out |
 | `EMAIL_FROM` | Sender for verification emails, for example `OpenBook <noreply@yourdomain>` |
+| `PORT` | Port to listen on (default 3000) |
 | `SUPPORT_GITHUB`, `SUPPORT_OPENCOLLECTIVE`, `SUPPORT_CRYPTO` | Links shown on the in-app Support page |
 
 ## Deployment
 
-OpenBook needs a host that runs an always-on Node process with a disk (it uses
-WebSockets and stores files), so it does not run on static or serverless hosts.
+OpenBook runs as an always-on Node process (it uses WebSockets), so it does not
+run on static or serverless hosts. It does **not** need a local disk: point it
+at a networked database and object storage and the web service is stateless, so
+it deploys with **zero downtime**.
 
-- **Render:** a blueprint is included ([`render.yaml`](render.yaml)). See [`DEPLOY.md`](DEPLOY.md).
-- **Fly.io:** a `Dockerfile` and `fly.toml` with a persistent volume are included.
-  See [`FLY-DEPLOY.md`](FLY-DEPLOY.md).
+- **Database:** create a free [Turso](https://turso.tech) database and set
+  `LIBSQL_URL` + `LIBSQL_AUTH_TOKEN`. With those unset it uses a local SQLite
+  file instead, which is ideal for development.
+- **Uploads:** set `MEDIA_BACKEND=s3` plus the `S3_*` and `MEDIA_CDN_BASE`
+  variables to push media to an egress-free bucket (Cloudflare R2 or Backblaze
+  B2). With the default `MEDIA_BACKEND=local`, files stay on disk.
+- **Host:** a Render blueprint is included ([`render.yaml`](render.yaml)); see
+  [`DEPLOY.md`](DEPLOY.md). With no attached disk, Render does zero-downtime
+  rolling deploys. A `Dockerfile` + `fly.toml` are also included for Fly.io.
 
-For data to persist, point `DATA_DIR` at a mounted disk or volume. On a free tier
-with an ephemeral disk, accounts and posts reset on each restart, which is fine
-for a demo but not for real users. For large scale later, move the database to
-Postgres (the schema in `db.js` maps over almost directly) and uploads to object
-storage (S3 or Cloudflare R2).
+The production demo runs on **Render** (app) + **Turso** (database) +
+**Cloudflare R2** (media). Because the database and files live off-box, the
+service can be redeployed or scaled freely without downtime or data loss.
 
 ## Project structure
 
 ```
 server.js        Express app, security middleware, Socket.IO, route mounting
-db.js            Database connection, schema, and migrations
+db.js            libSQL/Turso adapter, schema, and async startup migrations
 auth.js          Session cookies, login state, helpers
 trust.js         Reputation engine: karma vs standing, trust levels, reach
 ranking.js       Published ranking math: hot, Wilson, controversy, vote weight
+entitlements.js  Supporter tiers and perks (cosmetic / capacity / convenience only)
+referrals.js     Invite rewards (free Premium months) with anti-farming checks
+antisybil.js     Disposable-email + proof-of-work + vote-ring detection
+moderation.js    Distributed moderation permission helpers
 visibility.js    Shared who-can-see and who-can-interact rules
 postview.js      Shared post shaping for every surface
+presence.js      In-memory online presence (green / grey dots)
+notify.js        Notification creation + live Socket.IO push
 mailer.js        Email verification sending (Resend)
 sockets.js       Real-time chat handlers
+upload.js        Per-tier upload limits, image compression, storage pipeline
+media/           storage.js (local|s3 backends), processor.js (sharp/ffmpeg), cleanup.js (real deletion + quota)
 routes/          One file per area: auth, users, posts, comments, friends,
                  notifications, stories, messages, marketplace, groups, albums,
-                 communities, votes, reactions, reels
+                 communities, votes, reactions, reels, moderation, admin,
+                 analytics, referrals, suggestions
 public/          The frontend (index.html, app.html, css/, js/)
+admin.html       Owner-only analytics page (served at /admin, gated by ADMIN_EMAILS)
 ```
 
 ## Your data stays yours
