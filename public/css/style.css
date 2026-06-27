@@ -450,7 +450,7 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 
 /* ---------- App layout ---------- */
 .layout {
-  max-width: 1100px;
+  max-width: 1280px;
   margin: 0 auto;
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr) 280px;
@@ -478,7 +478,7 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 
 /* ---------- Email verification banner ---------- */
 .verify-banner {
-  max-width: 1100px;
+  max-width: 1280px;
   margin: 12px auto 0;
   padding: 10px 16px;
   background: #fff7e6;
@@ -727,7 +727,7 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
   background: rgba(255,255,255,0.9); color: var(--text);
 }
 .profile-head {
-  display: flex; align-items: flex-end; gap: 18px;
+  display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 18px;
   margin: 0; padding: 0 24px 16px;
   border-bottom: 1px solid var(--line);
   position: relative; z-index: 1; /* paint above the positioned cover */
@@ -770,8 +770,11 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 }
 /* Profile header name column: take the remaining width and let long names wrap
    cleanly instead of being clipped under the avatar / cover overlap. */
-.profile-head .phead-main { flex: 1 1 auto; min-width: 0; }
-.profile-head .pname { overflow-wrap: break-word; line-height: 1.2; }
+/* The name column claims at least ~240px and grows; if the row is too tight for
+   the avatar + name + actions, the actions wrap to their own line below (so the
+   name is never squeezed into a 1-letter-per-line column). */
+.profile-head .phead-main { flex: 1 1 240px; min-width: 0; }
+.profile-head .pname { overflow-wrap: break-word; word-break: normal; line-height: 1.2; }
 /* Composer audience (Public / Friends) selector. */
 .composer-audience {
   font: inherit; font-size: 13px; padding: 6px 8px; margin-right: 8px;
