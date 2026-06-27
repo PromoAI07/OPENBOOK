@@ -726,10 +726,14 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 }
 .profile-head {
   display: flex; align-items: flex-end; gap: 18px;
-  margin: -60px 0 0; padding: 0 24px 16px;
+  margin: 0; padding: 0 24px 16px;
   border-bottom: 1px solid var(--line);
+  position: relative; z-index: 1; /* paint above the positioned cover */
 }
-.profile-head .av-wrap { position: relative; }
+/* Lift ONLY the avatar up over the cover. The name column then stays in the white
+   area below the cover, so the cover (which is position:relative and would
+   otherwise paint over the non-positioned name) can never cover the name. */
+.profile-head .av-wrap { position: relative; margin-top: -60px; }
 .profile-head .av-wrap .cam {
   position: absolute; right: 4px; bottom: 4px;
   width: 34px; height: 34px; border-radius: 50%;
@@ -765,7 +769,7 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 /* Profile header name column: take the remaining width and let long names wrap
    cleanly instead of being clipped under the avatar / cover overlap. */
 .profile-head .phead-main { flex: 1 1 auto; min-width: 0; }
-.profile-head .pname { overflow-wrap: anywhere; line-height: 1.2; }
+.profile-head .pname { overflow-wrap: break-word; line-height: 1.2; }
 /* Composer audience (Public / Friends) selector. */
 .composer-audience {
   font: inherit; font-size: 13px; padding: 6px 8px; margin-right: 8px;
@@ -1000,6 +1004,9 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
     gap: 6px;
     margin-top: -64px;
   }
+  /* On mobile the whole (column) header lifts over the cover, so the avatar must
+     not also lift on its own, or it would ride too far up. */
+  .profile-head .av-wrap { margin-top: 0; }
   .profile-head .pactions { margin-left: 0; justify-content: center; flex-wrap: wrap; padding-bottom: 0; }
 }
 @media (max-width: 520px) {
