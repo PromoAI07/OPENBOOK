@@ -135,6 +135,8 @@ textarea.input { resize: vertical; min-height: 60px; }
   object-fit: cover;
   background: var(--brand-soft);
   flex: none;
+  max-width: none; /* override the global img max-width so a fixed-size avatar never shrinks into an oval */
+  aspect-ratio: 1 / 1;
 }
 .avatar-fallback {
   border-radius: 50%;
@@ -733,7 +735,7 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 /* Lift ONLY the avatar up over the cover. The name column then stays in the white
    area below the cover, so the cover (which is position:relative and would
    otherwise paint over the non-positioned name) can never cover the name. */
-.profile-head .av-wrap { position: relative; margin-top: -60px; }
+.profile-head .av-wrap { position: relative; margin-top: -60px; flex: none; }
 .profile-head .av-wrap .cam {
   position: absolute; right: 4px; bottom: 4px;
   width: 34px; height: 34px; border-radius: 50%;
@@ -890,6 +892,7 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 .link:hover { text-decoration: underline; }
 
 .votebox { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 34px; flex: none; }
+.votebox.inline { flex-direction: row; min-width: 0; gap: 4px; padding: 0 4px; }
 .vote { background: none; border: none; color: var(--text-soft); font-size: 14px; line-height: 1; padding: 2px 4px; border-radius: 6px; }
 .vote:hover { background: var(--hover); }
 .vote.up.on { color: var(--brand); }

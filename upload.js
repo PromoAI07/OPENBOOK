@@ -36,7 +36,11 @@ const cleanup = require('./media/cleanup');
 const UP_DIR = path.join(process.env.DATA_DIR || __dirname, 'uploads');
 if (!fs.existsSync(UP_DIR)) fs.mkdirSync(UP_DIR, { recursive: true });
 
-const TRANSCODE = process.env.MEDIA_TRANSCODE === '1';
+// Video transcode is ON by default now (reels should be shrunk). It degrades
+// gracefully to a no-op where ffmpeg/ffprobe are not installed (for example
+// Render's native Node runtime), so it never breaks an upload. Set
+// MEDIA_TRANSCODE=0 to force it off.
+const TRANSCODE = process.env.MEDIA_TRANSCODE !== '0';
 
 // Optional native image compressor for the LOCAL fast path. If it is not
 // installed, local uploads still work, just without compression.
@@ -211,10 +215,12 @@ async function finalize(req, isImage) {
 
 // Build a middleware that mirrors multer's .single(field): applies the per-tier
 // limit per request, then runs the optimisation + storage pipeline.
-function singleFactory(filter, isImage) {
+function singleFactory(filter, isImage, capMb) {
   return function (field) {
     return function (req, res, next) {
-      const mw = multer({ storage: diskStorage, fileFilter: filter, limits: { fileSize: limitBytesFor(req.user) } }).single(field);
+      let limitBytes = limitBytesFor(req.user);
+      if (capMb) limitBytes = Math.min(limitBytes, capMb * 1024 * 1024); // hard cap (e.g. video 50 MB)
+      const mw = multer({ storage: diskStorage, fileFilter: filter, limits: { fileSize: limitBytes } }).single(field);
       mw(req, res, (err) => {
         if (err) return next(err);
         finalize(req, isImage).then(() => next()).catch((e) => {
@@ -238,6 +244,9 @@ function singleFactory(filter, isImage) {
 
 // Same shape the routes already use: upload.single('image') / videoUpload.single('video').
 const upload = { single: singleFactory(imageFilter, true) };
-const videoUpload = { single: singleFactory(videoFilter, false) };
+// Videos (reels) are capped at 50 MB on upload (override with VIDEO_MAX_MB) and
+// then transcoded toward a small target (~8 MB) where ffmpeg is available.
+const VIDEO_MAX_MB = Number(process.env.VIDEO_MAX_MB || 50);
+const videoUpload = { single: singleFactory(videoFilter, false, VIDEO_MAX_MB) };
 
 module.exports = { upload, videoUpload, UP_DIR, uploadLimitMb, TIER_UPLOAD_MB };

@@ -985,11 +985,14 @@
       (p.image ? '<div class="post-image"><img src="' + esc(p.image) + '" alt=""></div>' : '') +
       '<div class="post-stats"></div>' +
       '<div class="post-actions">' +
+      '<span data-vote></span>' +
       '<span data-react></span>' +
       '<button class="post-action" data-comment="' + p.id + '">&#128172; Comment</button>' +
       (mineP ? '' : '<button class="post-action" data-report="post" data-report-id="' + p.id + '">&#9873; Report</button>') +
       '</div>' +
       '<div class="comments hidden" data-comments="' + p.id + '"></div>';
+    const voteSlot = node.querySelector('[data-vote]');
+    if (voteSlot) voteSlot.appendChild(voteControl('post', p.id, p.score || 0, p.myVote || 0, true));
     renderStats(node);
     wirePost(node, p);
   }
@@ -1093,11 +1096,13 @@
       avatar(c.author, 32) +
       '<div style="flex:1;min-width:0"><div class="bubble"><div class="name" data-profile="' + c.author.id + '">' + esc(c.author.name) + verifTick(c.author) + '</div>' +
       linkify(esc(c.content)) + '</div>' +
-      '<div class="cmeta"><span data-react></span><span class="time">' + timeAgo(c.created_at) + '</span>' +
+      '<div class="cmeta"><span data-cvote></span><span data-react></span><span class="time">' + timeAgo(c.created_at) + '</span>' +
       '<span data-sum></span>' +
       (mine ? ' <button data-delc="' + c.id + '" class="clink">Delete</button>' : '') +
       '</div></div>';
     node.querySelector('[data-profile]').onclick = () => go('profile', c.author.id);
+    const cvote = node.querySelector('[data-cvote]');
+    if (cvote) cvote.appendChild(voteControl('comment', c.id, c.score || 0, c.myVote || 0, true));
     const sumEl = node.querySelector('[data-sum]');
     function paintSum(s) { sumEl.innerHTML = s && s.total ? ' ' + reactionSummaryHtml(s) : ''; }
     paintSum(c.reactions);
@@ -1938,8 +1943,8 @@
 
   /* ============================ communities + voting ============================ */
 
-  function voteControl(targetType, targetId, score, myVote) {
-    const box = el('<div class="votebox"><button class="vote up" title="Upvote">&#9650;</button><span class="vscore"></span><button class="vote down" title="Downvote">&#9660;</button></div>');
+  function voteControl(targetType, targetId, score, myVote, inline) {
+    const box = el('<div class="votebox' + (inline ? ' inline' : '') + '"><button class="vote up" title="Upvote">&#9650;</button><span class="vscore"></span><button class="vote down" title="Downvote">&#9660;</button></div>');
     const up = box.querySelector('.up');
     const down = box.querySelector('.down');
     const sc = box.querySelector('.vscore');

@@ -117,7 +117,7 @@ function probeDuration(input) {
 // Returns { path, ext, contentType, bytes } for the new file, or null if ffmpeg
 // is missing or the transcode fails (caller keeps the original upload).
 async function transcodeVideo(input, opts = {}) {
-  const targetMB = opts.targetMB || Number(process.env.MEDIA_VIDEO_TARGET_MB || 4);
+  const targetMB = opts.targetMB || Number(process.env.MEDIA_VIDEO_TARGET_MB || 8);
   const maxDim = opts.maxDim || 720;             // vertical shorts: cap the long edge
   const audioKbps = opts.audioKbps || 96;
   const codec = (opts.codec || process.env.MEDIA_VIDEO_CODEC || 'h264').toLowerCase();
