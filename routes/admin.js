@@ -20,25 +20,25 @@ function requireAdmin(req, res, next) {
 }
 
 // Grant or change a user's supporter tier. days omitted/0 = permanent.
-router.post('/grant', requireAuth, requireAdmin, (req, res) => {
+router.post('/grant', requireAuth, requireAdmin, async (req, res) => {
   const userId = Number(req.body.userId);
   const tier = Number(req.body.tier);
   const days = req.body.days == null ? 0 : Number(req.body.days);
   if (!userId || !(tier >= 0 && tier <= 3)) {
     return res.status(400).json({ error: 'userId and tier (0 to 3) are required' });
   }
-  const target = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+  const target = await db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
   if (!target) return res.status(404).json({ error: 'User not found' });
-  const entitlements = grantTier(userId, tier, days, 'admin_grant:' + req.user.id);
+  const entitlements = await grantTier(userId, tier, days, 'admin_grant:' + req.user.id);
   logger.info({ admin: req.user.id, userId, tier, days }, 'admin granted supporter tier');
   res.json({ ok: true, entitlements });
 });
 
 // Clear a user's supporter status.
-router.post('/revoke', requireAuth, requireAdmin, (req, res) => {
+router.post('/revoke', requireAuth, requireAdmin, async (req, res) => {
   const userId = Number(req.body.userId);
   if (!userId) return res.status(400).json({ error: 'userId required' });
-  const entitlements = revokeTier(userId, 'admin_revoke:' + req.user.id);
+  const entitlements = await revokeTier(userId, 'admin_revoke:' + req.user.id);
   logger.info({ admin: req.user.id, userId }, 'admin revoked supporter tier');
   res.json({ ok: true, entitlements });
 });
@@ -46,43 +46,43 @@ router.post('/revoke', requireAuth, requireAdmin, (req, res) => {
 // Owner analytics: signups, usage, time on platform, top entry pages + buttons.
 // Aggregate only; computed live from the users + analytics_events tables.
 const HEARTBEAT_SEC = 20; // client sends a heartbeat every ~20s while visible
-router.get('/analytics', requireAuth, requireAdmin, (req, res) => {
+router.get('/analytics', requireAuth, requireAdmin, async (req, res) => {
   const one = (sql, ...a) => db.prepare(sql).get(...a);
   const many = (sql, ...a) => db.prepare(sql).all(...a);
 
-  const totalUsers = one('SELECT COUNT(*) c FROM users').c;
-  const newUsers24h = one("SELECT COUNT(*) c FROM users WHERE created_at >= datetime('now','-1 day')").c;
-  const newUsers7d = one("SELECT COUNT(*) c FROM users WHERE created_at >= datetime('now','-7 days')").c;
-  const signupsByDay = many(
+  const totalUsers = (await one('SELECT COUNT(*) c FROM users')).c;
+  const newUsers24h = (await one("SELECT COUNT(*) c FROM users WHERE created_at >= datetime('now','-1 day')")).c;
+  const newUsers7d = (await one("SELECT COUNT(*) c FROM users WHERE created_at >= datetime('now','-7 days')")).c;
+  const signupsByDay = await many(
     "SELECT date(created_at) d, COUNT(*) c FROM users WHERE created_at >= datetime('now','-14 days') GROUP BY d ORDER BY d DESC"
   );
 
-  const activeUsers7d = one(
+  const activeUsers7d = (await one(
     "SELECT COUNT(DISTINCT user_id) c FROM analytics_events WHERE user_id IS NOT NULL AND created_at >= datetime('now','-7 days')"
-  ).c;
-  const totalPageviews = one("SELECT COUNT(*) c FROM analytics_events WHERE type='pageview'").c;
-  const totalClicks = one("SELECT COUNT(*) c FROM analytics_events WHERE type='click'").c;
-  const totalSessions = one("SELECT COUNT(DISTINCT session_id) c FROM analytics_events WHERE session_id != ''").c;
+  )).c;
+  const totalPageviews = (await one("SELECT COUNT(*) c FROM analytics_events WHERE type='pageview'")).c;
+  const totalClicks = (await one("SELECT COUNT(*) c FROM analytics_events WHERE type='click'")).c;
+  const totalSessions = (await one("SELECT COUNT(DISTINCT session_id) c FROM analytics_events WHERE session_id != ''")).c;
 
   // Average time on platform per session: average heartbeats/session * interval.
-  const avgHb = one(
+  const avgHb = (await one(
     "SELECT AVG(hb) a FROM (SELECT session_id, COUNT(*) hb FROM analytics_events WHERE type='heartbeat' AND session_id != '' AND created_at >= datetime('now','-30 days') GROUP BY session_id)"
-  ).a;
+  )).a;
   const avgSessionSec = avgHb ? Math.round(avgHb * HEARTBEAT_SEC) : 0;
 
-  const topPages = many(
+  const topPages = await many(
     "SELECT label, COUNT(*) c FROM analytics_events WHERE type='pageview' AND label != '' GROUP BY label ORDER BY c DESC LIMIT 10"
   );
   // Entry pages: the first page viewed in each session (SQLite bare-column min).
-  const entryPages = many(
+  const entryPages = await many(
     "SELECT label, COUNT(*) c FROM (SELECT session_id, label, MIN(created_at) t FROM analytics_events WHERE type='pageview' AND session_id != '' GROUP BY session_id) GROUP BY label ORDER BY c DESC LIMIT 10"
   );
-  const topButtons = many(
+  const topButtons = await many(
     "SELECT label, COUNT(*) c FROM analytics_events WHERE type='click' AND label != '' GROUP BY label ORDER BY c DESC LIMIT 10"
   );
 
-  const supporters = one('SELECT COUNT(*) c FROM users WHERE supporter_tier > 0').c;
-  const qualifiedReferrals = one("SELECT COUNT(*) c FROM referrals WHERE status='qualified'").c;
+  const supporters = (await one('SELECT COUNT(*) c FROM users WHERE supporter_tier > 0')).c;
+  const qualifiedReferrals = (await one("SELECT COUNT(*) c FROM referrals WHERE status='qualified'")).c;
 
   res.json({
     totals: { totalUsers, newUsers24h, newUsers7d, activeUsers7d, totalPageviews, totalClicks, totalSessions, avgSessionSec, supporters, qualifiedReferrals },
@@ -94,8 +94,8 @@ router.get('/analytics', requireAuth, requireAdmin, (req, res) => {
 });
 
 // Current supporters (admin view).
-router.get('/supporters', requireAuth, requireAdmin, (req, res) => {
-  const supporters = db.prepare(
+router.get('/supporters', requireAuth, requireAdmin, async (req, res) => {
+  const supporters = await db.prepare(
     'SELECT id, name, email, supporter_tier, supporter_since, supporter_expires ' +
     'FROM users WHERE supporter_tier > 0 ORDER BY supporter_tier DESC, supporter_since DESC'
   ).all();

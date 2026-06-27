@@ -125,10 +125,10 @@ async function compressImageLocal(req) {
 // failure it runs cleanupFn (remove the processed file we were about to keep) and
 // throws a 413 so the user gets a clear "you are out of space" message. A 0/falsy
 // cap means unlimited.
-function assertQuota(user, addBytes, cleanupFn) {
+async function assertQuota(user, addBytes, cleanupFn) {
   const cap = storageLimitBytes(user);
   if (!cap) return;
-  const used = cleanup.usageBytes(user && user.id);
+  const used = await cleanup.usageBytes(user && user.id);
   if (used + addBytes > cap) {
     if (cleanupFn) { try { cleanupFn(); } catch (e) {} }
     throw Object.assign(
@@ -158,13 +158,13 @@ async function finalize(req, kind) {
       await compressImageLocal(req); // sets f.filename/path/mimetype on disk
       key = f.filename;
       try { bytes = fs.statSync(f.path).size; } catch (e) { bytes = 0; }
-      assertQuota(req.user, bytes, rmTmp(f.path));
+      await assertQuota(req.user, bytes, rmTmp(f.path));
     } else if (processor.hasSharp) {
       // remote: target ~300 KB, content-address, check quota, push, drop temp.
       const r = await processor.optimizeImage(f.path, {});
       key = storage.contentKey(r.buffer, r.ext);
       bytes = r.bytes;
-      assertQuota(req.user, bytes, rmTmp(f.path));
+      await assertQuota(req.user, bytes, rmTmp(f.path));
       await storage.put(key, r.buffer, r.contentType);
       await fs.promises.unlink(f.path).catch(() => {});
       f.path = null; f.mimetype = r.contentType;
@@ -173,7 +173,7 @@ async function finalize(req, kind) {
       const buf = await fs.promises.readFile(f.path);
       key = storage.contentKey(buf, path.extname(f.filename) || '.jpg');
       bytes = buf.length;
-      assertQuota(req.user, bytes, rmTmp(f.path));
+      await assertQuota(req.user, bytes, rmTmp(f.path));
       await storage.put(key, buf, f.mimetype);
       await fs.promises.unlink(f.path).catch(() => {});
       f.path = null;
@@ -184,12 +184,12 @@ async function finalize(req, kind) {
     if (!remote) {
       key = f.filename;
       try { bytes = fs.statSync(f.path).size; } catch (e) { bytes = 0; }
-      assertQuota(req.user, bytes, rmTmp(f.path));
+      await assertQuota(req.user, bytes, rmTmp(f.path));
     } else {
       const buf = await fs.promises.readFile(f.path);
       key = storage.contentKey(buf, path.extname(f.filename) || '.bin');
       bytes = buf.length;
-      assertQuota(req.user, bytes, rmTmp(f.path));
+      await assertQuota(req.user, bytes, rmTmp(f.path));
       await storage.put(key, buf, f.mimetype);
       await fs.promises.unlink(f.path).catch(() => {});
       f.path = null;
@@ -207,7 +207,7 @@ async function finalize(req, kind) {
       }
     }
     try { bytes = fs.statSync(current).size; } catch (e) { bytes = 0; }
-    assertQuota(req.user, bytes, rmTmp(current));
+    await assertQuota(req.user, bytes, rmTmp(current));
     if (!remote) {
       key = path.basename(current);
       f.path = current;
@@ -223,7 +223,7 @@ async function finalize(req, kind) {
     const current = f.path;
     const ext = path.extname(f.filename).toLowerCase() || '';
     try { bytes = fs.statSync(current).size; } catch (e) { bytes = 0; }
-    assertQuota(req.user, bytes, rmTmp(current));
+    await assertQuota(req.user, bytes, rmTmp(current));
     if (!remote) {
       key = path.basename(current);
       f.path = current;
@@ -236,7 +236,7 @@ async function finalize(req, kind) {
   }
 
   f.filename = key;
-  cleanup.recordUpload(userId, key, bytes);
+  await cleanup.recordUpload(userId, key, bytes);
 }
 
 // Build a middleware that mirrors multer's .single(field): applies the per-tier

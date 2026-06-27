@@ -1,6 +1,10 @@
 // sockets.js
 // Real time chat over Socket.IO. Each connected user joins a private room
 // named "user:<id>" so we can deliver messages straight to them.
+//
+// Auth and message persistence hit the networked database, so the connection
+// handler and the message events are async. Each handler keeps its own try/catch
+// so a database hiccup can never crash the process for every other user.
 
 const cookie = require('cookie');
 const db = require('./db');
@@ -8,11 +12,16 @@ const { userFromToken, COOKIE_NAME } = require('./auth');
 const presence = require('./presence');
 
 function initSockets(io) {
-  io.on('connection', (socket) => {
+  io.on('connection', async (socket) => {
     // Authenticate the socket using the same session cookie as the web app.
-    const raw = socket.handshake.headers.cookie || '';
-    const parsed = cookie.parse(raw);
-    const user = userFromToken(parsed[COOKIE_NAME]);
+    let user = null;
+    try {
+      const raw = socket.handshake.headers.cookie || '';
+      const parsed = cookie.parse(raw);
+      user = await userFromToken(parsed[COOKIE_NAME]);
+    } catch (e) {
+      user = null;
+    }
     if (!user) {
       socket.disconnect(true);
       return;
@@ -31,7 +40,7 @@ function initSockets(io) {
     });
 
     // Send a direct message to another user.
-    socket.on('message:send', (data, ack) => {
+    socket.on('message:send', async (data, ack) => {
       try {
         const to = Number(data && data.to);
         const content = ((data && data.content) || '').toString().trim();
@@ -40,21 +49,21 @@ function initSockets(io) {
           return;
         }
         // Soft email gate also applies to chat (re-checked live, not at connect).
-        const sender = db.prepare('SELECT email_verified FROM users WHERE id = ?').get(user.id);
+        const sender = await db.prepare('SELECT email_verified FROM users WHERE id = ?').get(user.id);
         if (!sender || !sender.email_verified) {
           if (typeof ack === 'function') ack({ error: 'Verify your email to send messages.' });
           return;
         }
-        const recipient = db.prepare('SELECT id FROM users WHERE id = ?').get(to);
+        const recipient = await db.prepare('SELECT id FROM users WHERE id = ?').get(to);
         if (!recipient) {
           if (typeof ack === 'function') ack({ error: 'User not found' });
           return;
         }
 
-        const info = db
+        const info = await db
           .prepare('INSERT INTO messages (sender_id, recipient_id, content) VALUES (?, ?, ?)')
           .run(user.id, to, content);
-        const m = db.prepare('SELECT * FROM messages WHERE id = ?').get(info.lastInsertRowid);
+        const m = await db.prepare('SELECT * FROM messages WHERE id = ?').get(info.lastInsertRowid);
 
         const base = {
           id: m.id,
@@ -76,11 +85,11 @@ function initSockets(io) {
 
     // Mark messages from a given user as read. Used when the recipient is
     // already viewing that conversation as a new message arrives live.
-    socket.on('message:read', (data, ack) => {
+    socket.on('message:read', async (data, ack) => {
       try {
         const from = Number(data && data.from);
         if (from) {
-          db.prepare('UPDATE messages SET is_read = 1 WHERE sender_id = ? AND recipient_id = ?').run(from, user.id);
+          await db.prepare('UPDATE messages SET is_read = 1 WHERE sender_id = ? AND recipient_id = ?').run(from, user.id);
         }
       } catch (e) {
         console.error('[socket message:read]', e.message);

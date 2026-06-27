@@ -11,9 +11,9 @@ const { trustRateLimit } = require('../antisybil');
 const router = express.Router();
 
 // Active stories (last 24 hours) from self and accepted friends, grouped by user.
-router.get('/', requireAuth, (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   const uid = req.user.id;
-  const rows = db
+  const rows = await db
     .prepare(
       `SELECT s.* FROM stories s
        WHERE (
@@ -44,22 +44,22 @@ router.get('/', requireAuth, (req, res) => {
     });
   }
 
-  const result = order.map((userId) => ({
-    user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(userId)),
+  const result = await Promise.all(order.map(async (userId) => ({
+    user: publicUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(userId)),
     stories: groups[userId],
-  }));
+  })));
   res.json({ groups: result });
 });
 
 // Post a new story (a photo plus an optional caption).
-router.post('/', requireAuth, trustRateLimit('post'), upload.single('image'), (req, res) => {
+router.post('/', requireAuth, trustRateLimit('post'), upload.single('image'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'A photo is required for a story' });
   const caption = (req.body.caption || '').trim();
   const url = '/uploads/' + req.file.filename;
-  const info = db
+  const info = await db
     .prepare('INSERT INTO stories (user_id, image, caption) VALUES (?, ?, ?)')
     .run(req.user.id, url, caption);
-  const s = db.prepare('SELECT * FROM stories WHERE id = ?').get(info.lastInsertRowid);
+  const s = await db.prepare('SELECT * FROM stories WHERE id = ?').get(info.lastInsertRowid);
   res.json({ story: { id: s.id, image: s.image, caption: s.caption, created_at: s.created_at } });
 });
 

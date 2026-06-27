@@ -12,7 +12,7 @@ const { notify } = require('../notify');
 
 const router = express.Router();
 
-router.post('/', requireAuth, (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   const targetType = req.body.targetType;
   const targetId = Number(req.body.targetId);
   const type = req.body.type;
@@ -29,39 +29,39 @@ router.post('/', requireAuth, (req, res) => {
   let authorId;
   let notifyPostId;
   if (targetType === 'post') {
-    post = db.prepare('SELECT * FROM posts WHERE id = ?').get(targetId);
+    post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(targetId);
     if (!post) return res.status(404).json({ error: 'Post not found' });
     authorId = post.user_id;
     notifyPostId = post.id;
   } else {
-    const comment = db.prepare('SELECT * FROM comments WHERE id = ?').get(targetId);
+    const comment = await db.prepare('SELECT * FROM comments WHERE id = ?').get(targetId);
     if (!comment) return res.status(404).json({ error: 'Comment not found' });
     authorId = comment.user_id;
-    post = db.prepare('SELECT * FROM posts WHERE id = ?').get(comment.post_id);
+    post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(comment.post_id);
     if (!post) return res.status(404).json({ error: 'Post not found' });
     notifyPostId = post.id;
   }
-  if (!canInteractPost(req.user.id, post)) {
+  if (!(await canInteractPost(req.user.id, post))) {
     return res.status(403).json({ error: 'You cannot react here' });
   }
 
-  const existing = db
+  const existing = await db
     .prepare('SELECT type FROM reactions WHERE user_id = ? AND target_type = ? AND target_id = ?')
     .get(req.user.id, targetType, targetId);
 
   if (existing && existing.type === type) {
-    db.prepare('DELETE FROM reactions WHERE user_id = ? AND target_type = ? AND target_id = ?')
+    await db.prepare('DELETE FROM reactions WHERE user_id = ? AND target_type = ? AND target_id = ?')
       .run(req.user.id, targetType, targetId);
   } else if (existing) {
-    db.prepare("UPDATE reactions SET type = ?, created_at = datetime('now') WHERE user_id = ? AND target_type = ? AND target_id = ?")
+    await db.prepare("UPDATE reactions SET type = ?, created_at = datetime('now') WHERE user_id = ? AND target_type = ? AND target_id = ?")
       .run(type, req.user.id, targetType, targetId);
   } else {
-    db.prepare('INSERT INTO reactions (user_id, target_type, target_id, type) VALUES (?, ?, ?, ?)')
+    await db.prepare('INSERT INTO reactions (user_id, target_type, target_id, type) VALUES (?, ?, ?, ?)')
       .run(req.user.id, targetType, targetId, type);
-    if (authorId !== req.user.id) notify(authorId, req.user.id, 'reaction', notifyPostId);
+    if (authorId !== req.user.id) await notify(authorId, req.user.id, 'reaction', notifyPostId);
   }
 
-  res.json(reactionSummary(targetType, targetId, req.user.id));
+  res.json(await reactionSummary(targetType, targetId, req.user.id));
 });
 
 module.exports = router;

@@ -18,6 +18,9 @@
 // still be fetched from a cached edge until its TTL. purgeCdn() does that via the
 // Cloudflare API when CF_API_TOKEN + CF_ZONE_ID are set. In local mode there is
 // no edge cache, so it is a no-op.
+//
+// Every helper that reads or writes user_media / stories hits the networked
+// database and is async; keyFromUrl (pure parsing) stays sync.
 
 const db = require('../db');
 const storage = require('./storage');
@@ -34,10 +37,10 @@ function keyFromUrl(url) {
 
 // Record a freshly stored object for a user. Called by the upload pipeline after
 // the bytes are committed to the active backend.
-function recordUpload(userId, key, bytes) {
+async function recordUpload(userId, key, bytes) {
   if (!userId || !key) return;
   try {
-    db.prepare('INSERT INTO user_media (user_id, key, bytes) VALUES (?, ?, ?)')
+    await db.prepare('INSERT INTO user_media (user_id, key, bytes) VALUES (?, ?, ?)')
       .run(userId, key, Number(bytes) || 0);
   } catch (e) {
     logger.warn({ err: e, key }, 'recordUpload failed');
@@ -45,9 +48,9 @@ function recordUpload(userId, key, bytes) {
 }
 
 // Total bytes a user currently stores (for the quota check).
-function usageBytes(userId) {
+async function usageBytes(userId) {
   if (!userId) return 0;
-  const r = db.prepare('SELECT COALESCE(SUM(bytes), 0) AS b FROM user_media WHERE user_id = ?').get(userId);
+  const r = await db.prepare('SELECT COALESCE(SUM(bytes), 0) AS b FROM user_media WHERE user_id = ?').get(userId);
   return r ? Number(r.b) || 0 : 0;
 }
 
@@ -60,11 +63,11 @@ async function deleteMedia(url, userId) {
   if (!key) return;
   try {
     let row = null;
-    if (userId) row = db.prepare('SELECT id FROM user_media WHERE key = ? AND user_id = ? ORDER BY id LIMIT 1').get(key, userId);
-    if (!row) row = db.prepare('SELECT id FROM user_media WHERE key = ? ORDER BY id LIMIT 1').get(key);
-    if (row) db.prepare('DELETE FROM user_media WHERE id = ?').run(row.id);
+    if (userId) row = await db.prepare('SELECT id FROM user_media WHERE key = ? AND user_id = ? ORDER BY id LIMIT 1').get(key, userId);
+    if (!row) row = await db.prepare('SELECT id FROM user_media WHERE key = ? ORDER BY id LIMIT 1').get(key);
+    if (row) await db.prepare('DELETE FROM user_media WHERE id = ?').run(row.id);
 
-    const remaining = db.prepare('SELECT COUNT(*) AS c FROM user_media WHERE key = ?').get(key).c;
+    const remaining = (await db.prepare('SELECT COUNT(*) AS c FROM user_media WHERE key = ?').get(key)).c;
     if (remaining === 0) {
       await storage.del(key);
       await purgeCdn([key]);
@@ -84,10 +87,10 @@ async function deleteMany(urls, userId) {
 // shared references) and their user_media rows. Call BEFORE deleting the user row
 // so the keys are still known. Returns how many references were removed.
 async function wipeUserMedia(userId) {
-  const rows = db.prepare('SELECT id, key FROM user_media WHERE user_id = ?').all(userId);
+  const rows = await db.prepare('SELECT id, key FROM user_media WHERE user_id = ?').all(userId);
   for (const r of rows) {
-    db.prepare('DELETE FROM user_media WHERE id = ?').run(r.id);
-    const remaining = db.prepare('SELECT COUNT(*) AS c FROM user_media WHERE key = ?').get(r.key).c;
+    await db.prepare('DELETE FROM user_media WHERE id = ?').run(r.id);
+    const remaining = (await db.prepare('SELECT COUNT(*) AS c FROM user_media WHERE key = ?').get(r.key)).c;
     if (remaining === 0) {
       await storage.del(r.key).catch(() => {});
       await purgeCdn([r.key]);
@@ -125,14 +128,14 @@ async function purgeCdn(keys) {
 async function sweepExpiredStories() {
   let rows = [];
   try {
-    rows = db.prepare("SELECT id, user_id, image FROM stories WHERE created_at < datetime('now', '-1 day')").all();
+    rows = await db.prepare("SELECT id, user_id, image FROM stories WHERE created_at < datetime('now', '-1 day')").all();
   } catch (e) {
     logger.warn({ err: e }, 'story sweep query failed');
     return 0;
   }
   for (const s of rows) {
     await deleteMedia(s.image, s.user_id);
-    try { db.prepare('DELETE FROM stories WHERE id = ?').run(s.id); } catch (e) {}
+    try { await db.prepare('DELETE FROM stories WHERE id = ?').run(s.id); } catch (e) {}
   }
   if (rows.length) logger.info({ count: rows.length }, 'expired stories cleaned');
   return rows.length;

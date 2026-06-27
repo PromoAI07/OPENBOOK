@@ -9,9 +9,9 @@ const { requireAuth, publicUser } = require('../auth');
 const router = express.Router();
 
 // One row per person you have chatted with, newest conversation first.
-router.get('/conversations', requireAuth, (req, res) => {
+router.get('/conversations', requireAuth, async (req, res) => {
   const uid = req.user.id;
-  const partners = db
+  const partners = await db
     .prepare(
       `SELECT DISTINCT CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END AS pid
        FROM messages
@@ -19,25 +19,25 @@ router.get('/conversations', requireAuth, (req, res) => {
     )
     .all(uid, uid, uid);
 
-  const conversations = partners.map((p) => {
-    const last = db
+  const conversations = await Promise.all(partners.map(async (p) => {
+    const last = await db
       .prepare(
         `SELECT * FROM messages
          WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
          ORDER BY created_at DESC, id DESC LIMIT 1`
       )
       .get(uid, p.pid, p.pid, uid);
-    const unreadCount = db
+    const unreadCount = (await db
       .prepare('SELECT COUNT(*) c FROM messages WHERE sender_id = ? AND recipient_id = ? AND is_read = 0')
-      .get(p.pid, uid).c;
+      .get(p.pid, uid)).c;
     return {
-      user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(p.pid)),
+      user: publicUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(p.pid)),
       lastMessage: last
         ? { content: last.content, created_at: last.created_at, mine: last.sender_id === uid }
         : null,
       unreadCount,
     };
-  });
+  }));
 
   conversations.sort((a, b) => {
     const ta = a.lastMessage ? a.lastMessage.created_at : '';
@@ -49,21 +49,21 @@ router.get('/conversations', requireAuth, (req, res) => {
 });
 
 // Total unread messages across all conversations (for the top bar badge).
-router.get('/unread-count', requireAuth, (req, res) => {
-  const count = db
+router.get('/unread-count', requireAuth, async (req, res) => {
+  const count = (await db
     .prepare('SELECT COUNT(*) c FROM messages WHERE recipient_id = ? AND is_read = 0')
-    .get(req.user.id).c;
+    .get(req.user.id)).c;
   res.json({ count });
 });
 
 // Full history with one person. Loading it marks their messages to you as read.
-router.get('/:userId', requireAuth, (req, res) => {
+router.get('/:userId', requireAuth, async (req, res) => {
   const uid = req.user.id;
   const other = Number(req.params.userId);
-  const partner = db.prepare('SELECT * FROM users WHERE id = ?').get(other);
+  const partner = await db.prepare('SELECT * FROM users WHERE id = ?').get(other);
   if (!partner) return res.status(404).json({ error: 'User not found' });
 
-  const rows = db
+  const rows = await db
     .prepare(
       `SELECT * FROM messages
        WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
@@ -71,7 +71,7 @@ router.get('/:userId', requireAuth, (req, res) => {
     )
     .all(uid, other, other, uid);
 
-  db.prepare('UPDATE messages SET is_read = 1 WHERE sender_id = ? AND recipient_id = ?').run(
+  await db.prepare('UPDATE messages SET is_read = 1 WHERE sender_id = ? AND recipient_id = ?').run(
     other,
     uid
   );

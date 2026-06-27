@@ -2,6 +2,10 @@
 // Session handling and auth helpers.
 // We use a simple, secure session table: on login we generate a random token,
 // store it server side, and put it in an httpOnly cookie the browser sends back.
+//
+// Session/user lookups now hit a networked database, so createSession,
+// destroySession, userFromToken and the attachUser middleware are async.
+// requireAuth and publicUser stay synchronous (they touch no database).
 
 const crypto = require('crypto');
 const db = require('./db');
@@ -11,9 +15,9 @@ const COOKIE_NAME = 'tb_session';
 const THIRTY_DAYS = 1000 * 60 * 60 * 24 * 30;
 
 // Create a session for a user and set the cookie on the response.
-function createSession(userId, res) {
+async function createSession(userId, res) {
   const token = crypto.randomBytes(32).toString('hex');
-  db.prepare('INSERT INTO sessions (token, user_id) VALUES (?, ?)').run(token, userId);
+  await db.prepare('INSERT INTO sessions (token, user_id) VALUES (?, ?)').run(token, userId);
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: 'lax',
@@ -25,25 +29,32 @@ function createSession(userId, res) {
 }
 
 // Remove a session and clear the cookie (logout).
-function destroySession(token, res) {
-  if (token) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+async function destroySession(token, res) {
+  if (token) await db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
   res.clearCookie(COOKIE_NAME);
 }
 
 // Look up the full user row for a session token, or null.
-function userFromToken(token) {
+async function userFromToken(token) {
   if (!token) return null;
-  const row = db.prepare(
+  const row = await db.prepare(
     "SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.created_at >= datetime('now', '-30 days')"
   ).get(token);
   return row || null;
 }
 
-// Express middleware: attach req.user (or null) and req.sessionToken on every request.
-function attachUser(req, res, next) {
-  const token = req.cookies ? req.cookies[COOKIE_NAME] : null;
-  req.user = userFromToken(token);
-  req.sessionToken = token;
+// Express middleware: attach req.user (or null) and req.sessionToken on every
+// request. A DB hiccup must never wedge the request, so failures fall back to
+// "logged out" rather than rejecting.
+async function attachUser(req, res, next) {
+  try {
+    const token = req.cookies ? req.cookies[COOKIE_NAME] : null;
+    req.user = await userFromToken(token);
+    req.sessionToken = token;
+  } catch (e) {
+    req.user = null;
+    req.sessionToken = null;
+  }
   next();
 }
 

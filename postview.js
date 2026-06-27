@@ -2,6 +2,10 @@
 // Shared shaping of a post (and its reactions/votes) for the frontend, used by
 // the feed, profiles, groups, and communities so every surface returns the same
 // object: reactions for the Facebook side, up/down score for the community side.
+//
+// Every function here reads the networked database and is async. decoratePosts
+// (the batch path used by the list endpoints) resolves its per-post fields with a
+// handful of set-based queries, then builds each view with Promise.all.
 
 const db = require('./db');
 const { publicUser } = require('./auth');
@@ -12,8 +16,8 @@ const REACTION_TYPES = ['like', 'love', 'care', 'haha', 'wow', 'sad', 'angry'];
 // One pass over a target's votes giving both the raw tally (shown to users and
 // used for karma) and the trust-weighted tally (used for ranking). up/down are
 // raw counts; effUp/effDown sum each voter's stored weight.
-function voteTally(targetType, targetId) {
-  const r = db
+async function voteTally(targetType, targetId) {
+  const r = await db
     .prepare(
       `SELECT
          COALESCE(SUM(value), 0)                                        AS score,
@@ -27,47 +31,47 @@ function voteTally(targetType, targetId) {
   return { score: r.score, up: r.up, down: r.down, effUp: r.effUp, effDown: r.effDown };
 }
 
-function postScore(postId) {
-  return voteTally('post', postId).score;
+async function postScore(postId) {
+  return (await voteTally('post', postId)).score;
 }
-function myPostVote(postId, userId) {
-  const v = db.prepare("SELECT value FROM votes WHERE target_type = 'post' AND target_id = ? AND user_id = ?").get(postId, userId);
+async function myPostVote(postId, userId) {
+  const v = await db.prepare("SELECT value FROM votes WHERE target_type = 'post' AND target_id = ? AND user_id = ?").get(postId, userId);
   return v ? v.value : 0;
 }
 
 // Count of each reaction type on a target, the total, and the viewer's own.
-function reactionSummary(targetType, targetId, userId) {
-  const rows = db
+async function reactionSummary(targetType, targetId, userId) {
+  const rows = await db
     .prepare('SELECT type, COUNT(*) c FROM reactions WHERE target_type = ? AND target_id = ? GROUP BY type')
     .all(targetType, targetId);
   const counts = {};
   let total = 0;
   for (const r of rows) { counts[r.type] = r.c; total += r.c; }
-  const mine = db
+  const mine = await db
     .prepare('SELECT type FROM reactions WHERE target_type = ? AND target_id = ? AND user_id = ?')
     .get(targetType, targetId, userId);
   return { counts, total, mine: mine ? mine.type : null };
 }
 
-// Assemble the final view object from already-resolved parts. Both the single
-// (decoratePost) and batch (decoratePosts) paths funnel through here so they
-// always return a byte-identical shape; ranking.js and the frontend depend on
-// these exact fields.
 // Poll data for a poll post: options with vote counts, the total, and the
 // viewer's own choice (null if they have not voted).
-function pollData(postId, viewerId) {
-  const opts = db.prepare('SELECT id, text FROM poll_options WHERE post_id = ? ORDER BY position, id').all(postId);
+async function pollData(postId, viewerId) {
+  const opts = await db.prepare('SELECT id, text FROM poll_options WHERE post_id = ? ORDER BY position, id').all(postId);
   if (!opts.length) return null;
-  const counts = db.prepare('SELECT option_id, COUNT(*) c FROM poll_votes WHERE post_id = ? GROUP BY option_id').all(postId);
+  const counts = await db.prepare('SELECT option_id, COUNT(*) c FROM poll_votes WHERE post_id = ? GROUP BY option_id').all(postId);
   const cmap = {};
   counts.forEach((r) => { cmap[r.option_id] = r.c; });
   let total = 0;
   const options = opts.map((o) => { const v = cmap[o.id] || 0; total += v; return { id: o.id, text: o.text, votes: v }; });
-  const mine = db.prepare('SELECT option_id FROM poll_votes WHERE post_id = ? AND user_id = ?').get(postId, viewerId);
+  const mine = await db.prepare('SELECT option_id FROM poll_votes WHERE post_id = ? AND user_id = ?').get(postId, viewerId);
   return { options, totalVotes: total, myVote: mine ? mine.option_id : null };
 }
 
-function buildPostView(post, author, commentCount, reactions, tally, community, myVote, viewerId) {
+// Assemble the final view object from already-resolved parts. Both the single
+// (decoratePost) and batch (decoratePosts) paths funnel through here so they
+// always return a byte-identical shape; ranking.js and the frontend depend on
+// these exact fields. Async only because poll posts load their poll data here.
+async function buildPostView(post, author, commentCount, reactions, tally, community, myVote, viewerId) {
   return {
     id: post.id,
     title: post.title || '',
@@ -80,7 +84,7 @@ function buildPostView(post, author, commentCount, reactions, tally, community, 
     bg: post.bg || '',                    // colored/"imaged" text background id
     file_url: post.file_url || '',        // attached document download path
     file_name: post.file_name || '',
-    poll: post.type === 'poll' ? pollData(post.id, viewerId) : null,
+    poll: post.type === 'poll' ? await pollData(post.id, viewerId) : null,
     author: publicUser(author),
     commentCount,
     reactions,
@@ -107,27 +111,28 @@ function buildPostView(post, author, commentCount, reactions, tally, community, 
   };
 }
 
-function decoratePost(post, viewerId) {
-  const author = db.prepare('SELECT * FROM users WHERE id = ?').get(post.user_id);
-  const commentCount = db.prepare('SELECT COUNT(*) c FROM comments WHERE post_id = ?').get(post.id).c;
-  const reactions = reactionSummary('post', post.id, viewerId);
-  const tally = voteTally('post', post.id);
+async function decoratePost(post, viewerId) {
+  const author = await db.prepare('SELECT * FROM users WHERE id = ?').get(post.user_id);
+  const cc = await db.prepare('SELECT COUNT(*) c FROM comments WHERE post_id = ?').get(post.id);
+  const commentCount = cc.c;
+  const reactions = await reactionSummary('post', post.id, viewerId);
+  const tally = await voteTally('post', post.id);
 
   let community = null;
   if (post.community_id) {
-    const c = db.prepare('SELECT id, name FROM communities WHERE id = ?').get(post.community_id);
+    const c = await db.prepare('SELECT id, name FROM communities WHERE id = ?').get(post.community_id);
     if (c) community = { id: c.id, name: c.name };
   }
 
-  return buildPostView(post, author, commentCount, reactions, tally, community, myPostVote(post.id, viewerId), viewerId);
+  const myVote = await myPostVote(post.id, viewerId);
+  return buildPostView(post, author, commentCount, reactions, tally, community, myVote, viewerId);
 }
 
 // Batch version of decoratePost: resolves every per-post field with a handful of
 // set-based queries keyed by post id instead of ~7 queries per post. This is the
 // N+1 fix for the list endpoints (feed, community, group, wall) which decorate up
-// to ~160 posts at once on the synchronous node:sqlite event loop. The output for
-// each post is identical to decoratePost(post, viewerId).
-function decoratePosts(posts, viewerId) {
+// to ~160 posts at once. The output for each post is identical to decoratePost.
+async function decoratePosts(posts, viewerId) {
   if (!posts || posts.length === 0) return [];
 
   const ids = posts.map((p) => p.id);
@@ -138,14 +143,14 @@ function decoratePosts(posts, viewerId) {
   const authors = new Map();
   if (authorIds.length) {
     const ph = authorIds.map(() => '?').join(',');
-    for (const u of db.prepare(`SELECT * FROM users WHERE id IN (${ph})`).all(...authorIds)) {
+    for (const u of await db.prepare(`SELECT * FROM users WHERE id IN (${ph})`).all(...authorIds)) {
       authors.set(u.id, u);
     }
   }
 
   // Comment counts: one GROUP BY over comments.
   const commentCounts = new Map();
-  for (const r of db
+  for (const r of await db
     .prepare(`SELECT post_id, COUNT(*) c FROM comments WHERE post_id IN (${inPosts}) GROUP BY post_id`)
     .all(...ids)) {
     commentCounts.set(r.post_id, r.c);
@@ -153,7 +158,7 @@ function decoratePosts(posts, viewerId) {
 
   // Vote tallies: one GROUP BY over votes, mirroring voteTally's columns exactly.
   const tallies = new Map();
-  for (const r of db
+  for (const r of await db
     .prepare(
       `SELECT target_id,
               COALESCE(SUM(value), 0)                                        AS score,
@@ -170,7 +175,7 @@ function decoratePosts(posts, viewerId) {
 
   // Reaction counts: one GROUP BY over reactions (counts + total per post).
   const reactionAgg = new Map(); // postId -> { counts, total }
-  for (const r of db
+  for (const r of await db
     .prepare(
       `SELECT target_id, type, COUNT(*) c FROM reactions
          WHERE target_type = 'post' AND target_id IN (${inPosts})
@@ -185,7 +190,7 @@ function decoratePosts(posts, viewerId) {
 
   // Viewer's own reaction per post: one SELECT for this user across all posts.
   const myReaction = new Map();
-  for (const r of db
+  for (const r of await db
     .prepare(
       `SELECT target_id, type FROM reactions
          WHERE target_type = 'post' AND user_id = ? AND target_id IN (${inPosts})`
@@ -196,7 +201,7 @@ function decoratePosts(posts, viewerId) {
 
   // Viewer's own vote per post: one SELECT for this user across all posts.
   const myVotes = new Map();
-  for (const r of db
+  for (const r of await db
     .prepare(
       `SELECT target_id, value FROM votes
          WHERE user_id = ? AND target_type = 'post' AND target_id IN (${inPosts})`
@@ -210,12 +215,12 @@ function decoratePosts(posts, viewerId) {
   const communities = new Map();
   if (communityIds.length) {
     const ph = communityIds.map(() => '?').join(',');
-    for (const c of db.prepare(`SELECT id, name FROM communities WHERE id IN (${ph})`).all(...communityIds)) {
+    for (const c of await db.prepare(`SELECT id, name FROM communities WHERE id IN (${ph})`).all(...communityIds)) {
       communities.set(c.id, { id: c.id, name: c.name });
     }
   }
 
-  return posts.map((post) => {
+  return Promise.all(posts.map((post) => {
     const agg = reactionAgg.get(post.id);
     const reactions = {
       counts: agg ? agg.counts : {},
@@ -226,7 +231,7 @@ function decoratePosts(posts, viewerId) {
     const community = post.community_id ? communities.get(post.community_id) || null : null;
     const myVote = myVotes.has(post.id) ? myVotes.get(post.id) : 0;
     return buildPostView(post, authors.get(post.user_id), commentCounts.get(post.id) || 0, reactions, tally, community, myVote, viewerId);
-  });
+  }));
 }
 
 module.exports = { decoratePost, decoratePosts, voteTally, postScore, myPostVote, reactionSummary, REACTION_TYPES };

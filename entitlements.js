@@ -13,6 +13,11 @@
 // Payment is not wired yet. Tiers are granted by admins (routes/admin.js) and,
 // soon, as free months by the referral system. The grant path is the same
 // (grantTier), so billing will just call grantTier on a successful charge.
+//
+// The grant/audit helpers (grantTier, revokeTier, extendTier, effectiveSnapshot,
+// logEvent) write to the networked database and are async. The pure read helpers
+// (effectiveTier, publicTierFields, entitlementsFor, tierList, storageLimitBytes,
+// tierConfig) take a user object that the caller already loaded and stay sync.
 
 const db = require('./db');
 
@@ -117,27 +122,27 @@ function tierList() {
 // days falsy = permanent (expires NULL). tier 0 clears supporter status. This is
 // the ONE write path, shared by admin grants, the referral system, and (later)
 // billing webhooks, so the rules live in one place.
-function grantTier(userId, tier, days, cause) {
+async function grantTier(userId, tier, days, cause) {
   tier = Math.max(0, Math.min(3, tier | 0));
   if (tier === 0) {
-    db.prepare('UPDATE users SET supporter_tier = 0, supporter_expires = NULL WHERE id = ?').run(userId);
-    logEvent(userId, 0, days, cause);
+    await db.prepare('UPDATE users SET supporter_tier = 0, supporter_expires = NULL WHERE id = ?').run(userId);
+    await logEvent(userId, 0, days, cause);
     return effectiveSnapshot(userId);
   }
   if (days && Number(days) > 0) {
-    db.prepare(
+    await db.prepare(
       "UPDATE users SET supporter_tier = ?, supporter_since = COALESCE(supporter_since, datetime('now')), supporter_expires = datetime('now', ?) WHERE id = ?"
     ).run(tier, '+' + (Number(days) | 0) + ' days', userId);
   } else {
-    db.prepare(
+    await db.prepare(
       "UPDATE users SET supporter_tier = ?, supporter_since = COALESCE(supporter_since, datetime('now')), supporter_expires = NULL WHERE id = ?"
     ).run(tier, userId);
   }
-  logEvent(userId, tier, days, cause);
+  await logEvent(userId, tier, days, cause);
   return effectiveSnapshot(userId);
 }
 
-function revokeTier(userId, cause) {
+async function revokeTier(userId, cause) {
   return grantTier(userId, 0, 0, cause || 'revoked');
 }
 
@@ -146,9 +151,9 @@ function revokeTier(userId, cause) {
 // the higher of the current effective tier and the granted tier. Used by the
 // referral system to grant free months (and reusable by billing renewals), so a
 // reward can never accidentally cut someone's existing paid time short.
-function extendTier(userId, tier, days, cause) {
+async function extendTier(userId, tier, days, cause) {
   tier = Math.max(0, Math.min(3, tier | 0));
-  const u = db.prepare('SELECT supporter_tier, supporter_expires FROM users WHERE id = ?').get(userId);
+  const u = await db.prepare('SELECT supporter_tier, supporter_expires FROM users WHERE id = ?').get(userId);
   if (!u) return null;
   const now = Date.now();
   let baseMs = now;
@@ -157,23 +162,23 @@ function extendTier(userId, tier, days, cause) {
   const newExpiresMs = baseMs + (Number(days) || 0) * 86400000;
   const newTier = Math.max(effectiveTier(u), tier);
   const iso = new Date(newExpiresMs).toISOString().replace('T', ' ').slice(0, 19);
-  db.prepare("UPDATE users SET supporter_tier = ?, supporter_since = COALESCE(supporter_since, datetime('now')), supporter_expires = ? WHERE id = ?")
+  await db.prepare("UPDATE users SET supporter_tier = ?, supporter_since = COALESCE(supporter_since, datetime('now')), supporter_expires = ? WHERE id = ?")
     .run(newTier, iso, userId);
-  logEvent(userId, newTier, days, cause);
+  await logEvent(userId, newTier, days, cause);
   return effectiveSnapshot(userId);
 }
 
 // Lightweight audit of tier changes (transparency; separate from trust_events so
 // the reputation audit trail stays purely karma/standing).
-function logEvent(userId, tier, days, cause) {
+async function logEvent(userId, tier, days, cause) {
   try {
-    db.prepare('INSERT INTO supporter_events (user_id, tier, days, cause) VALUES (?, ?, ?, ?)')
+    await db.prepare('INSERT INTO supporter_events (user_id, tier, days, cause) VALUES (?, ?, ?, ?)')
       .run(userId, tier, days ? (Number(days) | 0) : null, String(cause || ''));
   } catch (e) { /* table is created in db.js; never let auditing break a grant */ }
 }
 
-function effectiveSnapshot(userId) {
-  const u = db.prepare('SELECT supporter_tier, supporter_since, supporter_expires FROM users WHERE id = ?').get(userId);
+async function effectiveSnapshot(userId) {
+  const u = await db.prepare('SELECT supporter_tier, supporter_since, supporter_expires FROM users WHERE id = ?').get(userId);
   return entitlementsFor(u || {});
 }
 

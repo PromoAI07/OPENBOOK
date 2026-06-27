@@ -11,7 +11,7 @@ const db = require('../db');
 const router = express.Router();
 const ALLOWED = new Set(['pageview', 'click', 'heartbeat']);
 
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const session = (req.body && req.body.session ? String(req.body.session) : '').slice(0, 64);
   const events = (req.body && Array.isArray(req.body.events)) ? req.body.events.slice(0, 50) : [];
   const uid = req.user ? req.user.id : null;
@@ -19,7 +19,7 @@ router.post('/', (req, res) => {
   let stored = 0;
   for (const e of events) {
     if (!e || !ALLOWED.has(e.type)) continue;
-    ins.run(uid, session, e.type, (e.label == null ? '' : String(e.label)).slice(0, 80));
+    await ins.run(uid, session, e.type, (e.label == null ? '' : String(e.label)).slice(0, 80));
     stored++;
   }
   res.json({ ok: true, stored });

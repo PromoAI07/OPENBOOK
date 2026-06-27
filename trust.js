@@ -10,6 +10,10 @@
 //               reach_score multiplier applied at ranking time.
 // Every change to either score is written to trust_events for a full,
 // auditable, appealable trail.
+//
+// recordStandingEvent, recordKarmaEvent and refreshTrustLevel write to the
+// (networked) database and are async; the pure helpers (reachFromStanding,
+// computeTrustLevel, trustSnapshot) stay synchronous.
 
 const db = require('./db');
 
@@ -25,26 +29,26 @@ function reachFromStanding(standing) {
 }
 
 // Record a change to a user's standing and update their reach_score.
-function recordStandingEvent(userId, delta, cause) {
-  db.prepare('INSERT INTO trust_events (user_id, score, delta, cause) VALUES (?, ?, ?, ?)')
+async function recordStandingEvent(userId, delta, cause) {
+  await db.prepare('INSERT INTO trust_events (user_id, score, delta, cause) VALUES (?, ?, ?, ?)')
     .run(userId, 'standing', delta, cause);
-  const u = db.prepare('SELECT standing FROM users WHERE id = ?').get(userId);
+  const u = await db.prepare('SELECT standing FROM users WHERE id = ?').get(userId);
   if (!u) return null;
   // Clamp at zero so standing can never be driven negative (reach already floors
   // at the FLOOR_AT threshold). No upper clamp, so future positive signals can
   // still raise standing above the baseline.
   const standing = Math.max(0, u.standing + delta);
   const reach = reachFromStanding(standing);
-  db.prepare('UPDATE users SET standing = ?, reach_score = ? WHERE id = ?').run(standing, reach, userId);
+  await db.prepare('UPDATE users SET standing = ?, reach_score = ? WHERE id = ?').run(standing, reach, userId);
   return { standing, reach_score: reach };
 }
 
 // Record a change to a user's karma (the votes table is the source of truth in
 // Phase 1; this keeps the running total and the audit trail in sync).
-function recordKarmaEvent(userId, delta, cause) {
-  db.prepare('INSERT INTO trust_events (user_id, score, delta, cause) VALUES (?, ?, ?, ?)')
+async function recordKarmaEvent(userId, delta, cause) {
+  await db.prepare('INSERT INTO trust_events (user_id, score, delta, cause) VALUES (?, ?, ?, ?)')
     .run(userId, 'karma', delta, cause);
-  db.prepare('UPDATE users SET karma = karma + ? WHERE id = ?').run(delta, userId);
+  await db.prepare('UPDATE users SET karma = karma + ? WHERE id = ?').run(delta, userId);
 }
 
 // Parse the SQLite UTC timestamp safely.
@@ -66,11 +70,11 @@ function computeTrustLevel(user) {
 }
 
 // Recompute and persist a user's trust level. Safe to call on activity.
-function refreshTrustLevel(userId) {
-  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+async function refreshTrustLevel(userId) {
+  const u = await db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   if (!u) return 0;
   const tl = computeTrustLevel(u);
-  if (tl !== u.trust_level) db.prepare('UPDATE users SET trust_level = ? WHERE id = ?').run(tl, userId);
+  if (tl !== u.trust_level) await db.prepare('UPDATE users SET trust_level = ? WHERE id = ?').run(tl, userId);
   return tl;
 }
 

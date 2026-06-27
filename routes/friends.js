@@ -11,9 +11,9 @@ const presence = require('../presence');
 const router = express.Router();
 
 // Your accepted friends.
-router.get('/', requireAuth, (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   const uid = req.user.id;
-  const rows = db
+  const rows = await db
     .prepare(
       `SELECT u.* FROM friendships f
        JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
@@ -27,8 +27,8 @@ router.get('/', requireAuth, (req, res) => {
 });
 
 // Incoming pending requests (people who want to be your friend).
-router.get('/requests', requireAuth, (req, res) => {
-  const rows = db
+router.get('/requests', requireAuth, async (req, res) => {
+  const rows = await db
     .prepare(
       `SELECT u.* FROM friendships f
        JOIN users u ON u.id = f.requester_id
@@ -40,9 +40,9 @@ router.get('/requests', requireAuth, (req, res) => {
 });
 
 // People you are not connected to yet.
-router.get('/suggestions', requireAuth, (req, res) => {
+router.get('/suggestions', requireAuth, async (req, res) => {
   const uid = req.user.id;
-  const rows = db
+  const rows = await db
     .prepare(
       `SELECT * FROM users
        WHERE id != ?
@@ -58,55 +58,55 @@ router.get('/suggestions', requireAuth, (req, res) => {
 });
 
 // Send a friend request.
-router.post('/request/:id', requireAuth, (req, res) => {
+router.post('/request/:id', requireAuth, async (req, res) => {
   const target = Number(req.params.id);
   if (target === req.user.id) return res.status(400).json({ error: 'You cannot add yourself' });
 
-  const targetUser = db.prepare('SELECT id FROM users WHERE id = ?').get(target);
+  const targetUser = await db.prepare('SELECT id FROM users WHERE id = ?').get(target);
   if (!targetUser) return res.status(404).json({ error: 'User not found' });
 
-  const existing = db
+  const existing = await db
     .prepare(
       'SELECT * FROM friendships WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)'
     )
     .get(req.user.id, target, target, req.user.id);
   if (existing) return res.status(409).json({ error: 'A request already exists' });
 
-  db.prepare(
+  await db.prepare(
     "INSERT INTO friendships (requester_id, addressee_id, status) VALUES (?, ?, 'pending')"
   ).run(req.user.id, target);
-  notify(target, req.user.id, 'friend_request', null);
+  await notify(target, req.user.id, 'friend_request', null);
   res.json({ ok: true });
 });
 
 // Accept a request from a given user.
-router.post('/accept/:id', requireAuth, (req, res) => {
+router.post('/accept/:id', requireAuth, async (req, res) => {
   const requester = Number(req.params.id);
-  const f = db
+  const f = await db
     .prepare(
       "SELECT * FROM friendships WHERE requester_id = ? AND addressee_id = ? AND status = 'pending'"
     )
     .get(requester, req.user.id);
   if (!f) return res.status(404).json({ error: 'No pending request from this user' });
 
-  db.prepare("UPDATE friendships SET status = 'accepted' WHERE id = ?").run(f.id);
-  notify(requester, req.user.id, 'friend_accept', null);
+  await db.prepare("UPDATE friendships SET status = 'accepted' WHERE id = ?").run(f.id);
+  await notify(requester, req.user.id, 'friend_accept', null);
   res.json({ ok: true });
 });
 
 // Decline a pending request.
-router.post('/decline/:id', requireAuth, (req, res) => {
+router.post('/decline/:id', requireAuth, async (req, res) => {
   const requester = Number(req.params.id);
-  db.prepare(
+  await db.prepare(
     "DELETE FROM friendships WHERE requester_id = ? AND addressee_id = ? AND status = 'pending'"
   ).run(requester, req.user.id);
   res.json({ ok: true });
 });
 
 // Unfriend someone (works whichever direction the original request went).
-router.delete('/:id', requireAuth, (req, res) => {
+router.delete('/:id', requireAuth, async (req, res) => {
   const other = Number(req.params.id);
-  db.prepare(
+  await db.prepare(
     'DELETE FROM friendships WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)'
   ).run(req.user.id, other, other, req.user.id);
   res.json({ ok: true });

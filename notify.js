@@ -1,6 +1,10 @@
 // notify.js
 // Creates notification rows and, when possible, pushes a live update to the
 // recipient over Socket.IO so the bell badge updates without a refresh.
+//
+// notify() writes to the networked database and is async. It is often called
+// fire-and-forget from a route, so its body is wrapped: a notification failure
+// must never break the action that triggered it.
 
 const db = require('./db');
 
@@ -12,18 +16,20 @@ function setIO(io) {
 }
 
 // type is one of: 'like', 'comment', 'friend_request', 'friend_accept'
-function notify(userId, actorId, type, postId = null) {
+async function notify(userId, actorId, type, postId = null) {
   if (userId === actorId) return; // never notify yourself
-  db.prepare(
-    'INSERT INTO notifications (user_id, actor_id, type, post_id) VALUES (?, ?, ?, ?)'
-  ).run(userId, actorId, type, postId);
+  try {
+    await db.prepare(
+      'INSERT INTO notifications (user_id, actor_id, type, post_id) VALUES (?, ?, ?, ?)'
+    ).run(userId, actorId, type, postId);
 
-  if (ioRef) {
-    const count = db
-      .prepare('SELECT COUNT(*) c FROM notifications WHERE user_id = ? AND is_read = 0')
-      .get(userId).c;
-    ioRef.to('user:' + userId).emit('notification:new', { count });
-  }
+    if (ioRef) {
+      const row = await db
+        .prepare('SELECT COUNT(*) c FROM notifications WHERE user_id = ? AND is_read = 0')
+        .get(userId);
+      ioRef.to('user:' + userId).emit('notification:new', { count: row.c });
+    }
+  } catch (e) { /* best-effort; never break the triggering action */ }
 }
 
 module.exports = { notify, setIO };

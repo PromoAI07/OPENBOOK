@@ -11,18 +11,18 @@ const cleanup = require('../media/cleanup');
 
 const router = express.Router();
 
-function canSee(viewerId, ownerId) {
+async function canSee(viewerId, ownerId) {
   if (viewerId === ownerId) return true;
-  return !!db
+  return !!(await db
     .prepare(
       "SELECT 1 FROM friendships WHERE status = 'accepted' AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))"
     )
-    .get(viewerId, ownerId, ownerId, viewerId);
+    .get(viewerId, ownerId, ownerId, viewerId));
 }
 
-function decorateAlbum(a) {
-  const photoCount = db.prepare('SELECT COUNT(*) c FROM album_photos WHERE album_id = ?').get(a.id).c;
-  const cover = db
+async function decorateAlbum(a) {
+  const photoCount = (await db.prepare('SELECT COUNT(*) c FROM album_photos WHERE album_id = ?').get(a.id)).c;
+  const cover = await db
     .prepare('SELECT image FROM album_photos WHERE album_id = ? ORDER BY id DESC LIMIT 1')
     .get(a.id);
   return {
@@ -36,35 +36,35 @@ function decorateAlbum(a) {
 }
 
 // A user's albums (owner or accepted friend only).
-router.get('/user/:id', requireAuth, (req, res) => {
+router.get('/user/:id', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
-  if (!canSee(req.user.id, id)) return res.json({ albums: [], locked: true });
-  const rows = db
+  if (!(await canSee(req.user.id, id))) return res.json({ albums: [], locked: true });
+  const rows = await db
     .prepare('SELECT * FROM albums WHERE user_id = ? ORDER BY created_at DESC, id DESC')
     .all(id);
-  res.json({ albums: rows.map(decorateAlbum), locked: false });
+  res.json({ albums: await Promise.all(rows.map(decorateAlbum)), locked: false });
 });
 
 // Create an album.
-router.post('/', requireAuth, (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   const title = (req.body.title || '').trim();
   if (!title) return res.status(400).json({ error: 'An album title is required' });
-  const info = db.prepare('INSERT INTO albums (user_id, title) VALUES (?, ?)').run(req.user.id, title);
-  const a = db.prepare('SELECT * FROM albums WHERE id = ?').get(info.lastInsertRowid);
-  res.json({ album: decorateAlbum(a) });
+  const info = await db.prepare('INSERT INTO albums (user_id, title) VALUES (?, ?)').run(req.user.id, title);
+  const a = await db.prepare('SELECT * FROM albums WHERE id = ?').get(info.lastInsertRowid);
+  res.json({ album: await decorateAlbum(a) });
 });
 
 // One album with its photos.
-router.get('/:id', requireAuth, (req, res) => {
-  const a = db.prepare('SELECT * FROM albums WHERE id = ?').get(Number(req.params.id));
+router.get('/:id', requireAuth, async (req, res) => {
+  const a = await db.prepare('SELECT * FROM albums WHERE id = ?').get(Number(req.params.id));
   if (!a) return res.status(404).json({ error: 'Album not found' });
-  if (!canSee(req.user.id, a.user_id)) {
+  if (!(await canSee(req.user.id, a.user_id))) {
     return res.status(403).json({ error: 'This album is shared with friends only' });
   }
-  const photos = db
+  const photos = await db
     .prepare('SELECT * FROM album_photos WHERE album_id = ? ORDER BY created_at ASC, id ASC')
     .all(a.id);
-  const owner = db.prepare('SELECT * FROM users WHERE id = ?').get(a.user_id);
+  const owner = await db.prepare('SELECT * FROM users WHERE id = ?').get(a.user_id);
   res.json({
     album: {
       id: a.id,
@@ -78,38 +78,38 @@ router.get('/:id', requireAuth, (req, res) => {
 });
 
 // Add a photo to an album (owner only).
-router.post('/:id/photos', requireAuth, upload.single('image'), (req, res) => {
-  const a = db.prepare('SELECT * FROM albums WHERE id = ?').get(Number(req.params.id));
+router.post('/:id/photos', requireAuth, upload.single('image'), async (req, res) => {
+  const a = await db.prepare('SELECT * FROM albums WHERE id = ?').get(Number(req.params.id));
   if (!a) return res.status(404).json({ error: 'Album not found' });
   if (a.user_id !== req.user.id) return res.status(403).json({ error: 'You can only add to your own albums' });
   if (!req.file) return res.status(400).json({ error: 'Choose a photo to add' });
   const caption = (req.body.caption || '').trim();
-  const info = db
+  const info = await db
     .prepare('INSERT INTO album_photos (album_id, image, caption) VALUES (?, ?, ?)')
     .run(a.id, '/uploads/' + req.file.filename, caption);
-  const p = db.prepare('SELECT * FROM album_photos WHERE id = ?').get(info.lastInsertRowid);
+  const p = await db.prepare('SELECT * FROM album_photos WHERE id = ?').get(info.lastInsertRowid);
   res.json({ photo: { id: p.id, image: p.image, caption: p.caption, created_at: p.created_at } });
 });
 
 // Delete a single photo (owner only).
-router.delete('/:id/photos/:photoId', requireAuth, (req, res) => {
-  const a = db.prepare('SELECT * FROM albums WHERE id = ?').get(Number(req.params.id));
+router.delete('/:id/photos/:photoId', requireAuth, async (req, res) => {
+  const a = await db.prepare('SELECT * FROM albums WHERE id = ?').get(Number(req.params.id));
   if (!a) return res.status(404).json({ error: 'Album not found' });
   if (a.user_id !== req.user.id) return res.status(403).json({ error: 'This is not your album' });
-  const photo = db.prepare('SELECT image FROM album_photos WHERE id = ? AND album_id = ?').get(Number(req.params.photoId), a.id);
-  db.prepare('DELETE FROM album_photos WHERE id = ? AND album_id = ?').run(Number(req.params.photoId), a.id);
-  if (photo && photo.image) cleanup.deleteMedia(photo.image, a.user_id);
+  const photo = await db.prepare('SELECT image FROM album_photos WHERE id = ? AND album_id = ?').get(Number(req.params.photoId), a.id);
+  await db.prepare('DELETE FROM album_photos WHERE id = ? AND album_id = ?').run(Number(req.params.photoId), a.id);
+  if (photo && photo.image) await cleanup.deleteMedia(photo.image, a.user_id);
   res.json({ ok: true });
 });
 
 // Delete an album and its photos (owner only).
-router.delete('/:id', requireAuth, (req, res) => {
-  const a = db.prepare('SELECT * FROM albums WHERE id = ?').get(Number(req.params.id));
+router.delete('/:id', requireAuth, async (req, res) => {
+  const a = await db.prepare('SELECT * FROM albums WHERE id = ?').get(Number(req.params.id));
   if (!a) return res.status(404).json({ error: 'Album not found' });
   if (a.user_id !== req.user.id) return res.status(403).json({ error: 'This is not your album' });
-  const photos = db.prepare('SELECT image FROM album_photos WHERE album_id = ?').all(a.id);
-  db.prepare('DELETE FROM albums WHERE id = ?').run(a.id);
-  cleanup.deleteMany(photos.map((p) => p.image), a.user_id);
+  const photos = await db.prepare('SELECT image FROM album_photos WHERE album_id = ?').all(a.id);
+  await db.prepare('DELETE FROM albums WHERE id = ?').run(a.id);
+  await cleanup.deleteMany(photos.map((p) => p.image), a.user_id);
   res.json({ ok: true });
 });
 

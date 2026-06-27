@@ -4,6 +4,9 @@
 // threads, community mods moderate their community, platform admins handle only
 // sitewide issues. Confirmed removals lower standing (the SPEC's one allowed
 // driver of standing); votes never do.
+//
+// Every helper that reads roles/communities from the (networked) database is
+// async; only isAdmin (a pure flag check on an already-loaded user) stays sync.
 
 const db = require('./db');
 
@@ -16,22 +19,22 @@ function isAdmin(user) {
   return !!(user && user.is_admin);
 }
 
-function communityRoleOf(userId, communityId) {
+async function communityRoleOf(userId, communityId) {
   if (!communityId) return null;
-  const m = db.prepare('SELECT role FROM community_members WHERE community_id = ? AND user_id = ?').get(communityId, userId);
+  const m = await db.prepare('SELECT role FROM community_members WHERE community_id = ? AND user_id = ?').get(communityId, userId);
   if (m) return m.role;
-  const c = db.prepare('SELECT creator_id FROM communities WHERE id = ?').get(communityId);
+  const c = await db.prepare('SELECT creator_id FROM communities WHERE id = ?').get(communityId);
   if (c && c.creator_id === userId) return 'mod';
   return null;
 }
-function isCommunityMod(userId, communityId) {
-  return communityRoleOf(userId, communityId) === 'mod';
+async function isCommunityMod(userId, communityId) {
+  return (await communityRoleOf(userId, communityId)) === 'mod';
 }
 
 // Can this user moderate a POST (remove / lock / pin)? A community mod of its
 // community, or a platform admin. (A user deleting their own post uses the
 // existing delete route; that is ownership, not moderation.)
-function canModeratePost(user, post) {
+async function canModeratePost(user, post) {
   if (isAdmin(user)) return true;
   if (post.community_id) return isCommunityMod(user.id, post.community_id);
   return false;
@@ -39,15 +42,15 @@ function canModeratePost(user, post) {
 
 // Can this user remove a COMMENT? Admin, the community mod (if the comment's post
 // is in a community), or the owner of the post it sits on (creator controls).
-function canModerateComment(user, comment, post) {
+async function canModerateComment(user, comment, post) {
   if (isAdmin(user)) return true;
-  if (post && post.community_id && isCommunityMod(user.id, post.community_id)) return true;
+  if (post && post.community_id && (await isCommunityMod(user.id, post.community_id))) return true;
   if (post && post.user_id === user.id) return true;
   return false;
 }
 
-function logModAction(actorId, action, targetType, targetId, communityId, reason, isPublic) {
-  db.prepare(
+async function logModAction(actorId, action, targetType, targetId, communityId, reason, isPublic) {
+  await db.prepare(
     'INSERT INTO mod_actions (actor_id, action, target_type, target_id, community_id, reason, is_public) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).run(actorId, action, targetType, targetId, communityId || null, reason || '', isPublic ? 1 : 0);
 }

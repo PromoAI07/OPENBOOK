@@ -7,8 +7,8 @@ const { requireAuth } = require('../auth');
 
 const router = express.Router();
 
-router.get('/', requireAuth, (req, res) => {
-  const rows = db
+router.get('/', requireAuth, async (req, res) => {
+  const rows = await db
     .prepare(
       `SELECT n.*, u.name AS actor_name, u.avatar AS actor_avatar
        FROM notifications n
@@ -30,15 +30,15 @@ router.get('/', requireAuth, (req, res) => {
   res.json({ notifications });
 });
 
-router.get('/unread-count', requireAuth, (req, res) => {
-  const count = db
+router.get('/unread-count', requireAuth, async (req, res) => {
+  const count = (await db
     .prepare('SELECT COUNT(*) c FROM notifications WHERE user_id = ? AND is_read = 0')
-    .get(req.user.id).c;
+    .get(req.user.id)).c;
   res.json({ count });
 });
 
-router.post('/read', requireAuth, (req, res) => {
-  db.prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ?').run(req.user.id);
+router.post('/read', requireAuth, async (req, res) => {
+  await db.prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ?').run(req.user.id);
   res.json({ ok: true });
 });
 

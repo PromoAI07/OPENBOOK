@@ -65,7 +65,7 @@ router.post('/signup', async (req, res, next) => {
     return res.status(400).json({ error: 'CAPTCHA check failed. Please try again.', code: 'CAPTCHA_FAILED' });
   }
 
-  const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const exists = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
   if (exists) return res.status(409).json({ error: 'That email is already registered' });
 
   const hash = bcrypt.hashSync(password, 10);
@@ -74,24 +74,24 @@ router.post('/signup', async (req, res, next) => {
   // auto-verify rather than lock people out. The gate only bites once email is
   // set up (RESEND_API_KEY). This keeps the live demo usable before that.
   const verified = (EMAIL_CONFIGURED && REQUIRE_EMAIL_VERIFICATION) ? 0 : 1;
-  const info = db
+  const info = await db
     .prepare('INSERT INTO users (name, email, password_hash, verify_token, email_verified) VALUES (?, ?, ?, ?, ?)')
     .run(name, email, hash, token, verified);
 
-  createSession(info.lastInsertRowid, res);
+  await createSession(info.lastInsertRowid, res);
   // Start this account's audit trail at the baseline standing.
-  recordStandingEvent(info.lastInsertRowid, 0, 'account_created');
+  await recordStandingEvent(info.lastInsertRowid, 0, 'account_created');
   // Anti-sybil bookkeeping: remember this device/IP and flag (do not block) if
   // the same device or IP already hosts several accounts.
-  recordDevice(info.lastInsertRowid, req.ip, fingerprint);
-  flagSignupRisk(info.lastInsertRowid, req.ip, fingerprint);
+  await recordDevice(info.lastInsertRowid, req.ip, fingerprint);
+  await flagSignupRisk(info.lastInsertRowid, req.ip, fingerprint);
   // Referral: give the new account its own invite code, and if they arrived via
   // someone's ?ref code, open a pending referral (qualifies after 30 active days).
-  ensureCode(info.lastInsertRowid);
+  await ensureCode(info.lastInsertRowid);
   const refCode = (req.body.ref || '').toString().trim();
-  if (refCode) attachReferral(info.lastInsertRowid, refCode);
+  if (refCode) await attachReferral(info.lastInsertRowid, refCode);
 
-  const out = { user: selfUser(db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid)) };
+  const out = { user: selfUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid)) };
   if (EMAIL_CONFIGURED && REQUIRE_EMAIL_VERIFICATION) {
     const link = verifyLink(req, token);
     // Fire and forget so signup is never blocked by the mail provider.
@@ -104,23 +104,23 @@ router.post('/signup', async (req, res, next) => {
 
 // Click target from the verification email. Marks the account verified and
 // bounces back into the app with a flag the UI turns into a toast.
-router.get('/verify', (req, res) => {
+router.get('/verify', async (req, res) => {
   const token = (req.query.token || '').toString();
   if (!token) return res.redirect('/app?verified=0');
-  const u = db.prepare('SELECT id FROM users WHERE verify_token = ?').get(token);
+  const u = await db.prepare('SELECT id FROM users WHERE verify_token = ?').get(token);
   if (!u) return res.redirect('/app?verified=0');
-  db.prepare('UPDATE users SET email_verified = 1, verify_token = NULL WHERE id = ?').run(u.id);
+  await db.prepare('UPDATE users SET email_verified = 1, verify_token = NULL WHERE id = ?').run(u.id);
   res.redirect('/app?verified=1');
 });
 
 // Resend the verification email to the logged-in user.
-router.post('/resend-verification', requireAuth, (req, res) => {
-  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+router.post('/resend-verification', requireAuth, async (req, res) => {
+  const u = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   if (u.email_verified) return res.json({ ok: true, already: true });
   let token = u.verify_token;
   if (!token) {
     token = crypto.randomBytes(24).toString('hex');
-    db.prepare('UPDATE users SET verify_token = ? WHERE id = ?').run(token, u.id);
+    await db.prepare('UPDATE users SET verify_token = ? WHERE id = ?').run(token, u.id);
   }
   const link = verifyLink(req, token);
   const out = { ok: true };
@@ -131,14 +131,14 @@ router.post('/resend-verification', requireAuth, (req, res) => {
 
 // Forgot password: email a one-time reset link. Always returns a generic ok so
 // the response never reveals whether an account exists for that email.
-router.post('/forgot-password', (req, res) => {
+router.post('/forgot-password', async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const out = { ok: true };
   if (!email) return res.json(out);
-  const u = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  const u = await db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   if (u) {
     const token = crypto.randomBytes(24).toString('hex');
-    db.prepare("UPDATE users SET reset_token = ?, reset_expires = datetime('now', '+1 hour') WHERE id = ?").run(token, u.id);
+    await db.prepare("UPDATE users SET reset_token = ?, reset_expires = datetime('now', '+1 hour') WHERE id = ?").run(token, u.id);
     const link = req.protocol + '://' + req.get('host') + '/reset?token=' + encodeURIComponent(token);
     sendPasswordResetEmail(u.email, link, u.name).catch(() => {});
     if (process.env.NODE_ENV !== 'production') out.devResetLink = link; // dev testing only
@@ -147,45 +147,45 @@ router.post('/forgot-password', (req, res) => {
 });
 
 // Complete a password reset using the emailed token.
-router.post('/reset-password', (req, res) => {
+router.post('/reset-password', async (req, res) => {
   const token = (req.body.token || '').toString();
   const password = req.body.password || '';
   if (!token) return res.status(400).json({ error: 'Missing reset token' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  const u = db.prepare("SELECT * FROM users WHERE reset_token = ? AND reset_expires >= datetime('now')").get(token);
+  const u = await db.prepare("SELECT * FROM users WHERE reset_token = ? AND reset_expires >= datetime('now')").get(token);
   if (!u) return res.status(400).json({ error: 'This reset link is invalid or has expired. Please request a new one.' });
   const hash = bcrypt.hashSync(password, 10);
-  db.prepare('UPDATE users SET password_hash = ?, reset_token = NULL, reset_expires = NULL WHERE id = ?').run(hash, u.id);
+  await db.prepare('UPDATE users SET password_hash = ?, reset_token = NULL, reset_expires = NULL WHERE id = ?').run(hash, u.id);
   // Log out any existing sessions so an old/leaked session cannot outlive a reset.
-  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+  await db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
   res.json({ ok: true });
 });
 
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password || '';
 
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: 'Wrong email or password' });
   }
 
-  createSession(user.id, res);
+  await createSession(user.id, res);
   // Keep the device/IP record fresh so multi-account concentration stays visible.
-  recordDevice(user.id, req.ip, (req.body.fp || req.body.fingerprint || '').toString());
+  await recordDevice(user.id, req.ip, (req.body.fp || req.body.fingerprint || '').toString());
   res.json({ user: selfUser(user) });
 });
 
-router.post('/logout', (req, res) => {
-  destroySession(req.sessionToken, res);
+router.post('/logout', async (req, res) => {
+  await destroySession(req.sessionToken, res);
   res.json({ ok: true });
 });
 
-router.get('/me', (req, res) => {
+router.get('/me', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not logged in' });
   // Keep the trust level current, then return it only to the account owner.
-  refreshTrustLevel(req.user.id);
-  const fresh = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  await refreshTrustLevel(req.user.id);
+  const fresh = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: selfUser(fresh), trust: trustSnapshot(fresh) });
 });
 

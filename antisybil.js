@@ -11,6 +11,10 @@
 //
 // None of this touches karma or the ranking math; votes still drive ranking
 // only. This module only affects standing/reach (safety) and rate limits.
+//
+// The device/flag/vote-ring helpers read or write the networked database and are
+// async; the pure crypto/rate helpers (proof-of-work, disposable-email, in-memory
+// rate window) stay synchronous.
 
 const crypto = require('crypto');
 const db = require('./db');
@@ -124,37 +128,37 @@ async function verifyTurnstile(token, ip) {
 // account so concentration (many accounts on one device/IP) can RAISE a flag.
 // We never hard-block on these (VPN/Tor users are legitimate), per the SPEC.
 // ---------------------------------------------------------------------------
-function recordDevice(userId, ip, fingerprint) {
+async function recordDevice(userId, ip, fingerprint) {
   if (!userId) return;
   const fp = String(fingerprint || '').slice(0, 128) || 'none';
   const ipv = String(ip || '').slice(0, 64);
   try {
-    const existing = db.prepare('SELECT id FROM devices WHERE user_id = ? AND fingerprint = ?').get(userId, fp);
+    const existing = await db.prepare('SELECT id FROM devices WHERE user_id = ? AND fingerprint = ?').get(userId, fp);
     if (existing) {
-      db.prepare("UPDATE devices SET last_seen = datetime('now'), ip = ? WHERE id = ?").run(ipv, existing.id);
+      await db.prepare("UPDATE devices SET last_seen = datetime('now'), ip = ? WHERE id = ?").run(ipv, existing.id);
     } else {
-      db.prepare('INSERT INTO devices (user_id, fingerprint, ip) VALUES (?, ?, ?)').run(userId, fp, ipv);
+      await db.prepare('INSERT INTO devices (user_id, fingerprint, ip) VALUES (?, ?, ?)').run(userId, fp, ipv);
     }
   } catch (e) { /* never let device bookkeeping break a request */ }
 }
 
-function accountsOnFingerprint(fp) {
+async function accountsOnFingerprint(fp) {
   if (!fp || fp === 'none') return 0;
-  return db.prepare('SELECT COUNT(DISTINCT user_id) n FROM devices WHERE fingerprint = ?').get(fp).n;
+  return (await db.prepare('SELECT COUNT(DISTINCT user_id) n FROM devices WHERE fingerprint = ?').get(fp)).n;
 }
-function accountsOnIp(ip) {
+async function accountsOnIp(ip) {
   if (!ip) return 0;
-  return db.prepare("SELECT COUNT(DISTINCT user_id) n FROM devices WHERE ip = ? AND ip != ''").get(String(ip)).n;
+  return (await db.prepare("SELECT COUNT(DISTINCT user_id) n FROM devices WHERE ip = ? AND ip != ''").get(String(ip))).n;
 }
 
 // Record a sybil flag for review, deduped so the same kind is not re-logged for
 // the same user within 24h. Returns true if a NEW flag was written.
-function flagUser(userId, kind, detail, score) {
-  const recent = db.prepare(
+async function flagUser(userId, kind, detail, score) {
+  const recent = await db.prepare(
     "SELECT id FROM sybil_flags WHERE user_id = ? AND kind = ? AND created_at >= datetime('now','-1 day')"
   ).get(userId, kind);
   if (recent) return false;
-  db.prepare('INSERT INTO sybil_flags (user_id, kind, detail, score) VALUES (?, ?, ?, ?)')
+  await db.prepare('INSERT INTO sybil_flags (user_id, kind, detail, score) VALUES (?, ?, ?, ?)')
     .run(userId, kind, String(detail || '').slice(0, 280), Number(score) || 0);
   return true;
 }
@@ -163,13 +167,13 @@ function flagUser(userId, kind, detail, score) {
 // only: we flag for review, we do not block the signup.
 const SIGNUP_IP_FLAG_AT = Math.max(2, Number(process.env.SIGNUP_IP_FLAG_AT || 4));
 const SIGNUP_FP_FLAG_AT = Math.max(2, Number(process.env.SIGNUP_FP_FLAG_AT || 3));
-function flagSignupRisk(userId, ip, fingerprint) {
+async function flagSignupRisk(userId, ip, fingerprint) {
   try {
     const fp = String(fingerprint || '').slice(0, 128) || 'none';
-    const onFp = accountsOnFingerprint(fp);
-    const onIp = accountsOnIp(ip);
-    if (onFp >= SIGNUP_FP_FLAG_AT) flagUser(userId, 'device_concentration', onFp + ' accounts on this device', onFp);
-    else if (onIp >= SIGNUP_IP_FLAG_AT) flagUser(userId, 'ip_concentration', onIp + ' accounts on this IP', onIp);
+    const onFp = await accountsOnFingerprint(fp);
+    const onIp = await accountsOnIp(ip);
+    if (onFp >= SIGNUP_FP_FLAG_AT) await flagUser(userId, 'device_concentration', onFp + ' accounts on this device', onFp);
+    else if (onIp >= SIGNUP_IP_FLAG_AT) await flagUser(userId, 'ip_concentration', onIp + ' accounts on this IP', onIp);
   } catch (e) { /* non-fatal */ }
 }
 
@@ -214,11 +218,14 @@ function checkRate(userId, action, trustLevel) {
 
 // Express middleware factory: rate-limit a content action by the user's trust
 // level. Must run after requireAuth. On limit, returns 429 with a friendly note.
+// The returned middleware is async (it refreshes the trust level over the
+// network); a DB hiccup falls through rather than blocking the request.
 function trustRateLimit(action) {
   const { refreshTrustLevel } = require('./trust');
-  return function (req, res, next) {
+  return async function (req, res, next) {
     if (!req.user) return next(); // requireAuth handles the 401
-    const tl = refreshTrustLevel(req.user.id);
+    let tl = 0;
+    try { tl = await refreshTrustLevel(req.user.id); } catch (e) { return next(); }
     const r = checkRate(req.user.id, action, tl);
     if (!r.ok) {
       const mins = Math.max(1, Math.round(r.retryMs / 60000));
@@ -248,14 +255,14 @@ const RING_MAX_TL = Math.max(0, Number(process.env.SYBIL_MAX_TL == null ? 1 : pr
 const RING_PENALTY = Math.max(0, Number(process.env.SYBIL_PENALTY || 10));
 const RING_PENALTY_FLOOR = QUARANTINE_AT; // suspicion alone never pushes below quarantine
 
-function detectVoteRings(opts) {
+async function detectVoteRings(opts) {
   opts = opts || {};
   const lookback = opts.lookbackHours || RING_LOOKBACK_HOURS;
   const minShared = opts.minShared || RING_MIN_SHARED;
   const burstHours = opts.burstHours || RING_BURST_HOURS;
   const maxTl = opts.maxTl == null ? RING_MAX_TL : opts.maxTl;
 
-  const rows = db.prepare(
+  const rows = await db.prepare(
     "SELECT v.user_id uid, v.target_type tt, v.target_id tid, v.value val, u.created_at ca, u.trust_level tl " +
     "FROM votes v JOIN users u ON u.id = v.user_id " +
     "WHERE v.created_at >= datetime('now', ?) ORDER BY v.created_at DESC LIMIT 8000"
@@ -304,17 +311,17 @@ function detectVoteRings(opts) {
 
 // Apply the conservative auto-action to a detected pair: flag both and nudge
 // standing down, but never below quarantine on suspicion alone.
-function actOnRing(pairFound) {
+async function actOnRing(pairFound) {
   let acted = 0;
   for (const { a, b, shared } of pairFound) {
     for (const uid of [a, b]) {
-      const isNew = flagUser(uid, 'vote_ring', 'coordinated with user ' + (uid === a ? b : a) + ' on ' + shared + ' targets', shared);
+      const isNew = await flagUser(uid, 'vote_ring', 'coordinated with user ' + (uid === a ? b : a) + ' on ' + shared + ' targets', shared);
       if (!isNew) continue; // already handled within 24h
       if (RING_PENALTY > 0) {
-        const u = db.prepare('SELECT standing FROM users WHERE id = ?').get(uid);
+        const u = await db.prepare('SELECT standing FROM users WHERE id = ?').get(uid);
         if (u && u.standing > RING_PENALTY_FLOOR) {
           const delta = -Math.min(RING_PENALTY, u.standing - RING_PENALTY_FLOOR);
-          if (delta < 0) recordStandingEvent(uid, delta, 'sybil_ring_suspected');
+          if (delta < 0) await recordStandingEvent(uid, delta, 'sybil_ring_suspected');
         }
       }
       acted++;
@@ -324,10 +331,10 @@ function actOnRing(pairFound) {
 }
 
 let ringTimer = null;
-function runRingScan() {
+async function runRingScan() {
   try {
-    const found = detectVoteRings();
-    const acted = actOnRing(found);
+    const found = await detectVoteRings();
+    const acted = await actOnRing(found);
     if (found.length) logger.warn({ pairs: found.length, acted }, 'vote-ring scan flagged clusters');
     else logger.debug('vote-ring scan: nothing flagged');
   } catch (e) {

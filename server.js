@@ -5,6 +5,11 @@
 const path = require('path');
 const http = require('http');
 const express = require('express');
+// Make Express forward rejected promises from async route handlers to the error
+// handler below (Express 4 does not do this on its own). With the database now
+// answering over the network, every handler is async, so this is what turns a
+// database error into a clean 500 instead of a hung request.
+require('express-async-errors');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -119,19 +124,21 @@ const authLimiter = rateLimit({
 // and notification reads stay open; everything else under /api needs a verified
 // email. (db is required lazily to avoid a circular import at module load.)
 const gateDb = require('./db');
-app.use('/api', (req, res, next) => {
-  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
-  if (!req.user) return next(); // requireAuth on the route handles the 401
-  if (req.path.startsWith('/auth')) return next();
-  if (req.path.startsWith('/users/me')) return next(); // profile + avatar edits
-  if (req.path.startsWith('/notifications')) return next(); // mark read
-  if (req.path.startsWith('/analytics')) return next(); // coarse usage pings
-  const u = gateDb.prepare('SELECT email_verified FROM users WHERE id = ?').get(req.user.id);
-  if (u && u.email_verified) return next();
-  return res.status(403).json({
-    error: 'Please verify your email to do that. Check your inbox, or resend the link from the banner at the top.',
-    code: 'UNVERIFIED',
-  });
+app.use('/api', async (req, res, next) => {
+  try {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+    if (!req.user) return next(); // requireAuth on the route handles the 401
+    if (req.path.startsWith('/auth')) return next();
+    if (req.path.startsWith('/users/me')) return next(); // profile + avatar edits
+    if (req.path.startsWith('/notifications')) return next(); // mark read
+    if (req.path.startsWith('/analytics')) return next(); // coarse usage pings
+    const u = await gateDb.prepare('SELECT email_verified FROM users WHERE id = ?').get(req.user.id);
+    if (u && u.email_verified) return next();
+    return res.status(403).json({
+      error: 'Please verify your email to do that. Check your inbox, or resend the link from the banner at the top.',
+      code: 'UNVERIFIED',
+    });
+  } catch (e) { return next(e); }
 });
 
 // Public funding info for the Support page (links are set via env so they can be
@@ -207,13 +214,24 @@ process.on('uncaughtException', (e) => logger.error({ err: e }, 'uncaughtExcepti
 process.on('unhandledRejection', (e) => logger.error({ err: e instanceof Error ? e : new Error(String(e)) }, 'unhandledRejection'));
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'OpenBook server started');
-  // Phase 5: start the background vote-ring scan (no-op if SYBIL_JOB=0).
-  try { require('./antisybil').startSybilJobs(); } catch (e) { logger.error({ err: e }, 'failed to start sybil jobs'); }
-  // Referral: qualify pending referrals + pay rewards on a schedule.
-  try { require('./referrals').startReferralJobs(); } catch (e) { logger.error({ err: e }, 'failed to start referral jobs'); }
-  // Media: hard-delete expired stories (and their files) on a schedule, so the
-  // 24-hour promise is real and storage (the only real cost) stops growing.
-  try { require('./media/cleanup').startStoryCleanupJob(); } catch (e) { logger.error({ err: e }, 'failed to start story cleanup job'); }
-});
+// Build the database schema FIRST (it is now a networked database, so this is
+// async), then start listening. We never accept a request before the schema is
+// ready. If the database is unreachable at boot we fail loudly rather than serve
+// a broken app.
+require('./db').init()
+  .then(() => {
+    server.listen(PORT, () => {
+      logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'OpenBook server started');
+      // Phase 5: start the background vote-ring scan (no-op if SYBIL_JOB=0).
+      try { require('./antisybil').startSybilJobs(); } catch (e) { logger.error({ err: e }, 'failed to start sybil jobs'); }
+      // Referral: qualify pending referrals + pay rewards on a schedule.
+      try { require('./referrals').startReferralJobs(); } catch (e) { logger.error({ err: e }, 'failed to start referral jobs'); }
+      // Media: hard-delete expired stories (and their files) on a schedule, so the
+      // 24-hour promise is real and storage (the only real cost) stops growing.
+      try { require('./media/cleanup').startStoryCleanupJob(); } catch (e) { logger.error({ err: e }, 'failed to start story cleanup job'); }
+    });
+  })
+  .catch((e) => {
+    logger.error({ err: e }, 'database init failed; server not started');
+    process.exit(1);
+  });

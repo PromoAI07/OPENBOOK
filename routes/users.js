@@ -26,8 +26,8 @@ function tms(ts) {
 const NAME_CHANGE_WAIT_DAYS = [30, 90, 90, 365];
 
 // When is this user next allowed to change their display name? Returns epoch ms.
-function nextNameChangeAt(userId, createdAt) {
-  const hist = db
+async function nextNameChangeAt(userId, createdAt) {
+  const hist = await db
     .prepare('SELECT changed_at FROM name_history WHERE user_id = ? ORDER BY changed_at DESC, id DESC')
     .all(userId);
   const count = hist.length;
@@ -37,15 +37,15 @@ function nextNameChangeAt(userId, createdAt) {
 }
 
 // Search people by name (or list recent users when no query).
-router.get('/', requireAuth, (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   const q = (req.query.q || '').trim();
   let rows;
   if (q) {
-    rows = db
+    rows = await db
       .prepare('SELECT * FROM users WHERE name LIKE ? AND id != ? ORDER BY name LIMIT 30')
       .all('%' + q + '%', req.user.id);
   } else {
-    rows = db
+    rows = await db
       .prepare('SELECT * FROM users WHERE id != ? ORDER BY created_at DESC LIMIT 30')
       .all(req.user.id);
   }
@@ -54,15 +54,15 @@ router.get('/', requireAuth, (req, res) => {
 
 // Update your own name and bio. The bio is always free to edit; the display name
 // is rate-limited, and each change leaves a public trail in name_history.
-router.put('/me', requireAuth, (req, res) => {
+router.put('/me', requireAuth, async (req, res) => {
   const name = (req.body.name || '').trim();
   const bio = (req.body.bio || '').trim();
   if (!name) return res.status(400).json({ error: 'Your name cannot be empty' });
 
-  const cur = db.prepare('SELECT name, created_at FROM users WHERE id = ?').get(req.user.id);
+  const cur = await db.prepare('SELECT name, created_at FROM users WHERE id = ?').get(req.user.id);
 
   if (name !== cur.name) {
-    const allowedAt = nextNameChangeAt(req.user.id, cur.created_at);
+    const allowedAt = await nextNameChangeAt(req.user.id, cur.created_at);
     if (Date.now() < allowedAt) {
       const when = new Date(allowedAt).toISOString().slice(0, 10);
       return res.status(429).json({
@@ -70,42 +70,42 @@ router.put('/me', requireAuth, (req, res) => {
         nextAllowedAt: allowedAt,
       });
     }
-    db.prepare('INSERT INTO name_history (user_id, old_name) VALUES (?, ?)').run(req.user.id, cur.name);
-    db.prepare('UPDATE users SET name = ?, bio = ? WHERE id = ?').run(name, bio, req.user.id);
+    await db.prepare('INSERT INTO name_history (user_id, old_name) VALUES (?, ?)').run(req.user.id, cur.name);
+    await db.prepare('UPDATE users SET name = ?, bio = ? WHERE id = ?').run(name, bio, req.user.id);
   } else {
-    db.prepare('UPDATE users SET bio = ? WHERE id = ?').run(bio, req.user.id);
+    await db.prepare('UPDATE users SET bio = ? WHERE id = ?').run(bio, req.user.id);
   }
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: publicUser(user) });
 });
 
 // Upload a new avatar.
-router.post('/me/avatar', requireAuth, upload.single('image'), (req, res) => {
+router.post('/me/avatar', requireAuth, upload.single('image'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No image was uploaded' });
   const url = '/uploads/' + req.file.filename;
-  const prev = db.prepare('SELECT avatar FROM users WHERE id = ?').get(req.user.id);
-  db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(url, req.user.id);
+  const prev = await db.prepare('SELECT avatar FROM users WHERE id = ?').get(req.user.id);
+  await db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(url, req.user.id);
   // The replaced avatar is no longer referenced anywhere; delete its bytes.
-  if (prev && prev.avatar && prev.avatar !== url) cleanup.deleteMedia(prev.avatar, req.user.id);
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (prev && prev.avatar && prev.avatar !== url) await cleanup.deleteMedia(prev.avatar, req.user.id);
+  const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: publicUser(user) });
 });
 
 // Upload a new cover photo.
-router.post('/me/cover', requireAuth, upload.single('image'), (req, res) => {
+router.post('/me/cover', requireAuth, upload.single('image'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No image was uploaded' });
   const url = '/uploads/' + req.file.filename;
-  const prev = db.prepare('SELECT cover FROM users WHERE id = ?').get(req.user.id);
-  db.prepare('UPDATE users SET cover = ? WHERE id = ?').run(url, req.user.id);
-  if (prev && prev.cover && prev.cover !== url) cleanup.deleteMedia(prev.cover, req.user.id);
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  const prev = await db.prepare('SELECT cover FROM users WHERE id = ?').get(req.user.id);
+  await db.prepare('UPDATE users SET cover = ? WHERE id = ?').run(url, req.user.id);
+  if (prev && prev.cover && prev.cover !== url) await cleanup.deleteMedia(prev.cover, req.user.id);
+  const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: publicUser(user) });
 });
 
 // Save the focal point (CSS object-position, e.g. "50% 30%") for the avatar and/or
 // cover, so the chosen part of each photo stays visible (drag to reposition).
-router.post('/me/photo-position', requireAuth, (req, res) => {
+router.post('/me/photo-position', requireAuth, async (req, res) => {
   const re = /^\d{1,3}(\.\d+)?% \d{1,3}(\.\d+)?%$/;
   const sets = [];
   const vals = [];
@@ -113,8 +113,8 @@ router.post('/me/photo-position', requireAuth, (req, res) => {
   if (typeof req.body.coverPos === 'string' && re.test(req.body.coverPos)) { sets.push('cover_pos = ?'); vals.push(req.body.coverPos); }
   if (!sets.length) return res.status(400).json({ error: 'Nothing valid to update' });
   vals.push(req.user.id);
-  db.prepare('UPDATE users SET ' + sets.join(', ') + ' WHERE id = ?').run(...vals);
-  const u = db.prepare('SELECT avatar_pos, cover_pos FROM users WHERE id = ?').get(req.user.id);
+  await db.prepare('UPDATE users SET ' + sets.join(', ') + ' WHERE id = ?').run(...vals);
+  const u = await db.prepare('SELECT avatar_pos, cover_pos FROM users WHERE id = ?').get(req.user.id);
   res.json({ avatarPos: u.avatar_pos, coverPos: u.cover_pos });
 });
 
@@ -128,12 +128,12 @@ router.delete('/me', requireAuth, async (req, res, next) => {
   try {
     const password = String((req.body && req.body.password) || '');
     if (!password) return res.status(400).json({ error: 'Enter your password to confirm.' });
-    const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+    const row = await db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
     if (!row || !bcrypt.compareSync(password, row.password_hash)) {
       return res.status(403).json({ error: 'That password is not correct.' });
     }
     await cleanup.wipeUserMedia(req.user.id);
-    db.prepare('DELETE FROM users WHERE id = ?').run(req.user.id); // cascades the rest
+    await db.prepare('DELETE FROM users WHERE id = ?').run(req.user.id); // cascades the rest
     res.clearCookie('tb_session');
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -142,22 +142,22 @@ router.delete('/me', requireAuth, async (req, res, next) => {
 // Your own transparency dashboard: the two reputation scores (karma vs standing)
 // plus your activity counts. reach_score is deliberately NOT included (the
 // graduated shadowban stays silent, even to the account owner).
-router.get('/me/stats', requireAuth, (req, res) => {
+router.get('/me/stats', requireAuth, async (req, res) => {
   const id = req.user.id;
-  const u = db.prepare('SELECT karma, standing, trust_level, created_at, supporter_tier, supporter_since, supporter_expires FROM users WHERE id = ?').get(id);
-  const posts = db.prepare('SELECT COUNT(*) c FROM posts WHERE user_id = ?').get(id).c;
-  const comments = db.prepare('SELECT COUNT(*) c FROM comments WHERE user_id = ?').get(id).c;
-  const communities = db.prepare('SELECT COUNT(*) c FROM community_members WHERE user_id = ?').get(id).c;
-  const friends = db
+  const u = await db.prepare('SELECT karma, standing, trust_level, created_at, supporter_tier, supporter_since, supporter_expires FROM users WHERE id = ?').get(id);
+  const posts = (await db.prepare('SELECT COUNT(*) c FROM posts WHERE user_id = ?').get(id)).c;
+  const comments = (await db.prepare('SELECT COUNT(*) c FROM comments WHERE user_id = ?').get(id)).c;
+  const communities = (await db.prepare('SELECT COUNT(*) c FROM community_members WHERE user_id = ?').get(id)).c;
+  const friends = (await db
     .prepare("SELECT COUNT(*) c FROM friendships WHERE status = 'accepted' AND (requester_id = ? OR addressee_id = ?)")
-    .get(id, id).c;
-  const reactionsReceived = db
+    .get(id, id)).c;
+  const reactionsReceived = (await db
     .prepare(
       `SELECT COUNT(*) c FROM reactions r
        WHERE (r.target_type = 'post'    AND r.target_id IN (SELECT id FROM posts    WHERE user_id = ?))
           OR (r.target_type = 'comment' AND r.target_id IN (SELECT id FROM comments WHERE user_id = ?))`
     )
-    .get(id, id).c;
+    .get(id, id)).c;
   res.json({
     trust: {
       karma: u.karma || 0,
@@ -165,61 +165,61 @@ router.get('/me/stats', requireAuth, (req, res) => {
       trustLevel: u.trust_level || 0,
     },
     stats: { posts, comments, communities, friends, reactionsReceived },
-    storage: { usedBytes: cleanup.usageBytes(id), capBytes: storageLimitBytes(u) },
+    storage: { usedBytes: await cleanup.usageBytes(id), capBytes: storageLimitBytes(u) },
     supporter: entitlementsFor(u),
     created_at: u.created_at,
   });
 });
 
 // Content analytics for the logged-in user: how their posts and reels are doing.
-router.get('/me/analytics', requireAuth, (req, res) => {
+router.get('/me/analytics', requireAuth, async (req, res) => {
   const id = req.user.id;
-  const postViews = db.prepare('SELECT COALESCE(SUM(views), 0) v FROM posts WHERE user_id = ?').get(id).v;
-  const reelViews = db.prepare('SELECT COALESCE(SUM(views), 0) v FROM reels WHERE user_id = ?').get(id).v;
-  const likesReceived = db
+  const postViews = (await db.prepare('SELECT COALESCE(SUM(views), 0) v FROM posts WHERE user_id = ?').get(id)).v;
+  const reelViews = (await db.prepare('SELECT COALESCE(SUM(views), 0) v FROM reels WHERE user_id = ?').get(id)).v;
+  const likesReceived = (await db
     .prepare(
       `SELECT COUNT(*) c FROM reactions r
        WHERE (r.target_type = 'post'    AND r.target_id IN (SELECT id FROM posts    WHERE user_id = ?))
           OR (r.target_type = 'comment' AND r.target_id IN (SELECT id FROM comments WHERE user_id = ?))
           OR (r.target_type = 'reel'    AND r.target_id IN (SELECT id FROM reels    WHERE user_id = ?))`
     )
-    .get(id, id, id).c;
-  const postComments = db
+    .get(id, id, id)).c;
+  const postComments = (await db
     .prepare('SELECT COUNT(*) c FROM comments WHERE user_id != ? AND post_id IN (SELECT id FROM posts WHERE user_id = ?)')
-    .get(id, id).c;
-  const reelComments = db
+    .get(id, id)).c;
+  const reelComments = (await db
     .prepare('SELECT COUNT(*) c FROM reel_comments WHERE user_id != ? AND reel_id IN (SELECT id FROM reels WHERE user_id = ?)')
-    .get(id, id).c;
-  const netVotes = db
+    .get(id, id)).c;
+  const netVotes = (await db
     .prepare(
       `SELECT COALESCE(SUM(value), 0) s FROM votes
        WHERE (target_type = 'post'    AND target_id IN (SELECT id FROM posts    WHERE user_id = ?))
           OR (target_type = 'comment' AND target_id IN (SELECT id FROM comments WHERE user_id = ?))`
     )
-    .get(id, id).s;
+    .get(id, id)).s;
 
-  const topPosts = db
+  const topPosts = await Promise.all((await db
     .prepare('SELECT id, title, content, type, community_id, views FROM posts WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 10')
-    .all(id)
-    .map((p) => ({
+    .all(id))
+    .map(async (p) => ({
       id: p.id,
       label: (p.title || (p.content || '').slice(0, 60) || (p.type === 'image' ? '(photo)' : '(post)')),
       community: !!p.community_id,
       views: p.views || 0,
-      likes: db.prepare("SELECT COUNT(*) c FROM reactions WHERE target_type = 'post' AND target_id = ?").get(p.id).c,
-      comments: db.prepare('SELECT COUNT(*) c FROM comments WHERE post_id = ?').get(p.id).c,
-    }));
+      likes: (await db.prepare("SELECT COUNT(*) c FROM reactions WHERE target_type = 'post' AND target_id = ?").get(p.id)).c,
+      comments: (await db.prepare('SELECT COUNT(*) c FROM comments WHERE post_id = ?').get(p.id)).c,
+    })));
 
-  const reels = db
+  const reels = await Promise.all((await db
     .prepare('SELECT id, caption, views FROM reels WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 10')
-    .all(id)
-    .map((r) => ({
+    .all(id))
+    .map(async (r) => ({
       id: r.id,
       label: (r.caption || '(reel)').slice(0, 60),
       views: r.views || 0,
-      likes: db.prepare("SELECT COUNT(*) c FROM reactions WHERE target_type = 'reel' AND target_id = ?").get(r.id).c,
-      comments: db.prepare('SELECT COUNT(*) c FROM reel_comments WHERE reel_id = ?').get(r.id).c,
-    }));
+      likes: (await db.prepare("SELECT COUNT(*) c FROM reactions WHERE target_type = 'reel' AND target_id = ?").get(r.id)).c,
+      comments: (await db.prepare('SELECT COUNT(*) c FROM reel_comments WHERE reel_id = ?').get(r.id)).c,
+    })));
 
   res.json({
     totals: {
@@ -234,23 +234,23 @@ router.get('/me/analytics', requireAuth, (req, res) => {
 });
 
 // View one profile, with counts and the friendship status from your point of view.
-router.get('/:id', requireAuth, (req, res) => {
+router.get('/:id', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const postsCount = db.prepare('SELECT COUNT(*) c FROM posts WHERE user_id = ?').get(id).c;
-  const friendsCount = db
+  const postsCount = (await db.prepare('SELECT COUNT(*) c FROM posts WHERE user_id = ?').get(id)).c;
+  const friendsCount = (await db
     .prepare(
       "SELECT COUNT(*) c FROM friendships WHERE status = 'accepted' AND (requester_id = ? OR addressee_id = ?)"
     )
-    .get(id, id).c;
+    .get(id, id)).c;
 
   let friendStatus = 'none';
   if (id === req.user.id) {
     friendStatus = 'self';
   } else {
-    const f = db
+    const f = await db
       .prepare(
         'SELECT * FROM friendships WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)'
       )
@@ -263,19 +263,19 @@ router.get('/:id', requireAuth, (req, res) => {
   }
 
   // Public trail of previous display names, newest first.
-  const nameHistory = db
+  const nameHistory = await db
     .prepare('SELECT old_name AS name, changed_at FROM name_history WHERE user_id = ? ORDER BY changed_at DESC, id DESC')
     .all(id);
   // Only the owner is told when they may next change their name.
-  const nextNameChange = id === req.user.id ? nextNameChangeAt(id, user.created_at) : null;
+  const nextNameChange = id === req.user.id ? await nextNameChangeAt(id, user.created_at) : null;
 
   res.json({ user: publicUser(user), postsCount, friendsCount, friendStatus, nameHistory, nextNameChange });
 });
 
 // A user's accepted friends.
-router.get('/:id/friends', requireAuth, (req, res) => {
+router.get('/:id/friends', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
-  const rows = db
+  const rows = await db
     .prepare(
       `SELECT u.* FROM friendships f
        JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END

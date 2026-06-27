@@ -14,6 +14,9 @@
 // Reward = tier TIME only (free Premium months via entitlements.extendTier).
 // It never touches karma, standing, reach, or voting weight. credible neutrality
 // holds: you can grow the network, but you cannot buy influence over the feed.
+//
+// Every helper that reads/writes the database is async; genCode, parseTs and
+// inviterBadge (pure) stay sync.
 
 const crypto = require('crypto');
 const db = require('./db');
@@ -33,32 +36,32 @@ function genCode() {
 
 // Ensure a user has a unique referral code (generated lazily, so accounts that
 // predate this feature get one on first access).
-function ensureCode(userId) {
-  const u = db.prepare('SELECT referral_code FROM users WHERE id = ?').get(userId);
+async function ensureCode(userId) {
+  const u = await db.prepare('SELECT referral_code FROM users WHERE id = ?').get(userId);
   if (u && u.referral_code) return u.referral_code;
   for (let i = 0; i < 12; i++) {
     const code = genCode();
-    if (!db.prepare('SELECT 1 FROM users WHERE referral_code = ?').get(code)) {
-      db.prepare('UPDATE users SET referral_code = ? WHERE id = ?').run(code, userId);
+    if (!(await db.prepare('SELECT 1 FROM users WHERE referral_code = ?').get(code))) {
+      await db.prepare('UPDATE users SET referral_code = ? WHERE id = ?').run(code, userId);
       return code;
     }
   }
   return null;
 }
 
-function userByCode(code) {
+async function userByCode(code) {
   if (!code) return null;
   return db.prepare('SELECT * FROM users WHERE referral_code = ?').get(String(code).trim());
 }
 
 // At signup: if the ref code is valid (and not the user's own), record
 // referred_by and open a pending referral.
-function attachReferral(inviteeId, code) {
-  const ref = userByCode(code);
+async function attachReferral(inviteeId, code) {
+  const ref = await userByCode(code);
   if (!ref || ref.id === inviteeId) return false;
-  db.prepare('UPDATE users SET referred_by = ? WHERE id = ? AND referred_by IS NULL').run(ref.id, inviteeId);
+  await db.prepare('UPDATE users SET referred_by = ? WHERE id = ? AND referred_by IS NULL').run(ref.id, inviteeId);
   try {
-    db.prepare("INSERT OR IGNORE INTO referrals (referrer_id, invitee_id, status) VALUES (?, ?, 'pending')").run(ref.id, inviteeId);
+    await db.prepare("INSERT OR IGNORE INTO referrals (referrer_id, invitee_id, status) VALUES (?, ?, 'pending')").run(ref.id, inviteeId);
   } catch (e) { /* unique invitee guard */ }
   return true;
 }
@@ -69,17 +72,17 @@ function parseTs(ts) {
 }
 
 // Is this invitee currently a real, retained human (per the rules above)?
-function inviteeQualifies(inviteeId, referrerId) {
-  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(inviteeId);
+async function inviteeQualifies(inviteeId, referrerId) {
+  const u = await db.prepare('SELECT * FROM users WHERE id = ?').get(inviteeId);
   if (!u) return false;
   const created = parseTs(u.created_at);
   if (!isFinite(created) || (Date.now() - created) < QUALIFY_AGE_DAYS * 86400000) return false;
   if ((u.standing == null ? 100 : u.standing) < QUARANTINE_AT) return false; // shadowbanned/quarantined do not count
-  const posts = db.prepare('SELECT COUNT(*) c FROM posts WHERE user_id = ?').get(inviteeId).c;
-  const comments = db.prepare('SELECT COUNT(*) c FROM comments WHERE user_id = ?').get(inviteeId).c;
+  const posts = (await db.prepare('SELECT COUNT(*) c FROM posts WHERE user_id = ?').get(inviteeId)).c;
+  const comments = (await db.prepare('SELECT COUNT(*) c FROM comments WHERE user_id = ?').get(inviteeId)).c;
   if ((posts + comments) < QUALIFY_MIN_CONTRIB) return false;
   // Distinct device from the referrer (blocks the obvious self-referral ring).
-  const shared = db.prepare(
+  const shared = await db.prepare(
     "SELECT 1 FROM devices d1 JOIN devices d2 ON d1.fingerprint = d2.fingerprint " +
     "WHERE d1.user_id = ? AND d2.user_id = ? AND d1.fingerprint NOT IN ('', 'none') LIMIT 1"
   ).get(inviteeId, referrerId);
@@ -89,32 +92,32 @@ function inviteeQualifies(inviteeId, referrerId) {
 
 // Grant any rewards the referrer is now owed (every REWARD_EVERY qualified =
 // one Premium month), idempotently via referral_rewards_granted.
-function payRewards(referrerId) {
-  const qcount = db.prepare("SELECT COUNT(*) c FROM referrals WHERE referrer_id = ? AND status = 'qualified'").get(referrerId).c;
-  const row = db.prepare('SELECT referral_rewards_granted FROM users WHERE id = ?').get(referrerId);
+async function payRewards(referrerId) {
+  const qcount = (await db.prepare("SELECT COUNT(*) c FROM referrals WHERE referrer_id = ? AND status = 'qualified'").get(referrerId)).c;
+  const row = await db.prepare('SELECT referral_rewards_granted FROM users WHERE id = ?').get(referrerId);
   const already = row ? (row.referral_rewards_granted | 0) : 0;
   const due = Math.floor(qcount / REWARD_EVERY);
   if (due > already) {
-    for (let i = 0; i < due - already; i++) extendTier(referrerId, REWARD_TIER, REWARD_DAYS, 'referral_reward');
-    db.prepare('UPDATE users SET referral_rewards_granted = ? WHERE id = ?').run(due, referrerId);
+    for (let i = 0; i < due - already; i++) await extendTier(referrerId, REWARD_TIER, REWARD_DAYS, 'referral_reward');
+    await db.prepare('UPDATE users SET referral_rewards_granted = ? WHERE id = ?').run(due, referrerId);
     logger.info({ referrerId, monthsGranted: due - already, totalQualified: qcount }, 'referral reward granted');
   }
   return due;
 }
 
 // Scan pending referrals, qualify the ones that now meet the bar, pay rewards.
-function processReferrals() {
-  const pending = db.prepare("SELECT * FROM referrals WHERE status = 'pending'").all();
+async function processReferrals() {
+  const pending = await db.prepare("SELECT * FROM referrals WHERE status = 'pending'").all();
   const affected = new Set();
   let qualified = 0;
   for (const r of pending) {
-    if (inviteeQualifies(r.invitee_id, r.referrer_id)) {
-      db.prepare("UPDATE referrals SET status = 'qualified', qualified_at = datetime('now') WHERE id = ?").run(r.id);
+    if (await inviteeQualifies(r.invitee_id, r.referrer_id)) {
+      await db.prepare("UPDATE referrals SET status = 'qualified', qualified_at = datetime('now') WHERE id = ?").run(r.id);
       affected.add(r.referrer_id);
       qualified++;
     }
   }
-  for (const refId of affected) payRewards(refId);
+  for (const refId of affected) await payRewards(refId);
   if (qualified) logger.info({ qualified, referrers: affected.size }, 'referrals qualified');
   return { qualified, referrers: affected.size };
 }
@@ -126,11 +129,11 @@ function inviterBadge(qualifiedCount) {
   return null;
 }
 
-function statsFor(userId) {
-  const code = ensureCode(userId);
-  const qualified = db.prepare("SELECT COUNT(*) c FROM referrals WHERE referrer_id = ? AND status = 'qualified'").get(userId).c;
-  const pending = db.prepare("SELECT COUNT(*) c FROM referrals WHERE referrer_id = ? AND status = 'pending'").get(userId).c;
-  const row = db.prepare('SELECT referral_rewards_granted FROM users WHERE id = ?').get(userId);
+async function statsFor(userId) {
+  const code = await ensureCode(userId);
+  const qualified = (await db.prepare("SELECT COUNT(*) c FROM referrals WHERE referrer_id = ? AND status = 'qualified'").get(userId)).c;
+  const pending = (await db.prepare("SELECT COUNT(*) c FROM referrals WHERE referrer_id = ? AND status = 'pending'").get(userId)).c;
+  const row = await db.prepare('SELECT referral_rewards_granted FROM users WHERE id = ?').get(userId);
   return {
     code,
     qualified,
@@ -143,7 +146,7 @@ function statsFor(userId) {
   };
 }
 
-function leaderboard(limit) {
+async function leaderboard(limit) {
   return db.prepare(
     "SELECT u.id, u.name, u.avatar, u.supporter_tier, u.supporter_expires, COUNT(r.id) qualified " +
     "FROM referrals r JOIN users u ON u.id = r.referrer_id " +
@@ -156,9 +159,9 @@ function startReferralJobs() {
   if (process.env.REFERRAL_JOB === '0') { logger.info('referral background job disabled'); return; }
   if (timer) return;
   const everyMs = Math.max(60000, Number(process.env.REFERRAL_JOB_MS || 60 * 60 * 1000)); // hourly
-  timer = setInterval(() => { try { processReferrals(); } catch (e) { logger.error({ err: e }, 'referral job failed'); } }, everyMs);
+  timer = setInterval(() => { processReferrals().catch((e) => logger.error({ err: e }, 'referral job failed')); }, everyMs);
   if (timer.unref) timer.unref();
-  const t = setTimeout(() => { try { processReferrals(); } catch (e) {} }, 90000); // first pass ~90s after boot
+  const t = setTimeout(() => { processReferrals().catch(() => {}); }, 90000); // first pass ~90s after boot
   if (t.unref) t.unref();
   logger.info({ everyMs }, 'referral background job started');
 }
