@@ -59,8 +59,26 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(attachUser);
 
-// Serve uploaded images and the static frontend. Uploads live under DATA_DIR
-// so they can sit on a persistent volume in production.
+// Serve uploaded media. The database stores stable "/uploads/<key>" strings in
+// both modes; how that key turns into bytes depends on the storage backend:
+//
+//   s3 mode    redirect the browser straight to the CDN edge in front of the
+//              egress-free bucket, so the origin never pays bandwidth for the
+//              bytes (the 302 is tiny and itself cacheable). The object was
+//              written with a one-year immutable Cache-Control, so after the
+//              first hit the CDN serves it without touching the bucket either.
+//   local mode skip the redirect and serve the file from the persistent disk,
+//              exactly as before (express.static handles Range for video).
+const mediaStore = require('./media/storage');
+app.use('/uploads', (req, res, next) => {
+  if (!mediaStore.isRemote()) return next();
+  const key = decodeURIComponent(req.path.replace(/^\/+/, ''));
+  // keys are flat content-addressed names; reject anything else rather than
+  // forwarding a crafted path to the CDN.
+  if (!/^[A-Za-z0-9._-]+$/.test(key)) return next();
+  res.set('Cache-Control', 'public, max-age=3600');
+  return res.redirect(302, mediaStore.publicUrl(key));
+});
 app.use('/uploads', express.static(path.join(process.env.DATA_DIR || __dirname, 'uploads')));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -175,4 +193,7 @@ server.listen(PORT, () => {
   try { require('./antisybil').startSybilJobs(); } catch (e) { logger.error({ err: e }, 'failed to start sybil jobs'); }
   // Referral: qualify pending referrals + pay rewards on a schedule.
   try { require('./referrals').startReferralJobs(); } catch (e) { logger.error({ err: e }, 'failed to start referral jobs'); }
+  // Media: hard-delete expired stories (and their files) on a schedule, so the
+  // 24-hour promise is real and storage (the only real cost) stops growing.
+  try { require('./media/cleanup').startStoryCleanupJob(); } catch (e) { logger.error({ err: e }, 'failed to start story cleanup job'); }
 });

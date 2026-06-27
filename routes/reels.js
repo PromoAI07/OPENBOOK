@@ -10,6 +10,8 @@ const { videoUpload } = require('../upload');
 const { notify } = require('../notify');
 const { trustRateLimit } = require('../antisybil');
 
+const cleanup = require('../media/cleanup');
+
 const router = express.Router();
 
 function likeInfo(reelId, userId) {
@@ -129,6 +131,7 @@ router.delete('/:id', requireAuth, (req, res) => {
   if (reel.user_id !== req.user.id) return res.status(403).json({ error: 'You can only delete your own reels' });
   db.prepare('DELETE FROM reels WHERE id = ?').run(id);
   db.prepare("DELETE FROM reactions WHERE target_type = 'reel' AND target_id = ?").run(id);
+  if (reel.video) cleanup.deleteMedia(reel.video, reel.user_id);
   res.json({ ok: true });
 });
 

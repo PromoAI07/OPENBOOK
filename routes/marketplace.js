@@ -7,6 +7,8 @@ const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
 
+const cleanup = require('../media/cleanup');
+
 const router = express.Router();
 
 function decorate(listing, viewerId) {
@@ -99,6 +101,7 @@ router.delete('/:id', requireAuth, (req, res) => {
   if (!l) return res.status(404).json({ error: 'Listing not found' });
   if (l.seller_id !== req.user.id) return res.status(403).json({ error: 'This is not your listing' });
   db.prepare('DELETE FROM listings WHERE id = ?').run(l.id);
+  if (l.image) cleanup.deleteMedia(l.image, l.seller_id);
   res.json({ ok: true });
 });
 

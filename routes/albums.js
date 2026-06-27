@@ -7,6 +7,8 @@ const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
 
+const cleanup = require('../media/cleanup');
+
 const router = express.Router();
 
 function canSee(viewerId, ownerId) {
@@ -94,7 +96,9 @@ router.delete('/:id/photos/:photoId', requireAuth, (req, res) => {
   const a = db.prepare('SELECT * FROM albums WHERE id = ?').get(Number(req.params.id));
   if (!a) return res.status(404).json({ error: 'Album not found' });
   if (a.user_id !== req.user.id) return res.status(403).json({ error: 'This is not your album' });
+  const photo = db.prepare('SELECT image FROM album_photos WHERE id = ? AND album_id = ?').get(Number(req.params.photoId), a.id);
   db.prepare('DELETE FROM album_photos WHERE id = ? AND album_id = ?').run(Number(req.params.photoId), a.id);
+  if (photo && photo.image) cleanup.deleteMedia(photo.image, a.user_id);
   res.json({ ok: true });
 });
 
@@ -103,7 +107,9 @@ router.delete('/:id', requireAuth, (req, res) => {
   const a = db.prepare('SELECT * FROM albums WHERE id = ?').get(Number(req.params.id));
   if (!a) return res.status(404).json({ error: 'Album not found' });
   if (a.user_id !== req.user.id) return res.status(403).json({ error: 'This is not your album' });
+  const photos = db.prepare('SELECT image FROM album_photos WHERE album_id = ?').all(a.id);
   db.prepare('DELETE FROM albums WHERE id = ?').run(a.id);
+  cleanup.deleteMany(photos.map((p) => p.image), a.user_id);
   res.json({ ok: true });
 });
 

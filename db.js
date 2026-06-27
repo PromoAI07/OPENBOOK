@@ -561,6 +561,28 @@ db.exec(`
 // Keep the analytics table from growing without bound.
 db.exec("DELETE FROM analytics_events WHERE created_at < datetime('now', '-90 days');");
 
+// --- Media lifecycle: one row per uploaded object reference (see media/cleanup.js) ---
+// Every successful upload records (user_id, storage key, byte size) here. This is
+// the backbone of three promises at once:
+//   1. Real deletion. When a post/photo/reel is deleted we remove its row; the
+//      underlying storage object is deleted only when the LAST row for that key
+//      is gone (so content-addressed dedupe across users is safe).
+//   2. Storage quota. A user's footprint is SUM(bytes) over their rows, which the
+//      upload pipeline checks against their tier cap.
+//   3. Account wipe. Deleting an account deletes every object the user owns.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_media (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    key        TEXT    NOT NULL,
+    bytes      INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_user_media_user ON user_media(user_id);
+  CREATE INDEX IF NOT EXISTS idx_user_media_key  ON user_media(key);
+`);
+
 // Platform admins are designated by the ADMIN_EMAILS env var (comma separated).
 // The sync is two-way: when the list is set, clear all admin flags first and then
 // re-grant, so removing an email from the list actually demotes that user. (When

@@ -29,22 +29,38 @@ const TIERS = {
   1: {
     tier: 1, name: 'Supporter', price: 1, badge: 'bronze', verified: true, adFree: false,
     customization: 'accent',
-    perks: ['Blue verified tick', 'Bronze Supporter badge', 'A profile accent color', 'Your name in the supporters credits', 'Early access to new features'],
+    perks: ['Blue verified tick', 'Bronze Supporter badge', '1 GB of media storage', 'A profile accent color', 'Your name in the supporters credits', 'Early access to new features'],
   },
   2: {
     tier: 2, name: 'Plus', price: 3, badge: 'silver', verified: true, adFree: true,
     customization: 'themes',
-    perks: ['Everything in Supporter', 'Silver badge', 'Ad-free, forever (if ads ever launch)', 'Bigger uploads (250 MB per file)', 'Profile themes'],
+    perks: ['Everything in Supporter', 'Silver badge', '3 GB of media storage', 'Ad-free, forever (if ads ever launch)', 'Bigger uploads (250 MB per file)', 'Profile themes'],
   },
   3: {
     tier: 3, name: 'Premium', price: 10, badge: 'gold', verified: true, adFree: true,
     customization: 'full',
-    perks: ['Everything in Plus', 'Gold badge', 'Full profile customization', 'Largest uploads (1 GB per file)', 'Pro analytics', 'Propose features first'],
+    perks: ['Everything in Plus', 'Gold badge', '10 GB of media storage', 'Full profile customization', 'Largest uploads (1 GB per file)', 'Pro analytics', 'Propose features first'],
   },
 };
 
 function tierConfig(tier) {
   return TIERS[Math.max(0, Math.min(3, tier | 0))] || TIERS[0];
+}
+
+// Total stored-media cap per effective tier, in GB, indexed 0..3. This is a pure
+// CAPACITY perk ("pay for extra storage"), never influence. The upload pipeline
+// (upload.js) checks a user's SUM(bytes) against this before accepting a file.
+// Overridable via env so the floor can be tuned without a deploy.
+const TIER_STORAGE_GB = [
+  Number(process.env.STORAGE_GB_FREE || 0.25),    // Free: 250 MB
+  Number(process.env.STORAGE_GB_SUPPORTER || 1),  // Supporter: 1 GB
+  Number(process.env.STORAGE_GB_PLUS || 3),       // Plus: 3 GB
+  Number(process.env.STORAGE_GB_PREMIUM || 10),   // Premium: 10 GB
+];
+function storageLimitBytes(user) {
+  const t = effectiveTier(user || {});
+  const gb = TIER_STORAGE_GB[Math.max(0, Math.min(3, t))] || TIER_STORAGE_GB[0];
+  return Math.round(gb * 1024 * 1024 * 1024);
 }
 
 function parseTs(ts) {
@@ -164,4 +180,5 @@ function effectiveSnapshot(userId) {
 module.exports = {
   TIERS, tierConfig, effectiveTier, publicTierFields, entitlementsFor,
   tierList, grantTier, revokeTier, extendTier,
+  TIER_STORAGE_GB, storageLimitBytes,
 };

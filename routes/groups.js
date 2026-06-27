@@ -10,6 +10,8 @@ const { upload } = require('../upload');
 const { decoratePost, decoratePosts } = require('../postview');
 const { trustRateLimit } = require('../antisybil');
 
+const cleanup = require('../media/cleanup');
+
 const router = express.Router();
 
 function isMember(userId, groupId) {
@@ -157,8 +159,11 @@ router.delete('/:id', requireAuth, (req, res) => {
   if (roleOf(req.user.id, id) !== 'admin') {
     return res.status(403).json({ error: 'Only an admin can delete this group' });
   }
+  const imgs = db.prepare("SELECT image, user_id FROM posts WHERE group_id = ? AND image <> ''").all(id);
   db.prepare('DELETE FROM posts WHERE group_id = ?').run(id);
   db.prepare('DELETE FROM groups WHERE id = ?').run(id);
+  for (const m of imgs) cleanup.deleteMedia(m.image, m.user_id);
+  if (g.cover) cleanup.deleteMedia(g.cover, g.creator_id);
   res.json({ ok: true });
 });
 

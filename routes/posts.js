@@ -14,6 +14,8 @@ const { wilson, controversy, rankPosts } = require('../ranking');
 const { isAdmin, isCommunityMod } = require('../moderation');
 const { trustRateLimit } = require('../antisybil');
 
+const cleanup = require('../media/cleanup');
+
 const router = express.Router();
 
 // A removed post (and its comments/history) is gone for normal users; the
@@ -228,6 +230,8 @@ router.delete('/:id', requireAuth, (req, res) => {
     return res.status(403).json({ error: 'You can only delete your own posts' });
   }
   db.prepare('DELETE FROM posts WHERE id = ?').run(post.id);
+  // The bytes go too, not just the row: this is the "you can truly delete" promise.
+  if (post.image) cleanup.deleteMedia(post.image, post.user_id);
   // Close any open reports for this now-deleted post so they do not orphan.
   db.prepare("UPDATE reports SET status = 'resolved' WHERE target_type = 'post' AND target_id = ? AND status = 'open'").run(post.id);
   res.json({ ok: true });

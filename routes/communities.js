@@ -12,6 +12,8 @@ const { decoratePost, decoratePosts } = require('../postview');
 const { rankPosts, SORTS } = require('../ranking');
 const { trustRateLimit } = require('../antisybil');
 
+const cleanup = require('../media/cleanup');
+
 const router = express.Router();
 
 function isMember(userId, communityId) {
@@ -200,8 +202,11 @@ router.delete('/:id', requireAuth, (req, res) => {
   if (roleOf(req.user.id, id) !== 'mod' && c.creator_id !== req.user.id) {
     return res.status(403).json({ error: 'Only a mod can delete this community' });
   }
+  const imgs = db.prepare("SELECT image, user_id FROM posts WHERE community_id = ? AND image <> ''").all(id);
   db.prepare('DELETE FROM posts WHERE community_id = ?').run(id);
   db.prepare('DELETE FROM communities WHERE id = ?').run(id);
+  for (const m of imgs) cleanup.deleteMedia(m.image, m.user_id);
+  if (c.icon) cleanup.deleteMedia(c.icon, c.creator_id);
   res.json({ ok: true });
 });
 

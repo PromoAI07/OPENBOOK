@@ -5,7 +5,10 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
-const { entitlementsFor } = require('../entitlements');
+const { entitlementsFor, storageLimitBytes } = require('../entitlements');
+
+const bcrypt = require('bcryptjs');
+const cleanup = require('../media/cleanup');
 
 const router = express.Router();
 
@@ -81,7 +84,10 @@ router.put('/me', requireAuth, (req, res) => {
 router.post('/me/avatar', requireAuth, upload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No image was uploaded' });
   const url = '/uploads/' + req.file.filename;
+  const prev = db.prepare('SELECT avatar FROM users WHERE id = ?').get(req.user.id);
   db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(url, req.user.id);
+  // The replaced avatar is no longer referenced anywhere; delete its bytes.
+  if (prev && prev.avatar && prev.avatar !== url) cleanup.deleteMedia(prev.avatar, req.user.id);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: publicUser(user) });
 });
@@ -90,9 +96,32 @@ router.post('/me/avatar', requireAuth, upload.single('image'), (req, res) => {
 router.post('/me/cover', requireAuth, upload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No image was uploaded' });
   const url = '/uploads/' + req.file.filename;
+  const prev = db.prepare('SELECT cover FROM users WHERE id = ?').get(req.user.id);
   db.prepare('UPDATE users SET cover = ? WHERE id = ?').run(url, req.user.id);
+  if (prev && prev.cover && prev.cover !== url) cleanup.deleteMedia(prev.cover, req.user.id);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: publicUser(user) });
+});
+
+// Delete your account and everything in it. This is the "100% control" promise in
+// its strongest form: it wipes your uploaded media from storage (and purges the
+// CDN), then deletes your user row, which cascades your posts, comments, messages,
+// friendships, votes, sessions, and the rest. Irreversible, so the current
+// password is required to confirm. This route is exempt from the email gate (it
+// lives under /users/me) so even an unverified account can be removed.
+router.delete('/me', requireAuth, async (req, res, next) => {
+  try {
+    const password = String((req.body && req.body.password) || '');
+    if (!password) return res.status(400).json({ error: 'Enter your password to confirm.' });
+    const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+    if (!row || !bcrypt.compareSync(password, row.password_hash)) {
+      return res.status(403).json({ error: 'That password is not correct.' });
+    }
+    await cleanup.wipeUserMedia(req.user.id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(req.user.id); // cascades the rest
+    res.clearCookie('tb_session');
+    res.json({ ok: true });
+  } catch (e) { next(e); }
 });
 
 // Your own transparency dashboard: the two reputation scores (karma vs standing)
@@ -121,6 +150,7 @@ router.get('/me/stats', requireAuth, (req, res) => {
       trustLevel: u.trust_level || 0,
     },
     stats: { posts, comments, communities, friends, reactionsReceived },
+    storage: { usedBytes: cleanup.usageBytes(id), capBytes: storageLimitBytes(u) },
     supporter: entitlementsFor(u),
     created_at: u.created_at,
   });

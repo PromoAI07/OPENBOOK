@@ -749,6 +749,7 @@
         statCard(s.friends, 'Friends', '') +
         statCard(s.reactionsReceived, 'Reactions received', '') +
       '</div>' +
+      storageSection(d.storage, d.supporter) +
       '<div class="card"><div class="section-title">How OpenBook scoring works</div>' +
       '<div class="shint" style="font-size:13px;line-height:1.6">' +
       'OpenBook keeps two separate scores on purpose. <b>Karma</b> moves with community votes and only changes where your content ranks. ' +
@@ -759,6 +760,37 @@
 
     view.querySelectorAll('[data-postrow]').forEach((tr) => (tr.onclick = () => go('post', Number(tr.getAttribute('data-postrow')))));
     renderRightRail();
+  }
+
+  // Human-readable size from megabytes (used by the storage meter).
+  function fmtSize(mb) {
+    if (mb >= 1024) { const g = mb / 1024; return (g >= 10 ? Math.round(g) : g.toFixed(1)) + ' GB'; }
+    return (mb >= 10 ? Math.round(mb) : mb.toFixed(1)) + ' MB';
+  }
+
+  // The dashboard storage meter: how much of their tier's space the user's media
+  // takes on our servers, with a colored bar that warns as it fills.
+  function storageSection(storage, supporter) {
+    const st = storage || { usedBytes: 0, capBytes: 0 };
+    const usedMB = (st.usedBytes || 0) / (1024 * 1024);
+    const capMB = (st.capBytes || 0) / (1024 * 1024);
+    const pct = capMB > 0 ? Math.min(100, Math.round((usedMB / capMB) * 100)) : 0;
+    const barColor = pct >= 90 ? '#e5484d' : (pct >= 70 ? '#f5a623' : 'var(--accent, #4f8cff)');
+    const atMax = supporter && supporter.tier >= 3;
+    return (
+      '<div class="section-title">Storage</div>' +
+      '<div class="card">' +
+        '<div class="row" style="justify-content:space-between;align-items:baseline;margin-bottom:8px">' +
+          '<div><b>' + fmtSize(usedMB) + '</b> <span class="shint" style="font-size:13px">of ' + fmtSize(capMB) + ' used</span></div>' +
+          '<div class="shint" style="font-size:13px">' + pct + '%</div>' +
+        '</div>' +
+        '<div style="height:10px;border-radius:6px;background:var(--line,#2a2a2a);overflow:hidden">' +
+          '<div style="height:100%;width:' + pct + '%;background:' + barColor + ';border-radius:6px;transition:width .4s"></div>' +
+        '</div>' +
+        '<div class="shint" style="font-size:12px;margin-top:8px">The space your photos and videos take on OpenBook servers. Delete old posts, reels, or photos to free up room' +
+          (atMax ? '.' : ', or upgrade your supporter tier for more space.') + '</div>' +
+      '</div>'
+    );
   }
 
   function composerHtml() {
@@ -1380,6 +1412,10 @@
       '<div class="shint" style="font-size:12px">Name changes are limited (first after 30 days, then every 3 months, then yearly) and your old names stay visible on your profile.</div></div>' +
       '<div class="field"><label>Bio</label><textarea class="input" id="epBio" rows="3" placeholder="Tell people about yourself">' + esc(ME.bio || '') + '</textarea></div>' +
       '<button class="btn btn-primary btn-block" id="epSave">Save changes</button>' +
+      '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +
+      '<div class="shint" style="font-size:12px;margin-bottom:8px">Danger zone</div>' +
+      '<button class="btn btn-soft btn-block" id="epDelete" style="color:#e5484d">Delete my account</button>' +
+      '</div>' +
       '</div>'
     );
     m.q('#epSave').onclick = async () => {
@@ -1394,6 +1430,24 @@
         renderLeftRail();
         renderProfile(ME.id);
       } catch (e) { toast(e.message); }
+    };
+    // Danger zone: delete account. Swaps the modal to a password confirm step,
+    // since this wipes the account and all of its media for good.
+    m.q('#epDelete').onclick = () => {
+      const mc = m.q('.mc');
+      mc.innerHTML =
+        '<h3 style="margin:0 0 8px">Delete your account?</h3>' +
+        '<p class="shint" style="font-size:13px;line-height:1.5">This permanently removes your profile, posts, photos, videos, messages, and every file you uploaded. It cannot be undone. Enter your password to confirm.</p>' +
+        '<div class="field"><label>Password</label><input class="input" type="password" id="epDelPw" placeholder="Your password"></div>' +
+        '<button class="btn btn-block" id="epDelCancel" style="margin-bottom:8px">Cancel</button>' +
+        '<button class="btn btn-primary btn-block" id="epDelConfirm" style="background:#e5484d;border-color:#e5484d">Permanently delete</button>';
+      m.q('#epDelCancel').onclick = () => m.close();
+      m.q('#epDelConfirm').onclick = async () => {
+        const pw = m.q('#epDelPw').value;
+        if (!pw) { toast('Enter your password to confirm'); return; }
+        try { await API.deleteAccount(pw); window.location.href = '/'; }
+        catch (e) { toast(e.message); }
+      };
     };
   }
 
