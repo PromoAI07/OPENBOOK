@@ -621,6 +621,35 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_poll_votes_post ON poll_votes(post_id);
 `);
 
+// --- Suggestion board (community-voted feature requests) ---
+// Users suggest a fix/update/change; everyone up/down votes; the board is sorted
+// by score so the most-wanted rise to the top. Admins mark status (planned,
+// shipped, declined) to surface what is being built each cycle.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS suggestions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    title      TEXT    NOT NULL,
+    body       TEXT    NOT NULL DEFAULT '',
+    category   TEXT    NOT NULL DEFAULT 'change',
+    status     TEXT    NOT NULL DEFAULT 'open',
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status);
+
+  CREATE TABLE IF NOT EXISTS suggestion_votes (
+    suggestion_id INTEGER NOT NULL,
+    user_id       INTEGER NOT NULL,
+    value         INTEGER NOT NULL,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (suggestion_id, user_id),
+    FOREIGN KEY (suggestion_id) REFERENCES suggestions(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id)       REFERENCES users(id)        ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_suggestion_votes_sug ON suggestion_votes(suggestion_id);
+`);
+
 // Platform admins are designated by the ADMIN_EMAILS env var (comma separated).
 // The sync is two-way: when the list is set, clear all admin flags first and then
 // re-grant, so removing an email from the list actually demotes that user. (When

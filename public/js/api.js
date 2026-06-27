@@ -49,6 +49,12 @@ const API = {
   // Referrals
   myReferral() { return this.get('/api/referrals/me'); },
   referralLeaderboard() { return this.get('/api/referrals/leaderboard'); },
+  // Suggestion board (named listSuggestions to avoid clashing with friends' suggestions())
+  listSuggestions(status) { return this.get('/api/suggestions' + (status ? '?status=' + encodeURIComponent(status) : '')); },
+  createSuggestion(title, body, category) { return this.post('/api/suggestions', { title, body, category }); },
+  voteSuggestion(id, value) { return this.post('/api/suggestions/' + id + '/vote', { value }); },
+  suggestionStatus(id, status) { return this.post('/api/suggestions/' + id + '/status', { status }); },
+  deleteSuggestion(id) { return this.del('/api/suggestions/' + id); },
 
   // Users
   searchUsers(q) { return this.get('/api/users?q=' + encodeURIComponent(q || '')); },

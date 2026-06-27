@@ -327,6 +327,7 @@
     else if (name === 'reels') renderReels();
     else if (name === 'support') renderSupport();
     else if (name === 'invite') renderInvite();
+    else if (name === 'suggestions') renderSuggestions();
     try { AN.page(name); } catch (e) {}
     window.scrollTo(0, 0);
   }
@@ -343,6 +344,7 @@
       '<div class="side-link" data-go="friends"><span class="ic">&#128101;</span><span>Friends</span><span class="badge side-badge hidden" id="friendsBadge">0</span></div>' +
       '<div class="side-link" data-go="groups"><span class="ic">&#127760;</span><span>Groups</span></div>' +
       '<div class="side-link" data-go="reels"><span class="ic">&#127909;</span><span>Reels</span></div>' +
+      '<div class="side-link" data-go="suggestions"><span class="ic">&#128161;</span><span>Suggestions</span></div>' +
       '<div class="side-link" data-go="invite"><span class="ic">&#127881;</span><span>Invite friends</span></div>' +
       '<div class="side-link" data-go="support"><span class="ic">&#10084;&#65039;</span><span>Support OpenBook</span></div>' +
       '<div class="side-link" id="themeToggle"><span class="ic">' + (currentTheme() === 'dark' ? '&#9728;&#65039;' : '&#127769;') + '</span><span>' + (currentTheme() === 'dark' ? 'Light mode' : 'Dark mode') + '</span></div>' +
@@ -1582,6 +1584,103 @@
         catch (e) { toast(e.message); }
       };
     };
+  }
+
+  /* ============================ suggestions ============================ */
+
+  async function renderSuggestions() {
+    view.innerHTML =
+      '<div class="card"><div class="pname">&#128161; Suggestions</div>' +
+      '<div class="shint" style="font-size:13px;line-height:1.5">Suggest a fix, update, or change to OpenBook. Everyone votes, and the most upvoted ideas rise to the top. The most-wanted each week get built first. This is the community deciding what we build, in the open.</div></div>' +
+      '<div class="card">' +
+        '<div class="field"><input class="input" id="sugTitle" maxlength="140" placeholder="Your idea (a fix, update, or change)"></div>' +
+        '<div class="field"><textarea class="input" id="sugBody" rows="2" maxlength="2000" placeholder="Add details (optional)"></textarea></div>' +
+        '<div class="row" style="gap:8px;align-items:center">' +
+          '<select class="input" id="sugCat" style="max-width:150px">' +
+            '<option value="change">&#128260; Change</option><option value="fix">&#128295; Fix</option><option value="update">&#10024; Update</option>' +
+          '</select><span class="spacer"></span>' +
+          '<button class="btn btn-primary" id="sugSubmit">Submit suggestion</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="suggestList"><div class="card"><div class="empty">Loading suggestions...</div></div></div>';
+
+    const submit = document.getElementById('sugSubmit');
+    submit.onclick = async () => {
+      const title = document.getElementById('sugTitle').value.trim();
+      const body = document.getElementById('sugBody').value.trim();
+      const category = document.getElementById('sugCat').value;
+      if (!title) { toast('Give your suggestion a short title'); return; }
+      submit.disabled = true; submit.textContent = 'Submitting...';
+      try {
+        await API.createSuggestion(title, body, category);
+        document.getElementById('sugTitle').value = '';
+        document.getElementById('sugBody').value = '';
+        await loadSuggestions();
+        toast('Thanks! Your suggestion is live.');
+      } catch (e) { toast(e.message); }
+      submit.disabled = false; submit.textContent = 'Submit suggestion';
+    };
+    await loadSuggestions();
+  }
+
+  async function loadSuggestions() {
+    const list = document.getElementById('suggestList');
+    if (!list) return;
+    try {
+      const r = await API.listSuggestions();
+      if (!r.suggestions.length) {
+        list.innerHTML = '<div class="card"><div class="empty">No suggestions yet. Be the first to suggest something.</div></div>';
+        return;
+      }
+      list.innerHTML = '';
+      r.suggestions.forEach((s) => list.appendChild(suggestionItem(s, r.isAdmin)));
+    } catch (e) {
+      list.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>';
+    }
+  }
+
+  function suggestionItem(s, isAdmin) {
+    const node = el('<div class="card sug" data-sug="' + s.id + '"></div>');
+    const statusBadge = s.status !== 'open' ? '<span class="sug-status sug-status-' + esc(s.status) + '">' + esc(s.status) + '</span>' : '';
+    node.innerHTML =
+      '<div class="sug-row">' +
+        '<div class="votebox"><button class="vote up" title="Upvote">&#9650;</button><span class="vscore">' + s.score + '</span><button class="vote down" title="Downvote">&#9660;</button></div>' +
+        '<div class="sug-main">' +
+          '<div class="sug-title">' + esc(s.title) + '</div>' +
+          (s.body ? '<div class="sug-body">' + esc(s.body) + '</div>' : '') +
+          '<div class="sug-meta"><span class="sug-cat">' + esc(s.category) + '</span>' + statusBadge +
+            '<span>by ' + esc(s.author.name) + verifTick(s.author) + '</span></div>' +
+          '<div class="sug-admin"></div>' +
+        '</div>' +
+      '</div>';
+    const up = node.querySelector('.vote.up');
+    const down = node.querySelector('.vote.down');
+    const sc = node.querySelector('.vscore');
+    function paint() {
+      sc.textContent = s.score;
+      up.classList.toggle('on', s.myVote === 1);
+      down.classList.toggle('on', s.myVote === -1);
+      sc.classList.toggle('pos', s.score > 0);
+      sc.classList.toggle('neg', s.score < 0);
+    }
+    paint();
+    async function cast(v) { try { const r = await API.voteSuggestion(s.id, v); s.score = r.suggestion.score; s.myVote = r.suggestion.myVote; paint(); } catch (e) { toast(e.message); } }
+    up.onclick = () => cast(s.myVote === 1 ? 0 : 1);
+    down.onclick = () => cast(s.myVote === -1 ? 0 : -1);
+    const adminEl = node.querySelector('.sug-admin');
+    if (isAdmin) {
+      ['planned', 'shipped', 'declined', 'open'].forEach((st) => {
+        const b = el('<button class="btn btn-sm">' + st + '</button>');
+        b.onclick = async () => { try { await API.suggestionStatus(s.id, st); await loadSuggestions(); } catch (e) { toast(e.message); } };
+        adminEl.appendChild(b);
+      });
+    }
+    if (s.mine || isAdmin) {
+      const d = el('<button class="btn btn-sm btn-danger">Delete</button>');
+      d.onclick = async () => { if (!window.confirm('Delete this suggestion?')) return; try { await API.deleteSuggestion(s.id); node.remove(); } catch (e) { toast(e.message); } };
+      adminEl.appendChild(d);
+    }
+    return node;
   }
 
   /* ============================ messages ============================ */
