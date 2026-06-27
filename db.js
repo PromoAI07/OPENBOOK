@@ -731,6 +731,50 @@ db.init = async function init() {
     CREATE INDEX IF NOT EXISTS idx_suggestion_votes_sug ON suggestion_votes(suggestion_id);
   `);
 
+  // --- Data control: export jobs (the "download all my data" pipeline) ---
+  // A full ZIP export of a user's content + media is built in the background
+  // (media can be large), then handed back via a one-time, expiring token. The
+  // lightweight JSON export needs no row here (it streams synchronously).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS export_jobs (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      format     TEXT    NOT NULL DEFAULT 'zip',
+      status     TEXT    NOT NULL DEFAULT 'pending',
+      token      TEXT    NOT NULL,
+      file       TEXT    NOT NULL DEFAULT '',
+      bytes      INTEGER NOT NULL DEFAULT 0,
+      error      TEXT    NOT NULL DEFAULT '',
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      ready_at   TEXT,
+      expires_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_export_jobs_user ON export_jobs(user_id);
+  `);
+
+  // --- Roadmap upgrade: the suggestion board becomes a public, transparent
+  // roadmap. Suggestions gain an optional linked GitHub issue, a status note,
+  // and a timestamp; every status change is written to a public append-only
+  // ledger (roadmap_events) so "nothing is hidden" holds for governance too.
+  await addColumn('suggestions', 'github_issue INTEGER', 'github_issue');
+  await addColumn('suggestions', "status_note TEXT NOT NULL DEFAULT ''", 'status_note');
+  await addColumn('suggestions', 'status_at TEXT', 'status_at');
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS roadmap_events (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      suggestion_id INTEGER NOT NULL,
+      actor_id      INTEGER,
+      from_status   TEXT NOT NULL DEFAULT '',
+      to_status     TEXT NOT NULL,
+      note          TEXT NOT NULL DEFAULT '',
+      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (suggestion_id) REFERENCES suggestions(id) ON DELETE CASCADE,
+      FOREIGN KEY (actor_id)      REFERENCES users(id)        ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_roadmap_events_sug ON roadmap_events(suggestion_id);
+  `);
+
   // Platform admins are designated by the ADMIN_EMAILS env var (comma separated).
   // The sync is two-way: when the list is set, clear all admin flags first and then
   // re-grant, so removing an email from the list actually demotes that user. (When

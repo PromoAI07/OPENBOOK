@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Roadmap - OpenBook</title>
+  <meta name="description" content="The OpenBook roadmap is decided by the community, in the open. See what is being considered, planned, built, and shipped, ranked by public vote." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%235b51e8'/><text x='16' y='23' font-size='20' fill='white' text-anchor='middle' font-family='Arial' font-weight='bold'>O</text></svg>" />
+  <script>try{var t=localStorage.getItem('ob_theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .rm-wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px 80px; }
+    .rm-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
+    .rm-brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; color: var(--brand); text-decoration: none; }
+    .rm-brand .mk { width: 34px; height: 34px; border-radius: 9px; background: var(--brand); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; }
+    .rm-back { color: var(--text-soft); text-decoration: none; font-size: 14px; white-space: nowrap; }
+    .rm-back:hover { color: var(--brand); }
+    .rm-wrap h1 { font-size: 32px; line-height: 1.15; margin: 0 0 8px; letter-spacing: -0.5px; }
+    .rm-lead { font-size: 17px; line-height: 1.5; color: var(--text-soft); margin: 0 0 8px; max-width: 720px; }
+    .rm-cta { margin: 14px 0 26px; }
+    .rm-cta a { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 11px; background: var(--brand); color: #fff; text-decoration: none; font-weight: 600; font-size: 14.5px; }
+    .rm-board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; align-items: start; }
+    .rm-col { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; min-height: 80px; }
+    .rm-col h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-soft); margin: 2px 4px 12px; display: flex; align-items: center; justify-content: space-between; }
+    .rm-col h2 .c { background: var(--brand-soft); color: var(--brand); border-radius: 20px; padding: 1px 8px; font-size: 11px; }
+    .rm-card { border: 1px solid var(--line); border-radius: 11px; padding: 11px 12px; margin-bottom: 10px; background: var(--bg); }
+    .rm-card .t { font-weight: 700; font-size: 14.5px; line-height: 1.3; margin: 0 0 6px; }
+    .rm-card .meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-soft); }
+    .rm-score { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; color: var(--text); }
+    .rm-cat { background: var(--brand-soft); color: var(--brand); border-radius: 16px; padding: 1px 8px; font-size: 11px; text-transform: capitalize; }
+    .rm-note { font-size: 12.5px; color: var(--text-soft); margin: 7px 0 0; line-height: 1.45; font-style: italic; }
+    .rm-gh { color: var(--brand); text-decoration: none; font-size: 12px; }
+    .rm-gh:hover { text-decoration: underline; }
+    .rm-empty { color: var(--text-soft); font-size: 12.5px; padding: 6px 4px; opacity: .7; }
+    .rm-filtered { opacity: .7; }
+    @media (max-width: 900px) { .rm-board { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="rm-wrap">
+    <div class="rm-top">
+      <a class="rm-brand" href="/"><span class="mk">O</span> OpenBook</a>
+      <a class="rm-back" href="/">&larr; Back to OpenBook</a>
+    </div>
+
+    <h1>Community Roadmap</h1>
+    <p class="rm-lead">OpenBook is steered by the people who use it. Anyone can suggest a change, everyone votes, and the most-wanted ideas rise. This board is public so the direction of the platform is never decided behind closed doors.</p>
+    <p class="rm-lead rm-filtered">Each card shows its raw community score (one human, one vote, the official tally). Where it differs, a sybil-filtered score is shown beside it for transparency.</p>
+    <div class="rm-cta"><a href="/app">Suggest or vote in the app</a></div>
+
+    <div class="rm-board" id="board">
+      <div class="rm-empty">Loading the roadmap...</div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var COLS = [
+        { key: 'considering', label: 'Considering' },
+        { key: 'planned', label: 'Planned' },
+        { key: 'in_progress', label: 'Building now' },
+        { key: 'shipped', label: 'Shipped' },
+        { key: 'declined', label: 'Not planned' },
+      ];
+      function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
+      function card(it) {
+        var gh = it.github ? '<a class="rm-gh" href="' + esc(it.github.url) + '" target="_blank" rel="noopener">#' + esc(it.github.issue) + ' on GitHub</a>' : '';
+        var filtered = (it.sybilFilteredScore != null && it.sybilFilteredScore !== it.score)
+          ? '<span class="rm-filtered" title="Score excluding flagged accounts">(' + esc(it.sybilFilteredScore) + ' filtered)</span>' : '';
+        var note = it.statusNote ? '<p class="rm-note">' + esc(it.statusNote) + '</p>' : '';
+        return '<div class="rm-card">' +
+          '<p class="t">' + esc(it.title) + '</p>' +
+          '<div class="meta">' +
+          '<span class="rm-score">&#9650; ' + esc(it.score) + '</span>' + filtered +
+          '<span class="rm-cat">' + esc(it.category) + '</span>' + gh +
+          '</div>' + note + '</div>';
+      }
+      function render(data) {
+        var board = document.getElementById('board');
+        board.innerHTML = COLS.map(function (col) {
+          var items = (data.columns && data.columns[col.key]) || [];
+          var body = items.length ? items.map(card).join('') : '<div class="rm-empty">Nothing here yet.</div>';
+          return '<div class="rm-col"><h2>' + col.label + '<span class="c">' + items.length + '</span></h2>' + body + '</div>';
+        }).join('');
+      }
+      fetch('/api/roadmap').then(function (r) { return r.json(); }).then(render).catch(function () {
+        document.getElementById('board').innerHTML = '<div class="rm-empty">Could not load the roadmap right now.</div>';
+      });
+    })();
+  </script>
+</body>
+</html>

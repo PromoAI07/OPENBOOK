@@ -2,6 +2,8 @@
 // Profiles: view a profile, edit your own, upload avatar and cover, search people.
 
 const express = require('express');
+const fs = require('fs');
+const crypto = require('crypto');
 const db = require('../db');
 const { requireAuth, publicUser } = require('../auth');
 const { upload } = require('../upload');
@@ -9,8 +11,55 @@ const { entitlementsFor, storageLimitBytes } = require('../entitlements');
 
 const bcrypt = require('bcryptjs');
 const cleanup = require('../media/cleanup');
+const exporter = require('../export');
 
 const router = express.Router();
+
+// A single shared "[deleted]" ghost account. When a user deletes their account,
+// any post or comment that OTHER people replied to is handed to the ghost and
+// blanked, so a deletion erases the person without destroying everyone else's
+// replies (Reddit-style tombstoning). Created lazily, reused forever.
+async function ghostUserId() {
+  const GHOST_EMAIL = 'ghost@deleted.openbook.local';
+  const g = await db.prepare('SELECT id FROM users WHERE email = ?').get(GHOST_EMAIL);
+  if (g) return g.id;
+  const hash = bcrypt.hashSync(crypto.randomBytes(24).toString('hex'), 10);
+  const info = await db.prepare(
+    "INSERT INTO users (name, email, password_hash, email_verified, bio) VALUES ('[deleted]', ?, ?, 1, '')"
+  ).run(GHOST_EMAIL, hash);
+  return info.lastInsertRowid;
+}
+
+// Preserve threads others built on: reassign + blank the user's posts/comments
+// that have replies from someone else, BEFORE the user row (and its cascade) is
+// removed. Best-effort: any failure here must never block the actual deletion.
+async function tombstoneForOthers(userId, ghostId) {
+  const posts = await db.prepare(
+    'SELECT DISTINCT p.id FROM posts p JOIN comments c ON c.post_id = p.id WHERE p.user_id = ? AND c.user_id <> ?'
+  ).all(userId, userId);
+  for (const p of posts) {
+    await db.prepare(
+      "UPDATE posts SET user_id = ?, title = '', content = '[deleted]', image = '', file_url = '', file_name = '', bg = '' WHERE id = ?"
+    ).run(ghostId, p.id);
+  }
+  const comments = await db.prepare(
+    'SELECT DISTINCT c.id FROM comments c JOIN comments r ON r.parent_id = c.id WHERE c.user_id = ? AND r.user_id <> ?'
+  ).all(userId, userId);
+  for (const c of comments) {
+    await db.prepare("UPDATE comments SET user_id = ?, content = '[deleted]' WHERE id = ?").run(ghostId, c.id);
+  }
+}
+
+// The owner-facing view of an export job (never leaks the raw download token
+// except as part of the owner's own download URL).
+function publicJob(j) {
+  return {
+    id: j.id, status: j.status, format: j.format, bytes: j.bytes,
+    created_at: j.created_at, ready_at: j.ready_at, expires_at: j.expires_at,
+    error: j.error || '',
+    downloadUrl: j.status === 'ready' ? ('/api/users/me/export/' + j.id + '/download?token=' + j.token) : null,
+  };
+}
 
 // Parse a SQLite UTC timestamp to epoch ms.
 function tms(ts) {
@@ -132,10 +181,79 @@ router.delete('/me', requireAuth, async (req, res, next) => {
     if (!row || !bcrypt.compareSync(password, row.password_hash)) {
       return res.status(403).json({ error: 'That password is not correct.' });
     }
+    // Tombstone threads other people replied to, so erasing you does not destroy
+    // their words. Best-effort: never let this block the actual deletion, because
+    // the erasure promise must always win.
+    let ghostId = null;
+    try {
+      ghostId = await ghostUserId();
+      await tombstoneForOthers(req.user.id, ghostId);
+    } catch (e) { /* fall through to the hard delete regardless */ }
+
     await cleanup.wipeUserMedia(req.user.id);
     await db.prepare('DELETE FROM users WHERE id = ?').run(req.user.id); // cascades the rest
+
+    // A public, PII-free ledger line so the transparency promise holds even for
+    // deletions. No name, no email, no id of the removed account.
+    try {
+      if (ghostId) {
+        await db.prepare(
+          "INSERT INTO mod_actions (actor_id, action, target_type, target_id, reason, is_public) " +
+          "VALUES (?, 'account_deleted', 'account', 0, ?, 1)"
+        ).run(ghostId, 'An account and all of its personal data were permanently deleted at the owner request.');
+      }
+    } catch (e) { /* logging must never fail the deletion */ }
+
     res.clearCookie('tb_session');
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// --- Data export: download everything OpenBook holds about you (Promise #3) ---
+
+// Synchronous JSON export: every record about you, no media bytes. Instant.
+router.get('/me/export.json', requireAuth, async (req, res, next) => {
+  try {
+    const data = await exporter.buildJson(req.user.id);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="openbook-export-' + req.user.id + '.json"');
+    res.send(JSON.stringify(data, null, 2));
+  } catch (e) { next(e); }
+});
+
+// Start a full ZIP export (data + media), built in the background. Returns the
+// existing fresh job if one is already pending/ready (one per day per user).
+router.post('/me/export', requireAuth, async (req, res, next) => {
+  try {
+    const existing = await exporter.recentJob(req.user.id);
+    if (existing) return res.json({ job: publicJob(existing) });
+    const job = await exporter.createJob(req.user.id, 'zip');
+    res.status(202).json({ job: publicJob(job) });
+  } catch (e) { next(e); }
+});
+
+// Poll a ZIP export job.
+router.get('/me/export/:id', requireAuth, async (req, res, next) => {
+  try {
+    const j = await db.prepare('SELECT * FROM export_jobs WHERE id = ? AND user_id = ?').get(Number(req.params.id), req.user.id);
+    if (!j) return res.status(404).json({ error: 'Export not found' });
+    res.json({ job: publicJob(j) });
+  } catch (e) { next(e); }
+});
+
+// Download a ready ZIP export. Needs the one-time token and the owner session,
+// and refuses once the link has expired.
+router.get('/me/export/:id/download', requireAuth, async (req, res, next) => {
+  try {
+    const j = await db.prepare('SELECT * FROM export_jobs WHERE id = ? AND user_id = ?').get(Number(req.params.id), req.user.id);
+    if (!j) return res.status(404).json({ error: 'Export not found' });
+    if (String(req.query.token || '') !== j.token) return res.status(403).json({ error: 'Invalid download token' });
+    if (j.status !== 'ready' || !j.file || !fs.existsSync(j.file)) return res.status(409).json({ error: 'Export is not ready yet' });
+    const expMs = j.expires_at ? Date.parse(j.expires_at.indexOf('T') >= 0 ? j.expires_at : j.expires_at.replace(' ', 'T') + 'Z') : 0;
+    if (expMs && expMs < Date.now()) return res.status(410).json({ error: 'This export link has expired. Generate a new one.' });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="openbook-export-' + req.user.id + '.zip"');
+    fs.createReadStream(j.file).pipe(res);
   } catch (e) { next(e); }
 });
 

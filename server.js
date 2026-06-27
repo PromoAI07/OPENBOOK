@@ -177,6 +177,7 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/referrals', require('./routes/referrals'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/suggestions', require('./routes/suggestions'));
+app.use('/api/roadmap', require('./routes/roadmap'));
 
 // The authenticated single page app shell.
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
@@ -190,6 +191,9 @@ app.get('/mission', (req, res) => res.sendFile(path.join(__dirname, 'public', 'm
 // Public Privacy Policy and Cookies pages (open to everyone, logged in or out).
 app.get('/privacy', (req, res) => res.sendFile(path.join(__dirname, 'public', 'privacy.html')));
 app.get('/cookies', (req, res) => res.sendFile(path.join(__dirname, 'public', 'cookies.html')));
+
+// Public community roadmap page (the transparent, voted feature roadmap).
+app.get('/roadmap', (req, res) => res.sendFile(path.join(__dirname, 'public', 'roadmap.html')));
 
 // Separate owner-only analytics page. The PAGE ITSELF is gated here server-side:
 // a non-admin (or logged-out) visitor is bounced before the page even loads, and
@@ -236,6 +240,10 @@ require('./db').init()
       // Media: hard-delete expired stories (and their files) on a schedule, so the
       // 24-hour promise is real and storage (the only real cost) stops growing.
       try { require('./media/cleanup').startStoryCleanupJob(); } catch (e) { logger.error({ err: e }, 'failed to start story cleanup job'); }
+      // Data export: sweep expired export artifacts so they never accumulate.
+      try { require('./export').startExportCleanupJob(); } catch (e) { logger.error({ err: e }, 'failed to start export cleanup job'); }
+      // Roadmap: reconcile linked GitHub issues (no-op unless GITHUB_TOKEN is set).
+      try { require('./roadmap-sync').startRoadmapJobs(); } catch (e) { logger.error({ err: e }, 'failed to start roadmap sync job'); }
     });
   })
   .catch((e) => {

@@ -353,6 +353,7 @@
       '</div>' +
       '<nav class="rail-foot">' +
       '<a href="/mission">Our Mission</a>' +
+      '<a href="/roadmap">Roadmap</a>' +
       '<a href="/privacy">Privacy Policy</a>' +
       '<a href="/cookies">Cookies</a>' +
       '<a href="https://github.com/PromoAI07/OPENBOOK" target="_blank" rel="noopener">Open source</a>' +
@@ -1628,6 +1629,13 @@
       '<div class="shint" style="font-size:12px;display:flex;justify-content:space-between;gap:10px"><span>Links become clickable on <strong>Plus</strong> and above (or for long-standing trusted accounts).</span><span id="epBioCount" style="white-space:nowrap;color:var(--text-soft)"></span></div></div>' +
       '<button class="btn btn-primary btn-block" id="epSave">Save changes</button>' +
       '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +
+      '<div class="shint" style="font-size:12px;margin-bottom:6px">Your data</div>' +
+      '<p class="shint" style="font-size:12px;line-height:1.5;margin:0 0 8px">Download everything OpenBook holds about you. Your data is yours, and it is never sold.</p>' +
+      '<button class="btn btn-soft btn-block" id="epExportJson" style="margin-bottom:8px">Download my data (JSON)</button>' +
+      '<button class="btn btn-soft btn-block" id="epExportZip">Download everything (ZIP, includes media)</button>' +
+      '<div id="epExportStatus" class="shint" style="font-size:12px;margin-top:8px"></div>' +
+      '</div>' +
+      '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +
       '<div class="shint" style="font-size:12px;margin-bottom:8px">Danger zone</div>' +
       '<button class="btn btn-soft btn-block" id="epDelete" style="color:#e5484d">Delete my account</button>' +
       '</div>' +
@@ -1647,6 +1655,28 @@
         renderLeftRail();
         renderProfile(ME.id);
       } catch (e) { toast(e.message); }
+    };
+    // Your data: instant JSON download, or a background ZIP (data + media).
+    m.q('#epExportJson').onclick = () => { window.location.href = '/api/users/me/export.json'; };
+    m.q('#epExportZip').onclick = async () => {
+      const btn = m.q('#epExportZip'), st = m.q('#epExportStatus');
+      btn.disabled = true;
+      st.textContent = 'Building your export, this can take a moment...';
+      try {
+        let job = (await API.startExport()).job;
+        for (let i = 0; i < 60 && job.status !== 'ready' && job.status !== 'failed'; i++) {
+          await new Promise((r) => setTimeout(r, 1500));
+          job = (await API.exportJob(job.id)).job;
+        }
+        if (job.status === 'failed') throw new Error(job.error || 'Export failed');
+        if (job.status === 'ready' && job.downloadUrl) {
+          st.innerHTML = 'Ready. <a href="' + job.downloadUrl + '" style="color:var(--brand)">Download your export</a> (link expires in 24 hours).';
+          window.location.href = job.downloadUrl;
+        } else {
+          st.textContent = 'Still building. Reopen this in a minute to grab it.';
+        }
+      } catch (e) { st.textContent = e.message || 'Export failed'; }
+      finally { btn.disabled = false; }
     };
     // Danger zone: delete account. Swaps the modal to a password confirm step,
     // since this wipes the account and all of its media for good.

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",
+    "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
     "cookie": "^0.6.0",
     "cookie-parser": "^1.4.7",

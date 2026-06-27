@@ -63,6 +63,8 @@ const API = {
   myStats() { return this.get('/api/users/me/stats'); },
   myAnalytics() { return this.get('/api/users/me/analytics'); },
   deleteAccount(password) { return this.request('DELETE', '/api/users/me', { password }); },
+  startExport() { return this.post('/api/users/me/export'); },
+  exportJob(id) { return this.get('/api/users/me/export/' + id); },
   uploadAvatar(file) { const f = new FormData(); f.append('image', file); return this.postForm('/api/users/me/avatar', f); },
   uploadCover(file) { const f = new FormData(); f.append('image', file); return this.postForm('/api/users/me/cover', f); },
   photoPosition(body) { return this.post('/api/users/me/photo-position', body); },
