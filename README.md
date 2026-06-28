@@ -138,7 +138,7 @@ it deploys with **zero downtime**.
   B2). With the default `MEDIA_BACKEND=local`, files stay on disk.
 - **Host:** a Render blueprint is included ([`render.yaml`](render.yaml)); see
   [`DEPLOY.md`](DEPLOY.md). With no attached disk, Render does zero-downtime
-  rolling deploys. A `Dockerfile` + `fly.toml` are also included for Fly.io.
+  rolling deploys. Any always-on Node host (e.g. Railway) works too.
 
 The production demo runs on **Render** (app) + **Turso** (database) +
 **Cloudflare R2** (media). Because the database and files live off-box, the

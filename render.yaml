@@ -1,20 +1,25 @@
 # Render Blueprint for OpenBook (https://render.com).
 #
-# Free web service: HTTPS is included automatically. Two free-tier caveats that
-# are fine for a demo:
-#   1. The service sleeps after ~15 min idle, so the first visit after a nap
-#      takes ~30-60s to wake up.
-#   2. The free disk is ephemeral, so the database and uploaded photos reset on
-#      each redeploy/restart. Perfect for letting people try it; not for keeping
-#      real data.
+# Production stack: the app runs here on Render, the database is a networked
+# Turso/libSQL database, and uploaded media lives in Cloudflare R2 (an
+# S3-compatible, egress-free bucket). Because the data lives OFF the box, the web
+# service keeps NO persistent disk: there is nothing to lose on a redeploy, and
+# Render does zero-downtime rolling deploys. (With none of the LIBSQL_/S3_ vars
+# set the app falls back to a local SQLite file + local uploads, which is only
+# for local development, never production.)
 #
-# For real persistence later: change `plan` to `starter`, add a Disk mounted at
-# /data, and add an env var DATA_DIR=/data. No code changes needed.
+# Plan: "starter" keeps the service always-on (the free plan sleeps after ~15 min
+# idle, which is wrong for a live site that takes payments). Bump to a larger
+# instance as traffic grows.
+#
+# Secrets are NOT stored in this file: the keys below are declared with
+# `sync: false`, so you fill their VALUES in the Render dashboard
+# (Environment tab) and they never get committed to git.
 services:
   - type: web
     name: openbook
     runtime: node
-    plan: free
+    plan: starter
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /
@@ -23,3 +28,32 @@ services:
         value: production
       - key: NODE_VERSION
         value: "24"
+      # --- Database (Turso / libSQL). Set both in the dashboard. ---
+      - key: LIBSQL_URL          # libsql://<db>-<org>.turso.io
+        sync: false
+      - key: LIBSQL_AUTH_TOKEN
+        sync: false
+      # --- Media storage (Cloudflare R2 / S3-compatible). ---
+      - key: MEDIA_BACKEND
+        value: s3
+      - key: S3_ENDPOINT         # https://<account-id>.r2.cloudflarestorage.com
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: MEDIA_CDN_BASE      # public bucket/CDN base URL, no trailing slash
+        sync: false
+      - key: S3_REGION
+        value: auto
+      # --- Operational (set the ones you use). ---
+      - key: RESEND_API_KEY      # transactional email (verification + reset)
+        sync: false
+      - key: EMAIL_FROM          # e.g. OpenBook <noreply@openbook.space>
+        sync: false
+      - key: ADMIN_EMAILS        # comma-separated owner emails for /admin
+        sync: false
+      - key: PAYPAL_RECEIVER_EMAIL  # turns on the Pay-with-PayPal buttons
+        sync: false
