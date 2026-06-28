@@ -46,7 +46,7 @@ const NETWORKS = {
     name: 'Ethereum (ERC-20)', type: 'evm', decimals: 6,
     contract: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
     addrEnv: 'SUPPORT_USDT_ETH', addrDefault: '0x4561d34b554Ff7956b547120f9B34A97e126ca1d',
-    rpc: process.env.ETH_RPC || 'https://eth.llamarpc.com',
+    rpc: process.env.ETH_RPC || 'https://ethereum-rpc.publicnode.com',
   },
   bsc: {
     name: 'BNB Chain (BEP-20)', type: 'evm', decimals: 18,
@@ -58,13 +58,13 @@ const NETWORKS = {
     name: 'Polygon', type: 'evm', decimals: 6,
     contract: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
     addrEnv: 'SUPPORT_USDT_POLYGON', addrDefault: '0x4561d34b554Ff7956b547120f9B34A97e126ca1d',
-    rpc: process.env.POLYGON_RPC || 'https://polygon-rpc.com',
+    rpc: process.env.POLYGON_RPC || 'https://polygon-bor-rpc.publicnode.com',
   },
   solana: {
     name: 'Solana (SPL)', type: 'solana', decimals: 6,
     mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
     addrEnv: 'SUPPORT_USDT_SOLANA', addrDefault: 'Fb8Yq8oBRKtxnwcRBkXrZu5TvBthCf9gpNYXGZrqzGF6',
-    rpc: process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com',
+    rpc: process.env.SOLANA_RPC || 'https://solana-rpc.publicnode.com',
   },
 };
 function networkAddress(id) {
