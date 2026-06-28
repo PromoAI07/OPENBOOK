@@ -105,6 +105,19 @@
     if (!user || !user.pioneer) return '';
     return ' <span class="pioneer-badge" title="One of the first 5,000 members of OpenBook">&#9873; Pioneer</span>';
   }
+  // Premium profile themes: preset accent + gradient combos. Ids MUST match the
+  // server allowlist in routes/users.js (THEME_IDS).
+  var PROFILE_THEMES = {
+    midnight: { name: 'Midnight', accent: '#8b7cff', gradient: 'linear-gradient(135deg,#1e1b4b 0%,#4338ca 55%,#8b7cff 100%)' },
+    sunset:   { name: 'Sunset',   accent: '#ff7a59', gradient: 'linear-gradient(135deg,#7a1f3d 0%,#e23e57 50%,#ff9a5a 100%)' },
+    ocean:    { name: 'Ocean',    accent: '#22b8cf', gradient: 'linear-gradient(135deg,#0c4a6e 0%,#0ea5e9 55%,#22d3ee 100%)' },
+    forest:   { name: 'Forest',   accent: '#22c55e', gradient: 'linear-gradient(135deg,#064e3b 0%,#15803d 55%,#4ade80 100%)' },
+    rose:     { name: 'Rose',     accent: '#f472b6', gradient: 'linear-gradient(135deg,#831843 0%,#db2777 55%,#f9a8d4 100%)' },
+    gold:     { name: 'Gold',     accent: '#e0a800', gradient: 'linear-gradient(135deg,#7c2d12 0%,#d97706 55%,#fcd34d 100%)' },
+    aurora:   { name: 'Aurora',   accent: '#34d399', gradient: 'linear-gradient(135deg,#4338ca 0%,#06b6d4 50%,#34d399 100%)' },
+    graphite: { name: 'Graphite', accent: '#94a3b8', gradient: 'linear-gradient(135deg,#0f172a 0%,#334155 55%,#94a3b8 100%)' },
+  };
+  function themeFor(u) { return (u && u.theme && PROFILE_THEMES[u.theme]) ? PROFILE_THEMES[u.theme] : null; }
   // Supporter blue verified tick (any paid tier) plus the Founder badge if set.
   // Both are cosmetic, never reputation. Appended to author names everywhere
   // through this one helper, so the Founder badge follows the founder wherever
@@ -1694,14 +1707,18 @@
 
     const u = data.user;
     const isMe = data.friendStatus === 'self';
-    const coverStyle = u.cover ? ' style="background-image:url(\'' + esc(u.cover) + '\');background-position:' + esc(u.coverPos || '50% 50%') + '"' : '';
+    const _themeObj = themeFor(u); // Premium theme (gated server-side via u.theme)
+    const _nameAccent = _themeObj ? _themeObj.accent : ((u.accent && /^#[0-9a-fA-F]{6}$/.test(u.accent)) ? u.accent : '');
+    const coverStyle = u.cover
+      ? ' style="background-image:url(\'' + esc(u.cover) + '\');background-position:' + esc(u.coverPos || '50% 50%') + '"'
+      : (_themeObj ? ' style="background:' + _themeObj.gradient + '"' : '');
 
     view.innerHTML =
       '<div class="card card-pad-0">' +
       '<div class="profile-cover"' + coverStyle + '>' + (isMe ? '<div class="cover-tools"><button class="btn btn-sm cover-btn" id="editCoverBtn">&#128247; Edit cover</button>' + (u.cover ? '<button class="btn btn-sm cover-btn" id="reposCoverBtn">&#8597; Reposition</button>' : '') + '</div>' : '') + '</div>' +
       '<div class="profile-head">' +
       '<div class="av-wrap">' + avatar(u, 130) + (isMe ? '<button class="cam" id="editAvatarBtn" title="Change photo">&#128247;</button>' + (u.avatar ? '<button class="cam cam-repos" id="reposAvatarBtn" title="Reposition photo">&#10021;</button>' : '') : '') + '</div>' +
-      '<div class="phead-main"><div class="pname"' + (u.accent && /^#[0-9a-fA-F]{6}$/.test(u.accent) ? ' style="color:' + esc(u.accent) + '"' : '') + '>' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
+      '<div class="phead-main"><div class="pname"' + (_nameAccent ? ' style="color:' + esc(_nameAccent) + '"' : '') + '>' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
       (u.username ? '<div class="pmeta" style="color:var(--text-soft);font-weight:600">@' + esc(u.username) + '</div>' : '') +
       '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + data.postsCount + ' posts</div>' +
       (data.nameHistory && data.nameHistory.length
@@ -1841,6 +1858,14 @@
               '<span class="shint" style="font-size:12px">A supporter perk: tints your name on your profile.</span>' +
             '</div></div>')
         : '') +
+      ((ME.tier >= 3)
+        ? ('<div class="field"><label>Profile theme</label>' +
+            '<div class="theme-grid" id="epThemes">' +
+              '<button type="button" class="theme-sw theme-none" data-th="">None</button>' +
+              Object.keys(PROFILE_THEMES).map(function (id) { return '<button type="button" class="theme-sw" data-th="' + id + '" title="' + esc(PROFILE_THEMES[id].name) + '" style="background:' + PROFILE_THEMES[id].gradient + '"></button>'; }).join('') +
+            '</div>' +
+            '<div class="shint" style="font-size:12px">A Premium perk: a preset color theme for your profile. Overrides your accent color.</div></div>')
+        : '') +
       '<button class="btn btn-primary btn-block" id="epSave">Save changes</button>' +
       '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +
       '<div class="shint" style="font-size:12px;margin-bottom:6px">Your data</div>' +
@@ -1878,6 +1903,13 @@
       var _accentClear = m.q('#epAccentClear');
       if (_accentClear) _accentClear.onclick = function () { _accent = ''; _accentEl.value = '#4f8cff'; toast('Accent cleared, save to apply'); };
     }
+    var _theme = ME.theme || '';
+    var _themeWrap = m.q('#epThemes');
+    if (_themeWrap) {
+      var _markTheme = function () { _themeWrap.querySelectorAll('.theme-sw').forEach(function (b) { b.classList.toggle('sel', b.getAttribute('data-th') === _theme); }); };
+      _themeWrap.querySelectorAll('.theme-sw').forEach(function (b) { b.onclick = function () { _theme = b.getAttribute('data-th'); _markTheme(); }; });
+      _markTheme();
+    }
     m.q('#epSave').onclick = async () => {
       const name = m.q('#epName').value.trim();
       const bio = m.q('#epBio').value.trim();
@@ -1885,7 +1917,8 @@
       try {
         const accentArg = (ME.tier >= 1) ? _accent : undefined; // only paid tiers/founder send it
         const userArg = _userEl ? _userEl.value.trim() : undefined;
-        ME = (await API.updateProfile(name, bio, accentArg, userArg)).user;
+        const themeArg = (ME.tier >= 3) ? _theme : undefined; // only Premium/founder send it
+        ME = (await API.updateProfile(name, bio, accentArg, userArg, themeArg)).user;
         m.close();
         toast('Profile saved');
         setupChromeAvatar();

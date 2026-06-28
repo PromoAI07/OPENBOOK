@@ -487,6 +487,9 @@ db.init = async function init() {
   // only APPLIED for paid tiers / founders (see auth.publicUser), so it is a real
   // tier perk and stops applying if supporter time lapses.
   await addColumn('users', "accent_color TEXT NOT NULL DEFAULT ''", 'accent_color');
+  // Premium perk: a preset profile theme (color + gradient combo). Stored for
+  // everyone but only APPLIED for Premium / founders (see auth.publicUser).
+  await addColumn('users', "profile_theme TEXT NOT NULL DEFAULT ''", 'profile_theme');
   // Unique @username (handle). Nullable until a user picks one. Case-insensitively
   // unique via a partial index (empty/null handles do not collide).
   await addColumn('users', 'username TEXT', 'username');

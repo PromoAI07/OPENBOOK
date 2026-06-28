@@ -44,7 +44,7 @@ const TIERS = {
   3: {
     tier: 3, name: 'Premium', price: 10, badge: 'gold', verified: true, adFree: true,
     customization: 'full',
-    perks: ['Everything in Plus', 'Gold badge', '10 GB of media storage', 'Largest uploads (1 GB per file)', 'Propose features first'],
+    perks: ['Everything in Plus', 'Gold badge', '10 GB of media storage', 'Largest uploads (1 GB per file)', 'Profile themes', 'Propose features first'],
   },
 };
 

@@ -779,6 +779,12 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
   color: #fff; background: linear-gradient(135deg, #4f8cff, #2563eb);
   border: 1px solid rgba(0,0,0,0.08); white-space: nowrap;
 }
+/* Premium profile theme swatches in the Edit profile dialog. */
+.theme-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.theme-sw { width: 56px; height: 34px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.theme-sw.sel { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+.theme-sw.theme-none { background: var(--hover); color: var(--text-soft); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+
 /* Pinned, clearly-labeled site announcement at the top of the feed (transparent
    pin, never a hidden feed boost). */
 .ann-wrap { margin-bottom: 14px; border: 1.5px solid #2563eb; border-radius: 14px; overflow: hidden; box-shadow: 0 4px 16px rgba(37,99,235,0.12); }

@@ -88,6 +88,8 @@ function publicUser(u) {
     // A custom profile accent color is a paid perk (any tier 1+), so it only
     // applies while the account is a supporter / founder. Stored either way.
     accent: effectiveTier(u) >= 1 ? (u.accent_color || '') : '',
+    // A preset profile theme is a Premium perk (tier 3), applied only while Premium.
+    theme: effectiveTier(u) >= 3 ? (u.profile_theme || '') : '',
   }, publicTierFields(u)); // tier, tierName, verified (blue tick), badge
 }
 

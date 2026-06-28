@@ -105,6 +105,10 @@ router.get('/', requireAuth, async (req, res) => {
 // 3 to 20 chars, starts with a letter, letters/numbers/underscore only. A small
 // reserved set is blocked. Case-insensitive uniqueness is enforced at PUT time
 // plus a unique index in db.js as a backstop.
+// Allowed Premium profile theme ids (the colors/gradients live in the frontend
+// PROFILE_THEMES map; the server only validates the chosen id). Keep in sync.
+const THEME_IDS = new Set(['midnight', 'sunset', 'ocean', 'forest', 'rose', 'gold', 'aurora', 'graphite']);
+
 const USERNAME_RE = /^[a-zA-Z][a-zA-Z0-9_]{2,19}$/;
 const RESERVED_USERNAMES = new Set(['admin', 'administrator', 'openbook', 'support', 'system', 'root', 'help', 'about', 'mod', 'moderator', 'official', 'staff', 'deleted', 'ghost', 'founder', 'me', 'api', 'null', 'undefined']);
 function usernameError(name) {
@@ -144,6 +148,15 @@ router.put('/me', requireAuth, async (req, res) => {
     }
   }
 
+  // Validate the profile theme id (if provided). '' clears it. Applied only for
+  // Premium via auth.publicUser, but stored for anyone (re-applies on upgrade).
+  let themeToSet;
+  if (req.body.profileTheme !== undefined) {
+    const t = String(req.body.profileTheme || '').trim();
+    if (t === '' || THEME_IDS.has(t)) themeToSet = t;
+    else return res.status(400).json({ error: 'Unknown profile theme.' });
+  }
+
   const cur = await db.prepare('SELECT name, created_at FROM users WHERE id = ?').get(req.user.id);
 
   if (name !== cur.name) {
@@ -167,6 +180,10 @@ router.put('/me', requireAuth, async (req, res) => {
     const raw = String(req.body.accentColor || '').trim();
     const accent = /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : '';
     await db.prepare('UPDATE users SET accent_color = ? WHERE id = ?').run(accent, req.user.id);
+  }
+
+  if (themeToSet !== undefined) {
+    await db.prepare('UPDATE users SET profile_theme = ? WHERE id = ?').run(themeToSet, req.user.id);
   }
 
   if (unameToSet !== undefined) {
