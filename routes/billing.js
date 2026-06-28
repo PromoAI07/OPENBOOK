@@ -123,6 +123,39 @@ async function verifyIpn(body) {
   return (await r.text()).trim() === 'VERIFIED';
 }
 
+// Tron addresses come in three forms: base58 (T...), 41-prefixed hex, and the
+// EVM-style 0x + 20-byte hex that TronGrid's event logs actually return. Normalize
+// any of them to a lowercase 0x + 20-byte hex so a base58 receive address compares
+// equal to the hex `to` in a transfer event. (Without this, real payments to a
+// base58 address are wrongly rejected, as the real on-chain test caught.)
+const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function base58Decode(s) {
+  const bytes = [0];
+  for (let i = 0; i < s.length; i++) {
+    const v = B58_ALPHABET.indexOf(s[i]);
+    if (v < 0) return null;
+    let carry = v;
+    for (let j = 0; j < bytes.length; j++) { carry += bytes[j] * 58; bytes[j] = carry & 0xff; carry >>= 8; }
+    while (carry > 0) { bytes.push(carry & 0xff); carry >>= 8; }
+  }
+  for (let k = 0; k < s.length && s[k] === '1'; k++) bytes.push(0);
+  return bytes.reverse();
+}
+function tronHex(a) {
+  a = String(a || '').trim();
+  if (!a) return '';
+  if (a[0] === 'T') {
+    const b = base58Decode(a);
+    if (!b || b.length < 25) return '';
+    const payload = b.slice(0, b.length - 4); // drop the 4-byte checksum
+    if (payload[0] !== 0x41) return '';        // 0x41 = Tron mainnet version byte
+    return '0x' + Buffer.from(payload.slice(1)).toString('hex').toLowerCase();
+  }
+  let h = a.toLowerCase().replace(/^0x/, '');
+  if (h.length === 42 && h.slice(0, 2) === '41') h = h.slice(2);
+  return '0x' + h;
+}
+
 // --- On-chain USDT verification, dispatched by network type ---
 // Each returns { ok, amount? , error? }. amount is in whole USDT (with cents).
 async function verifyUsdt(networkId, txHash) {
@@ -150,7 +183,7 @@ async function verifyTron(txHash, addr, n) {
     if (!t) return { ok: false, error: 'No confirmed USDT transfer found in that transaction yet. Wait for it to confirm and try again.' };
     const res = t.result || {};
     const to = String(res.to || res['1'] || '');
-    if (to && to !== addr) return { ok: false, error: 'That transaction did not pay the OpenBook Tron address.' };
+    if (to && tronHex(to) !== tronHex(addr)) return { ok: false, error: 'That transaction did not pay the OpenBook Tron address.' };
     const amount = unitsToAmount(BigInt(res.value || res['2'] || 0), n.decimals);
     return amount > 0 ? { ok: true, amount } : { ok: false, error: 'Could not read the USDT amount.' };
   } catch (e) { logger.warn({ err: e, txHash }, 'tron verify failed'); return { ok: false, error: 'Could not reach the Tron network. Please try again shortly.' }; }
@@ -227,6 +260,11 @@ api.post('/crypto/claim', requireAuth, async (req, res) => {
   if (!NETWORKS[network]) return res.status(400).json({ error: 'Pick a network.' });
   if (txHash.length < 16) return res.status(400).json({ error: 'Paste your transaction hash.' });
 
+  // Short-circuit a hash we have already applied, BEFORE spending an on-chain
+  // lookup on it (cheaper, and returns a clean 409 even if the chain is slow).
+  const seen = await db.prepare('SELECT 1 FROM payment_events WHERE provider = ? AND external_id = ?').get('usdt-' + network, txHash);
+  if (seen) return res.status(409).json({ error: 'That transaction has already been used.' });
+
   let amount = PLANS[tier].usd; // BILLING_TEST_MODE trusts the tier price
   if (process.env.BILLING_TEST_MODE !== '1') {
     const v = await verifyUsdt(network, txHash);
@@ -249,4 +287,4 @@ api.get('/me', requireAuth, async (req, res) => {
   res.json({ payments: rows });
 });
 
-module.exports = { webhooks, api, applyPayment, PLANS, publicPlans, publicNetworks, parseCustom };
+module.exports = { webhooks, api, applyPayment, PLANS, publicPlans, publicNetworks, parseCustom, tronHex };
