@@ -644,6 +644,30 @@ db.init = async function init() {
     CREATE INDEX IF NOT EXISTS idx_supporter_events_user ON supporter_events(user_id);
   `);
 
+  // --- Payments: one row per confirmed external payment (see routes/billing.js) ---
+  // The UNIQUE (provider, external_id) index is the idempotency guard: a
+  // re-delivered PayPal IPN or a re-submitted USDT tx hash inserts nothing and
+  // therefore grants nothing twice. user_id is nullable so an unmatched payment is
+  // still recorded. This is the audit trail behind every paid tier grant.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS payment_events (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider    TEXT    NOT NULL,
+      external_id TEXT    NOT NULL,
+      user_id     INTEGER,
+      tier        INTEGER NOT NULL,
+      days        INTEGER NOT NULL,
+      amount      REAL    NOT NULL DEFAULT 0,
+      currency    TEXT    NOT NULL DEFAULT '',
+      status      TEXT    NOT NULL DEFAULT 'applied',
+      detail      TEXT    NOT NULL DEFAULT '',
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_events_ext ON payment_events(provider, external_id);
+    CREATE INDEX IF NOT EXISTS idx_payment_events_user ON payment_events(user_id);
+  `);
+
   // --- Referral system (see referrals.js) ---
   // Each user gets a referral_code; new signups can carry ?ref=<code> which sets
   // referred_by and opens a pending referrals row. A referral only "qualifies"

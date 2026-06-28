@@ -41,6 +41,9 @@ const API = {
   resetPassword(token, password) { return this.post('/api/auth/reset-password', { token, password }); },
   support() { return this.get('/api/support'); },
   tiers() { return this.get('/api/tiers'); },
+  billingPlans() { return this.get('/api/billing/plans'); },
+  claimCrypto(tier, txHash) { return this.post('/api/billing/crypto/claim', { tier, txHash }); },
+  myPayments() { return this.get('/api/billing/me'); },
   // Admin (supporter tiers)
   adminGrantTier(userId, tier, days) { return this.post('/api/admin/grant', { userId, tier, days }); },
   adminRevokeTier(userId) { return this.post('/api/admin/revoke', { userId }); },

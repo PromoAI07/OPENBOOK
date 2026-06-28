@@ -530,30 +530,56 @@
 
   async function renderSupport() {
     view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading...</div></div>';
-    let links = {}, tiers = [], mine = null;
-    const [lk, tr, st] = await Promise.all([
+    const [lk, tr, st, pl] = await Promise.all([
       API.support().catch(() => ({})),
       API.tiers().then((r) => r.tiers).catch(() => []),
       API.myStats().then((r) => r.supporter).catch(() => null),
+      API.billingPlans().then((r) => r.plans).catch(() => []),
     ]);
-    links = lk || {}; tiers = tr || []; mine = st;
+    const links = lk || {}, tiers = tr || [], mine = st;
+    const plans = {};
+    (pl || []).forEach((p) => { plans[p.tier] = p; });
     const curTier = mine ? mine.tier : 0;
+    const origin = window.location.origin;
     const expiresNote = (mine && mine.tier > 0)
       ? (mine.expires
           ? '<div class="shint" style="font-size:12px;margin-top:6px">Your ' + esc(mine.tierName) + ' status is active until ' + esc(new Date(String(mine.expires).replace(' ', 'T') + 'Z').toLocaleDateString()) + '.</div>'
           : '<div class="shint" style="font-size:12px;margin-top:6px">You are a ' + esc(mine.tierName) + ' supporter. Thank you!</div>')
       : '';
 
+    // PayPal Website-Payments-Standard link carrying the logged-in user + tier in
+    // `custom`, which the IPN webhook reads to auto-grant the tier on payment.
+    function paypalUrl(t, plan) {
+      const p = new URLSearchParams({
+        cmd: '_xclick',
+        business: links.paypalEmail || '',
+        currency_code: 'USD',
+        amount: String(plan.usd),
+        item_name: 'OpenBook ' + t.name + (plan.cycle === 'year' ? ' (1 year)' : ' (1 month)'),
+        custom: 'ob:' + (ME && ME.id) + ':' + t.tier + ':' + plan.cycle,
+        notify_url: origin + '/api/webhooks/paypal',
+        'return': origin + '/app#support',
+        cancel_return: origin + '/app#support',
+      });
+      return 'https://www.paypal.com/cgi-bin/webscr?' + p.toString();
+    }
+
     function tierCard(t) {
       const isCur = t.tier === curTier;
+      const plan = plans[t.tier] || { usd: t.tier === 3 ? 10 : t.price * 12, cycle: t.tier === 3 ? 'month' : 'year' };
+      const chargeLine = plan.cycle === 'year'
+        ? '<div class="shint" style="font-size:11px;margin-top:-2px;margin-bottom:6px">$' + t.price + '/mo, billed yearly ($' + plan.usd + ')</div>'
+        : '<div class="shint" style="font-size:11px;margin-top:-2px;margin-bottom:6px">$' + plan.usd + ' per month</div>';
+      let action;
+      if (isCur) action = '<span class="pill pill-ok">Your plan</span>';
+      else if (links.paypalEmail) action = '<a class="btn btn-primary btn-sm" href="' + esc(paypalUrl(t, plan)) + '" target="_blank" rel="noopener">Pay with PayPal</a>';
+      else action = '<button class="btn btn-primary btn-sm" disabled title="PayPal is being set up">Choose ' + esc(t.name) + '</button>';
       return '<div class="tier-card' + (isCur ? ' tier-current' : '') + '">' +
         '<div class="tier-head"><span class="badge-chip badge-' + esc(t.badge) + '">' + esc(t.name) + '</span>' +
         '<span class="tier-price">$' + Number(t.price) + '<span>/mo</span></span></div>' +
+        chargeLine +
         '<ul class="tier-perks">' + (t.perks || []).map((p) => '<li>' + esc(p) + '</li>').join('') + '</ul>' +
-        (isCur
-          ? '<span class="pill pill-ok">Your plan</span>'
-          : '<button class="btn btn-primary btn-sm" disabled title="Checkout is coming soon">Choose ' + esc(t.name) + '</button>') +
-        '</div>';
+        action + '</div>';
     }
 
     function linkCard(icon, title, desc, url, cta) {
@@ -568,6 +594,30 @@
         '</div></div></div>';
     }
 
+    const cryptoBlock = '<div class="card"><div style="display:flex;gap:12px;align-items:flex-start">' +
+      '<div style="font-size:26px">&#8383;</div><div style="flex:1">' +
+      '<div style="font-weight:700">Pay with USDT (TRC-20)</div>' +
+      '<div class="shint" style="font-size:13px;margin:2px 0 8px">' +
+      (links.crypto
+        ? 'Near-zero fees. Send USDT on the TRON network to the address below, then paste your transaction hash to apply your tier automatically.'
+        : 'A USDT address will appear here once set.') + '</div>' +
+      (links.crypto
+        ? '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">' +
+            '<code style="word-break:break-all;background:var(--hover);padding:6px 8px;border-radius:6px;display:inline-block">' + esc(links.crypto) + '</code>' +
+            '<button class="btn btn-sm" id="cryptoCopy">Copy</button></div>' +
+          '<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">' +
+            '<select class="input" id="cryptoTier" style="max-width:180px">' +
+              '<option value="1">Supporter ($' + (plans[1] ? plans[1].usd : 12) + '/yr)</option>' +
+              '<option value="2">Plus ($' + (plans[2] ? plans[2].usd : 36) + '/yr)</option>' +
+              '<option value="3" selected>Premium ($' + (plans[3] ? plans[3].usd : 10) + '/mo)</option>' +
+            '</select>' +
+            '<input class="input" id="cryptoTx" placeholder="Paste transaction hash" style="flex:1;min-width:180px">' +
+            '<button class="btn btn-primary" id="cryptoClaim">Apply my tier</button>' +
+          '</div>' +
+          '<div id="cryptoMsg" class="shint" style="font-size:12px;margin-top:6px"></div>'
+        : '<span class="pill">Coming soon</span>') +
+      '</div></div></div>';
+
     view.innerHTML =
       '<div class="card"><div class="pname">&#10084;&#65039; Support OpenBook</div>' +
       '<div class="shint" style="font-size:14px;line-height:1.6;margin-top:6px">' +
@@ -576,19 +626,29 @@
       expiresNote + '</div></div>' +
       '<div class="section-title">Supporter tiers</div>' +
       '<div class="tier-grid">' + tiers.map(tierCard).join('') + '</div>' +
-      '<div class="card"><div class="shint" style="font-size:12px">Paid checkout (card and crypto) is coming soon. For now you can back the project directly below.</div></div>' +
+      '<div class="card"><div class="shint" style="font-size:12px">Supporter and Plus are billed once a year in advance, which keeps payment fees low so more of your support reaches the project. Premium is billed monthly. After you pay with PayPal your tier is applied automatically within a few minutes.</div></div>' +
+      cryptoBlock +
       linkCard('&#128081;', 'Sponsor on GitHub', 'Back the project directly through GitHub Sponsors.', links.github, 'Sponsor on GitHub') +
       linkCard('&#129309;', 'Open Collective', 'Transparent, community funding where every expense is public.', links.opencollective, 'Give on Open Collective') +
-      '<div class="card"><div style="display:flex;gap:12px;align-items:flex-start">' +
-        '<div style="font-size:26px">&#8383;</div><div style="flex:1">' +
-        '<div style="font-weight:700">Crypto tip</div>' +
-        '<div class="shint" style="font-size:13px;margin:2px 0 8px">' +
-        (links.crypto ? 'Send any amount to the address below.' : 'A crypto tip address will appear here once set.') + '</div>' +
-        (links.crypto
-          ? '<code style="word-break:break-all;background:var(--hover);padding:6px 8px;border-radius:6px;display:inline-block">' + esc(links.crypto) + '</code>'
-          : '<span class="pill">Coming soon</span>') +
-        '</div></div></div>' +
       '<div class="card"><div class="shint" style="font-size:12px">Why not ads? OpenBook is built on the promise that your data is yours. Surveillance ads would break that promise, so we will not run them.</div></div>';
+
+    const copyBtn = document.getElementById('cryptoCopy');
+    if (copyBtn) copyBtn.onclick = () => {
+      try { navigator.clipboard.writeText(links.crypto); toast('Address copied'); } catch (e) { toast('Could not copy'); }
+    };
+    const claimBtn = document.getElementById('cryptoClaim');
+    if (claimBtn) claimBtn.onclick = async () => {
+      const tier = Number(document.getElementById('cryptoTier').value);
+      const tx = document.getElementById('cryptoTx').value.trim();
+      const msg = document.getElementById('cryptoMsg');
+      if (!tx) { msg.textContent = 'Paste your transaction hash first.'; return; }
+      claimBtn.disabled = true; msg.textContent = 'Verifying your transaction on-chain...';
+      try {
+        await API.claimCrypto(tier, tx);
+        toast('Thank you! Your tier is now active.');
+        renderSupport();
+      } catch (e) { msg.textContent = e.message; claimBtn.disabled = false; }
+    };
 
     renderRightRail();
   }

@@ -132,6 +132,8 @@ app.use('/api', async (req, res, next) => {
     if (req.path.startsWith('/users/me')) return next(); // profile + avatar edits
     if (req.path.startsWith('/notifications')) return next(); // mark read
     if (req.path.startsWith('/analytics')) return next(); // coarse usage pings
+    if (req.path.startsWith('/billing')) return next(); // supporters can pay even if unverified
+    if (req.path.startsWith('/webhooks')) return next(); // server-to-server (no user anyway)
     const u = await gateDb.prepare('SELECT email_verified FROM users WHERE id = ?').get(req.user.id);
     if (u && u.email_verified) return next();
     return res.status(403).json({
@@ -148,6 +150,7 @@ app.get('/api/support', (req, res) => {
     github: process.env.SUPPORT_GITHUB || '',
     opencollective: process.env.SUPPORT_OPENCOLLECTIVE || '',
     crypto: process.env.SUPPORT_CRYPTO || '',
+    paypalEmail: process.env.PAYPAL_RECEIVER_EMAIL || '',
   });
 });
 
@@ -178,6 +181,8 @@ app.use('/api/referrals', require('./routes/referrals'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/suggestions', require('./routes/suggestions'));
 app.use('/api/roadmap', require('./routes/roadmap'));
+app.use('/api/webhooks', require('./routes/billing').webhooks);
+app.use('/api/billing', require('./routes/billing').api);
 
 // The authenticated single page app shell.
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
