@@ -484,9 +484,11 @@
         '<button class="tab" data-feed="top">Top</button>' +
         '<button class="tab" data-feed="discover">Discover</button>' +
       '</div><span style="flex:1"></span><span class="muted" id="feedHint" style="font-size:12px;align-self:center"></span></div></div>' +
+      '<div id="announcements"></div>' +
       '<div id="feedPosts"><div class="card"><div class="empty">Loading your feed...</div></div></div>';
     wireComposer('feedPosts');
     loadStories();
+    loadAnnouncements();
     const hint = document.getElementById('feedHint');
     function syncFeedUI() {
       view.querySelectorAll('.tab[data-feed]').forEach((t) => t.classList.toggle('active', t.getAttribute('data-feed') === feedMode));
@@ -500,6 +502,24 @@
     syncFeedUI();
     loadFeedPosts();
     renderRightRail();
+  }
+
+  // Pinned, clearly-labeled site announcements shown at the top of the feed.
+  // Transparent: everyone sees these are pinned announcements, not organic
+  // ranking. (Ranking itself is never touched.)
+  function loadAnnouncements() {
+    const box = document.getElementById('announcements');
+    if (!box) return;
+    API.announcements().then((r) => {
+      const posts = (r && r.posts) || [];
+      if (!posts.length) { box.innerHTML = ''; return; }
+      box.innerHTML = '';
+      posts.forEach((p) => {
+        const wrap = el('<div class="ann-wrap"><div class="ann-label">&#128204; Announcement from OpenBook</div></div>');
+        wrap.appendChild(p.community_id ? communityPostCard(p) : renderPostNode(p));
+        box.appendChild(wrap);
+      });
+    }).catch(() => { box.innerHTML = ''; });
   }
 
   async function loadFeedPosts() {
@@ -841,6 +861,7 @@
       restore_post: 'Restored a post', restore_comment: 'Restored a comment',
       ban: 'Banned a user', unban: 'Unbanned a user',
       lock: 'Locked a thread', unlock: 'Unlocked a thread', pin: 'Pinned a post', unpin: 'Unpinned a post',
+      announce: 'Pinned a site announcement', unannounce: 'Removed a site announcement',
     };
     return map[a] || a;
   }
@@ -2733,6 +2754,10 @@
       opsHtml += '<button class="btn btn-sm" data-modlock>' + (p.locked ? 'Unlock' : 'Lock') + '</button>';
       if (p.community) opsHtml += '<button class="btn btn-sm" data-modpin>' + (p.pinned ? 'Unpin' : 'Pin') + '</button>';
     }
+    // Founder/admin: pin this post as an official site announcement (transparent).
+    if (ME.isAdmin || ME.founder) {
+      opsHtml += '<button class="btn btn-sm" data-modannounce>' + (p.announcement ? 'Remove announcement' : '&#128204; Pin as announcement') + '</button>';
+    }
     if (postOwner && p.removed) opsHtml += '<button class="btn btn-sm" data-appeal data-appeal-type="post" data-appeal-id="' + p.id + '">Appeal</button>';
     pbody.querySelector('#postOps').innerHTML = opsHtml;
     const mrm = pbody.querySelector('[data-modremove]');
@@ -2743,6 +2768,8 @@
     if (mlk) mlk.onclick = async () => { try { const r = await API.modLock(p.id, !p.locked); toast(r.locked ? 'Locked' : 'Unlocked'); renderPost(p.id); } catch (e) { toast(e.message); } };
     const mpn = pbody.querySelector('[data-modpin]');
     if (mpn) mpn.onclick = async () => { try { const r = await API.modPin(p.id, !p.pinned); toast(r.pinned ? 'Pinned' : 'Unpinned'); renderPost(p.id); } catch (e) { toast(e.message); } };
+    const man = pbody.querySelector('[data-modannounce]');
+    if (man) man.onclick = async () => { try { const r = await API.modAnnounce(p.id, !p.announcement); toast(r.announcement ? 'Pinned as an announcement' : 'Announcement removed'); renderPost(p.id); } catch (e) { toast(e.message); } };
 
     const csec = el('<div class="card"><div class="mk-head" style="margin-bottom:6px">' +
       '<div class="section-title" style="margin:0">Comments</div><span style="flex:1"></span>' +

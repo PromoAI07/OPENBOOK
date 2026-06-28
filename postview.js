@@ -104,6 +104,7 @@ async function buildPostView(post, author, commentCount, reactions, tally, commu
     group_id: post.group_id || null,
     locked: !!post.locked,
     pinned: !!post.pinned,
+    announcement: !!post.announcement, // official site announcement (pinned, labeled)
     removed: (post.visibility || 'visible') !== 'visible',
     edited: (post.edit_count || 0) >= 2, // the first edit is free / silent
     edited_at: post.edited_at || null,

@@ -485,6 +485,10 @@ db.init = async function init() {
   await addColumn('users', "cover_pos TEXT NOT NULL DEFAULT '50% 50%'", 'cover_pos');
   await addColumn('posts', 'locked INTEGER NOT NULL DEFAULT 0', 'locked');   // comments locked
   await addColumn('posts', 'pinned INTEGER NOT NULL DEFAULT 0', 'pinned');   // pinned in its community
+  // Site-wide announcement pin: the founder/admin flags a post as an official,
+  // clearly-labeled announcement shown at the top of the feed (transparent, NOT
+  // a hidden feed boost). Kept out of the ranked feeds so it only appears pinned.
+  await addColumn('posts', 'announcement INTEGER NOT NULL DEFAULT 0', 'announcement');
 
   await db.exec(`
     CREATE TABLE IF NOT EXISTS reports (

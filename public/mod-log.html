@@ -45,8 +45,8 @@
 
   <script>
     (function () {
-      var ICONS = { auto_hide: '👁️', remove_post: '🚫', remove_comment: '🚫', restore_post: '↩️', restore_comment: '↩️', ban: '⛔', unban: '✅', lock: '🔒', unlock: '🔓', pin: '📌', account_deleted: '🗑️', jury_verdict: '⚖️', jury_opened: '⚖️' };
-      var LABELS = { auto_hide: 'Auto-hidden by community flags', remove_post: 'Post removed', remove_comment: 'Comment removed', restore_post: 'Post restored', restore_comment: 'Comment restored', ban: 'User banned from community', unban: 'User unbanned', lock: 'Thread locked', unlock: 'Thread unlocked', pin: 'Post pinned', account_deleted: 'Account deleted', jury_verdict: 'Community jury verdict', jury_opened: 'Community jury convened' };
+      var ICONS = { auto_hide: '👁️', remove_post: '🚫', remove_comment: '🚫', restore_post: '↩️', restore_comment: '↩️', ban: '⛔', unban: '✅', lock: '🔒', unlock: '🔓', pin: '📌', account_deleted: '🗑️', jury_verdict: '⚖️', jury_opened: '⚖️', announce: '📌', unannounce: '📌' };
+      var LABELS = { auto_hide: 'Auto-hidden by community flags', remove_post: 'Post removed', remove_comment: 'Comment removed', restore_post: 'Post restored', restore_comment: 'Comment restored', ban: 'User banned from community', unban: 'User unbanned', lock: 'Thread locked', unlock: 'Thread unlocked', pin: 'Post pinned', account_deleted: 'Account deleted', jury_verdict: 'Community jury verdict', jury_opened: 'Community jury convened', announce: 'Pinned a site announcement', unannounce: 'Removed a site announcement' };
       function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
       function when(ts) {
         if (!ts) return '';

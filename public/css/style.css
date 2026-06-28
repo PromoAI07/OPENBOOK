@@ -779,6 +779,11 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
   color: #fff; background: linear-gradient(135deg, #4f8cff, #2563eb);
   border: 1px solid rgba(0,0,0,0.08); white-space: nowrap;
 }
+/* Pinned, clearly-labeled site announcement at the top of the feed (transparent
+   pin, never a hidden feed boost). */
+.ann-wrap { margin-bottom: 14px; border: 1.5px solid #2563eb; border-radius: 14px; overflow: hidden; box-shadow: 0 4px 16px rgba(37,99,235,0.12); }
+.ann-label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; letter-spacing: .02em; color: #fff; background: linear-gradient(135deg, #4f8cff, #2563eb); padding: 7px 14px; }
+.ann-wrap > .card { margin: 0; border: none; border-radius: 0; box-shadow: none; }
 /* Profile header name column: take the remaining width and let long names wrap
    cleanly instead of being clipped under the avatar / cover overlap. */
 /* The name column claims at least ~240px and grows; if the row is too tight for

@@ -42,6 +42,8 @@ const API = {
   support() { return this.get('/api/support'); },
   tiers() { return this.get('/api/tiers'); },
   communityStats() { return this.get('/api/community-stats'); },
+  announcements() { return this.get('/api/posts/feed/announcements'); },
+  modAnnounce(postId, announce) { return this.post('/api/moderation/announce', { postId, announce }); },
   billingPlans() { return this.get('/api/billing/plans'); },
   billingNetworks() { return this.get('/api/billing/networks'); },
   claimCrypto(network, tier, txHash) { return this.post('/api/billing/crypto/claim', { network, tier, txHash }); },

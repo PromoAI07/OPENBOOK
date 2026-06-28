@@ -62,7 +62,7 @@ router.get('/feed', requireAuth, async (req, res) => {
   const rows = await db
     .prepare(
       `SELECT p.* FROM posts p
-       WHERE p.group_id IS NULL AND p.community_id IS NULL
+       WHERE p.group_id IS NULL AND p.community_id IS NULL AND p.announcement = 0
          AND (
            p.user_id = ?
            OR p.user_id IN (
@@ -92,7 +92,7 @@ router.get('/feed/home', requireAuth, async (req, res) => {
   const personal = await db
     .prepare(
       `SELECT p.* FROM posts p
-       WHERE p.group_id IS NULL AND p.community_id IS NULL AND p.visibility = 'visible'
+       WHERE p.group_id IS NULL AND p.community_id IS NULL AND p.visibility = 'visible' AND p.announcement = 0
          AND (
            p.user_id = ?
            OR p.user_id IN (
@@ -109,7 +109,7 @@ router.get('/feed/home', requireAuth, async (req, res) => {
     .prepare(
       `SELECT p.* FROM posts p
        WHERE p.community_id IN (SELECT community_id FROM community_members WHERE user_id = ?)
-         AND p.visibility = 'visible'
+         AND p.visibility = 'visible' AND p.announcement = 0
        ORDER BY p.created_at DESC, p.id DESC LIMIT 80`
     )
     .all(uid);
@@ -147,6 +147,16 @@ router.get('/feed/home', requireAuth, async (req, res) => {
   res.json({ posts: ranked, sort, window });
 });
 
+// Pinned site announcements: posts the founder/admin flagged as official
+// announcements, shown clearly labeled at the top of the feed. Kept OUT of the
+// ranked feeds, so this is a transparent pin, never a hidden feed boost.
+router.get('/feed/announcements', requireAuth, async (req, res) => {
+  const rows = await db
+    .prepare("SELECT * FROM posts WHERE announcement = 1 AND visibility = 'visible' ORDER BY created_at DESC, id DESC LIMIT 10")
+    .all();
+  res.json({ posts: await decoratePosts(rows, req.user.id) });
+});
+
 // Discover feed: public content from across OpenBook, for finding people and
 // communities you do not already follow. Includes BOTH public personal posts
 // (audience = 'public') from anyone AND posts in public communities. Friends-only
@@ -159,7 +169,7 @@ router.get('/feed/discover', requireAuth, async (req, res) => {
     .prepare(
       `SELECT p.* FROM posts p
        LEFT JOIN communities c ON c.id = p.community_id
-       WHERE p.visibility = 'visible' AND p.group_id IS NULL
+       WHERE p.visibility = 'visible' AND p.group_id IS NULL AND p.announcement = 0
          AND (
            (p.community_id IS NULL AND p.audience = 'public')
            OR (p.community_id IS NOT NULL AND c.privacy = 'public')

@@ -183,6 +183,24 @@ router.post('/pin', requireAuth, async (req, res) => {
   res.json({ ok: true, pinned: !!pinned });
 });
 
+// ---- Site announcement pin (founder / admin) ----
+// Flag a post as an official, clearly-labeled announcement shown at the top of
+// the feed. This is a TRANSPARENT pin (everyone sees it is an announcement), not
+// a hidden feed boost, and it is logged to the public mod log like any other
+// action, in keeping with "nothing is hidden".
+router.post('/announce', requireAuth, async (req, res) => {
+  if (!(req.user.is_admin || req.user.is_founder)) {
+    return res.status(403).json({ error: 'Only the founder or a platform admin can post announcements' });
+  }
+  const postId = Number(req.body.postId);
+  const announce = req.body.announce ? 1 : 0;
+  const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(postId);
+  if (!post) return res.status(404).json({ error: 'Post not found' });
+  await db.prepare('UPDATE posts SET announcement = ? WHERE id = ?').run(announce, postId);
+  await logModAction(req.user.id, announce ? 'announce' : 'unannounce', 'post', postId, null, '', 1);
+  res.json({ ok: true, announcement: !!announce });
+});
+
 // ---- Community ban / unban ----
 router.post('/community/:id/ban', requireAuth, async (req, res) => {
   const communityId = Number(req.params.id);
