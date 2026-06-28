@@ -1715,8 +1715,10 @@
 
     const u = data.user;
     const isMe = data.friendStatus === 'self';
-    const _themeObj = themeFor(u); // Premium theme (gated server-side via u.theme)
-    const _nameAccent = _themeObj ? _themeObj.accent : ((u.accent && /^#[0-9a-fA-F]{6}$/.test(u.accent)) ? u.accent : '');
+    const _themeObj = themeFor(u); // Premium background gradient (gated server-side via u.theme)
+    // Name color is chosen SEPARATELY from the background gradient: it comes only
+    // from the accent color picker (u.accent), never from the theme.
+    const _nameAccent = (u.accent && /^#[0-9a-fA-F]{6}$/.test(u.accent)) ? u.accent : '';
     const coverStyle = u.cover
       ? ' style="background-image:url(\'' + esc(u.cover) + '\');background-position:' + esc(u.coverPos || '50% 50%') + '"'
       : (_themeObj ? ' style="background:' + _themeObj.gradient + '"' : '');
@@ -1867,20 +1869,20 @@
       '<div class="field"><label>Bio</label><textarea class="input" id="epBio" rows="3" maxlength="300" placeholder="Tell people about yourself">' + esc(ME.bio || '') + '</textarea>' +
       '<div class="shint" style="font-size:12px;display:flex;justify-content:space-between;gap:10px"><span>Links become clickable on <strong>Plus</strong> and above (or for long-standing trusted accounts).</span><span id="epBioCount" style="white-space:nowrap;color:var(--text-soft)"></span></div></div>' +
       ((ME.tier >= 1)
-        ? ('<div class="field"><label>Profile accent color</label>' +
+        ? ('<div class="field"><label>Name color</label>' +
             '<div class="row" style="gap:10px;align-items:center">' +
               '<input type="color" id="epAccent" value="' + ((ME.accent && /^#[0-9a-fA-F]{6}$/.test(ME.accent)) ? esc(ME.accent) : '#4f8cff') + '" style="width:48px;height:34px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--card);cursor:pointer">' +
               '<button class="btn btn-sm" type="button" id="epAccentClear">Clear</button>' +
-              '<span class="shint" style="font-size:12px">A supporter perk: tints your name on your profile.</span>' +
+              '<span class="shint" style="font-size:12px">A supporter perk: sets the color of your name. Chosen separately from your background.</span>' +
             '</div></div>')
         : '') +
       ((ME.tier >= 3)
-        ? ('<div class="field"><label>Profile theme</label>' +
+        ? ('<div class="field"><label>Profile background gradient</label>' +
             '<div class="theme-grid" id="epThemes">' +
               '<button type="button" class="theme-sw theme-none" data-th="">None</button>' +
               Object.keys(PROFILE_THEMES).map(function (id) { return '<button type="button" class="theme-sw" data-th="' + id + '" title="' + esc(PROFILE_THEMES[id].name) + '" style="background:' + PROFILE_THEMES[id].gradient + '"></button>'; }).join('') +
             '</div>' +
-            '<div class="shint" style="font-size:12px">A Premium perk: a preset gradient that skins your profile background and tints your name. Overrides your accent color.</div></div>')
+            '<div class="shint" style="font-size:12px">A Premium perk: pick a gradient for your profile background. Chosen separately from your name color.</div></div>')
         : '') +
       '<button class="btn btn-primary btn-block" id="epSave">Save changes</button>' +
       '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +
