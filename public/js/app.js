@@ -530,15 +530,17 @@
 
   async function renderSupport() {
     view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading...</div></div>';
-    const [lk, tr, st, pl] = await Promise.all([
+    const [lk, tr, st, pl, nw] = await Promise.all([
       API.support().catch(() => ({})),
       API.tiers().then((r) => r.tiers).catch(() => []),
       API.myStats().then((r) => r.supporter).catch(() => null),
       API.billingPlans().then((r) => r.plans).catch(() => []),
+      API.billingNetworks().then((r) => r.networks).catch(() => []),
     ]);
-    const links = lk || {}, tiers = tr || [], mine = st;
+    const links = lk || {}, tiers = tr || [], mine = st, networks = nw || [];
     const plans = {};
     (pl || []).forEach((p) => { plans[p.tier] = p; });
+    const planDefault = { 1: { usd: 12, label: '1 year' }, 2: { usd: 18, label: '6 months' }, 3: { usd: 30, label: '3 months' } };
     const curTier = mine ? mine.tier : 0;
     const origin = window.location.origin;
     const expiresNote = (mine && mine.tier > 0)
@@ -546,6 +548,22 @@
           ? '<div class="shint" style="font-size:12px;margin-top:6px">Your ' + esc(mine.tierName) + ' status is active until ' + esc(new Date(String(mine.expires).replace(' ', 'T') + 'Z').toLocaleDateString()) + '.</div>'
           : '<div class="shint" style="font-size:12px;margin-top:6px">You are a ' + esc(mine.tierName) + ' supporter. Thank you!</div>')
       : '';
+
+    // --- Inline SVG coin logos (self-contained, never a broken image) ---
+    var USDT_SVG = '<svg width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="#26A17B"/><path fill="#fff" d="M13.4 10.6V9.3h3.1V7.3H7.5v2h3.1v1.3c-2.5.12-4.4.62-4.4 1.22 0 .6 1.9 1.1 4.4 1.22v4.06h2.8v-4.06c2.5-.12 4.4-.62 4.4-1.22 0-.6-1.9-1.1-4.4-1.22zm0 2.05c-.06 0-.4.02-1.4.02-.8 0-1.36-.01-1.4-.02-2.15-.1-3.76-.47-3.76-.92 0-.45 1.6-.83 3.76-.92v1.46c.04.01.6.04 1.42.04.97 0 1.32-.03 1.38-.04v-1.46c2.15.1 3.76.47 3.76.92 0 .45-1.6.82-3.76.92z"/></svg>';
+    var NET_SVG = {
+      tron: '<svg width="34" height="34" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#EF0027"/><path fill="#fff" d="M21.9 11.4c-.6-.56-1.43-1.4-2.1-2l-.04-.03a1 1 0 0 0-.3-.16l-9.92-1.86c-.13-.02-.27 0-.39.06a.6.6 0 0 0-.16.14.66.66 0 0 0-.12.28v.1l2.6 7.24c.05.16.16.3.3.38.15.08.32.1.48.06l6.06-1.13-4.2 5.22c-.07.1-.1.21-.08.32a.5.5 0 0 0 .15.28c.08.07.18.1.28.1a.5.5 0 0 0 .2-.05l9.16-4.47c.13-.06.22-.18.25-.32a.5.5 0 0 0-.1-.43zm-2.65 1.03l1.7 1.44-3.1.58zm-1-.2l-2.85.53-2.05-5.7zm-.9 4.46l-3.94.74-3.32-7.6zm.95.32l3.18-.6-4.55 2.22z"/></svg>',
+      ethereum: '<svg width="34" height="34" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="#627EEA"/><g fill="#fff"><path fill-opacity=".6" d="M12 3.2v6.4l5.4 2.4z"/><path d="M12 3.2L6.6 12l5.4-2.4z"/><path fill-opacity=".6" d="M12 16.1v4.7l5.4-7.5z"/><path d="M12 20.8v-4.7L6.6 13.3z"/><path fill-opacity=".2" d="M12 15.1l5.4-3.1L12 9.6z"/><path fill-opacity=".6" d="M6.6 12l5.4 3.1V9.6z"/></g></svg>',
+      bsc: '<svg width="34" height="34" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#F3BA2F"/><path fill="#fff" d="M12.1 14.2L16 10.3l3.9 3.9 2.27-2.27L16 5.76l-6.17 6.17zM6.5 16l2.27-2.27L11.04 16l-2.27 2.27zm5.6 1.8L16 21.7l3.9-3.9 2.27 2.26L16 26.24l-6.17-6.18zm8.36-1.8l2.27-2.27L25.5 16l-2.27 2.27zM18.3 16L16 13.7 14.3 15.4l-.6.6L16 18.3z"/></svg>',
+      polygon: '<svg width="34" height="34" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#8247E5"/><path fill="#fff" d="M21 13.4c-.36-.2-.82-.2-1.2 0l-2.66 1.56-1.8 1.02-2.64 1.56c-.36.2-.82.2-1.2 0l-2.08-1.24a1.2 1.2 0 0 1-.6-1.04v-2.4c0-.42.22-.82.6-1.04l2.06-1.2c.36-.2.82-.2 1.2 0l2.06 1.2c.36.22.6.62.6 1.04v1.56l1.8-1.06v-1.57c0-.42-.22-.82-.6-1.04l-3.84-2.26c-.36-.2-.82-.2-1.2 0l-3.92 2.26c-.38.22-.6.62-.6 1.04v4.55c0 .42.22.82.6 1.04l3.9 2.26c.37.2.83.2 1.2 0l2.64-1.53 1.8-1.06 2.64-1.53c.36-.2.82-.2 1.2 0l2.06 1.2c.36.22.6.62.6 1.04v2.32c0 .42-.22.82-.6 1.04l-2.05 1.2c-.36.2-.82.2-1.2 0l-2.06-1.2a1.2 1.2 0 0 1-.6-1.04v-1.55l-1.8 1.06v1.56c0 .42.22.82.6 1.04l3.9 2.26c.37.2.83.2 1.2 0l3.9-2.26c.38-.22.6-.62.6-1.04v-4.55c0-.42-.22-.82-.6-1.04z"/></svg>',
+      solana: '<svg width="34" height="34" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#111"/><defs><linearGradient id="solg" x1="6" y1="22" x2="26" y2="10" gradientUnits="userSpaceOnUse"><stop stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient></defs><g fill="url(#solg)"><path d="M10 20.3c.13-.13.3-.2.48-.2h13.1c.3 0 .46.37.24.6l-2.6 2.5c-.13.12-.3.2-.48.2H7.64c-.3 0-.46-.37-.24-.6z"/><path d="M10 8.6c.14-.13.3-.2.48-.2h13.1c.3 0 .46.37.24.6l-2.6 2.5c-.13.13-.3.2-.48.2H7.64c-.3 0-.46-.37-.24-.6z"/><path d="M21.32 14.4a.7.7 0 0 0-.48-.2H7.74c-.3 0-.46.38-.24.6l2.6 2.5c.13.13.3.2.48.2h13.1c.3 0 .46-.37.24-.6z"/></g></svg>',
+    };
+    function coinPair(id) {
+      return '<span style="position:relative;display:inline-block;width:34px;height:34px;flex:none">' +
+        (NET_SVG[id] || '<span style="font-size:26px">&#8383;</span>') +
+        '<span style="position:absolute;right:-3px;bottom:-3px;width:18px;height:18px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px var(--line)">' + USDT_SVG + '</span>' +
+        '</span>';
+    }
 
     // PayPal Website-Payments-Standard link carrying the logged-in user + tier in
     // `custom`, which the IPN webhook reads to auto-grant the tier on payment.
@@ -555,8 +573,8 @@
         business: links.paypalEmail || '',
         currency_code: 'USD',
         amount: String(plan.usd),
-        item_name: 'OpenBook ' + t.name + (plan.cycle === 'year' ? ' (1 year)' : ' (1 month)'),
-        custom: 'ob:' + (ME && ME.id) + ':' + t.tier + ':' + plan.cycle,
+        item_name: 'OpenBook ' + t.name + ' (' + (plan.label || '') + ')',
+        custom: 'ob:' + (ME && ME.id) + ':' + t.tier + ':' + (plan.cycle || ''),
         notify_url: origin + '/api/webhooks/paypal',
         'return': origin + '/app#support',
         cancel_return: origin + '/app#support',
@@ -566,10 +584,8 @@
 
     function tierCard(t) {
       const isCur = t.tier === curTier;
-      const plan = plans[t.tier] || { usd: t.tier === 3 ? 10 : t.price * 12, cycle: t.tier === 3 ? 'month' : 'year' };
-      const chargeLine = plan.cycle === 'year'
-        ? '<div class="shint" style="font-size:11px;margin-top:-2px;margin-bottom:6px">$' + t.price + '/mo, billed yearly ($' + plan.usd + ')</div>'
-        : '<div class="shint" style="font-size:11px;margin-top:-2px;margin-bottom:6px">$' + plan.usd + ' per month</div>';
+      const plan = plans[t.tier] || planDefault[t.tier] || { usd: t.price, label: '' };
+      const chargeLine = '<div class="shint" style="font-size:11px;margin-top:-2px;margin-bottom:6px">$' + t.price + '/mo &middot; billed ' + esc(plan.label || '') + ' up front ($' + plan.usd + ')</div>';
       let action;
       if (isCur) action = '<span class="pill pill-ok">Your plan</span>';
       else if (links.paypalEmail) action = '<a class="btn btn-primary btn-sm" href="' + esc(paypalUrl(t, plan)) + '" target="_blank" rel="noopener">Pay with PayPal</a>';
@@ -594,29 +610,44 @@
         '</div></div></div>';
     }
 
-    const cryptoBlock = '<div class="card"><div style="display:flex;gap:12px;align-items:flex-start">' +
-      '<div style="font-size:26px">&#8383;</div><div style="flex:1">' +
-      '<div style="font-weight:700">Pay with USDT (TRC-20)</div>' +
-      '<div class="shint" style="font-size:13px;margin:2px 0 8px">' +
-      (links.crypto
-        ? 'Near-zero fees. Send USDT on the TRON network to the address below, then paste your transaction hash to apply your tier automatically.'
-        : 'A USDT address will appear here once set.') + '</div>' +
-      (links.crypto
-        ? '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">' +
-            '<code style="word-break:break-all;background:var(--hover);padding:6px 8px;border-radius:6px;display:inline-block">' + esc(links.crypto) + '</code>' +
-            '<button class="btn btn-sm" id="cryptoCopy">Copy</button></div>' +
-          '<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">' +
-            '<select class="input" id="cryptoTier" style="max-width:180px">' +
-              '<option value="1">Supporter ($' + (plans[1] ? plans[1].usd : 12) + '/yr)</option>' +
-              '<option value="2">Plus ($' + (plans[2] ? plans[2].usd : 36) + '/yr)</option>' +
-              '<option value="3" selected>Premium ($' + (plans[3] ? plans[3].usd : 10) + '/mo)</option>' +
-            '</select>' +
-            '<input class="input" id="cryptoTx" placeholder="Paste transaction hash" style="flex:1;min-width:180px">' +
-            '<button class="btn btn-primary" id="cryptoClaim">Apply my tier</button>' +
+    // Explanation of fees, written under the payment section (user requested).
+    const feeNote = '<div class="card"><div class="shint" style="font-size:12.5px;line-height:1.65">' +
+      '<strong>About payment fees.</strong> Card processors like PayPal take a fixed fee of about $0.30 plus roughly 4.4% on <em>every</em> payment, so small or frequent charges lose a big share to fees. That is why we bill in advance, Supporter for a year, Plus for six months, Premium for three months, so that fee is paid as rarely as possible. ' +
+      '<strong>USDT (crypto) is the cheapest way to support us.</strong> It has no percentage cut and only a tiny network fee paid by the sender, so almost the whole amount reaches OpenBook. If you can, paying with USDT below is the best option.' +
+      '</div></div>';
+
+    function netRow(n) {
+      return '<div style="display:flex;align-items:center;gap:11px;padding:11px 0;border-top:1px solid var(--line)">' +
+        coinPair(n.id) +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:600;font-size:13px">USDT &middot; ' + esc(n.name) + '</div>' +
+          '<code style="word-break:break-all;font-size:12px;color:var(--text-soft)">' + esc(n.address) + '</code>' +
+        '</div>' +
+        '<button class="btn btn-sm" data-copy="' + esc(n.address) + '">Copy</button>' +
+        '</div>';
+    }
+
+    const cryptoBlock = networks.length
+      ? ('<div class="card">' +
+          '<div style="font-weight:700;display:flex;align-items:center;gap:8px"><span style="font-size:20px">&#8383;</span> Pay with USDT (lowest fees)</div>' +
+          '<div class="shint" style="font-size:13px;line-height:1.55;margin:4px 0 6px">Send USDT on whichever network you prefer to the matching address, then paste your transaction hash below and your tier is applied automatically. Almost the entire amount reaches the project.</div>' +
+          networks.map(netRow).join('') +
+          '<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:12px">' +
+            '<div class="shint" style="font-size:12px;margin-bottom:6px">Already sent USDT? Apply your tier:</div>' +
+            '<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">' +
+              '<select class="input" id="cryptoNet" style="max-width:170px">' + networks.map((n) => '<option value="' + esc(n.id) + '">' + esc(n.name) + '</option>').join('') + '</select>' +
+              '<select class="input" id="cryptoTier" style="max-width:210px">' +
+                '<option value="1">Supporter (' + (plans[1] ? plans[1].usd : 12) + ' USDT, 1 year)</option>' +
+                '<option value="2">Plus (' + (plans[2] ? plans[2].usd : 18) + ' USDT, 6 months)</option>' +
+                '<option value="3" selected>Premium (' + (plans[3] ? plans[3].usd : 30) + ' USDT, 3 months)</option>' +
+              '</select>' +
+              '<input class="input" id="cryptoTx" placeholder="Paste transaction hash" style="flex:1;min-width:180px">' +
+              '<button class="btn btn-primary" id="cryptoClaim">Apply my tier</button>' +
+            '</div>' +
+            '<div id="cryptoMsg" class="shint" style="font-size:12px;margin-top:6px"></div>' +
           '</div>' +
-          '<div id="cryptoMsg" class="shint" style="font-size:12px;margin-top:6px"></div>'
-        : '<span class="pill">Coming soon</span>') +
-      '</div></div></div>';
+        '</div>')
+      : '<div class="card"><div style="font-weight:700">Pay with USDT</div><div class="shint" style="font-size:13px;margin-top:4px">Crypto addresses are being set up. Check back soon.</div></div>';
 
     view.innerHTML =
       '<div class="card"><div class="pname">&#10084;&#65039; Support OpenBook</div>' +
@@ -626,25 +657,25 @@
       expiresNote + '</div></div>' +
       '<div class="section-title">Supporter tiers</div>' +
       '<div class="tier-grid">' + tiers.map(tierCard).join('') + '</div>' +
-      '<div class="card"><div class="shint" style="font-size:12px">Supporter and Plus are billed once a year in advance, which keeps payment fees low so more of your support reaches the project. Premium is billed monthly. After you pay with PayPal your tier is applied automatically within a few minutes.</div></div>' +
+      feeNote +
       cryptoBlock +
       linkCard('&#128081;', 'Sponsor on GitHub', 'Back the project directly through GitHub Sponsors.', links.github, 'Sponsor on GitHub') +
       linkCard('&#129309;', 'Open Collective', 'Transparent, community funding where every expense is public.', links.opencollective, 'Give on Open Collective') +
       '<div class="card"><div class="shint" style="font-size:12px">Why not ads? OpenBook is built on the promise that your data is yours. Surveillance ads would break that promise, so we will not run them.</div></div>';
 
-    const copyBtn = document.getElementById('cryptoCopy');
-    if (copyBtn) copyBtn.onclick = () => {
-      try { navigator.clipboard.writeText(links.crypto); toast('Address copied'); } catch (e) { toast('Could not copy'); }
-    };
+    view.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = () => {
+      try { navigator.clipboard.writeText(b.getAttribute('data-copy')); toast('Address copied'); } catch (e) { toast('Could not copy'); }
+    }));
     const claimBtn = document.getElementById('cryptoClaim');
     if (claimBtn) claimBtn.onclick = async () => {
+      const network = document.getElementById('cryptoNet').value;
       const tier = Number(document.getElementById('cryptoTier').value);
       const tx = document.getElementById('cryptoTx').value.trim();
       const msg = document.getElementById('cryptoMsg');
       if (!tx) { msg.textContent = 'Paste your transaction hash first.'; return; }
       claimBtn.disabled = true; msg.textContent = 'Verifying your transaction on-chain...';
       try {
-        await API.claimCrypto(tier, tx);
+        await API.claimCrypto(network, tier, tx);
         toast('Thank you! Your tier is now active.');
         renderSupport();
       } catch (e) { msg.textContent = e.message; claimBtn.disabled = false; }

@@ -4,9 +4,9 @@ Two rails, both optional, both auto-grant the tier on payment. Nothing here can
 buy karma, standing, reach, or vote weight: a payment only ever sets the
 supporter tier (cosmetic, capacity, convenience perks).
 
-Charge model: **Supporter ($1/mo) and Plus ($3/mo) are billed once a year in
-advance** ($12 and $36, one transaction each, so a per-payment fee is paid once
-not twelve times). **Premium ($10/mo) is billed monthly.**
+Charge model (billed in advance so PayPal's fixed per-transaction fee is paid as
+rarely as possible): **Supporter ($1/mo) = 1 year up front ($12), Plus ($3/mo) =
+6 months up front ($18), Premium ($10/mo) = 3 months up front ($30).**
 
 ## Rail 1: PayPal (cards + PayPal balance)
 
@@ -28,23 +28,29 @@ If your PayPal account type does not expose IPN, the **manual fallback** still
 works: you get the PayPal email, then grant the tier yourself from the admin
 panel at `https://openbook.space/admin` (or via `POST /api/admin/grant`).
 
-## Rail 2: USDT (TRC-20) crypto
+## Rail 2: USDT (multi-network) crypto
 
-Why: near-zero fees, works in Vietnam, fits the open/sovereign ethos.
+Why: near-zero fees, works in Vietnam, fits the open/sovereign ethos. Almost the
+whole amount reaches the project.
 
-Setup:
-1. Create a TRON wallet (e.g. TronLink) and copy its USDT (TRC-20) deposit
-   address (starts with `T...`).
-2. In Render, set `SUPPORT_CRYPTO` to that address. Optionally set `TRON_API_KEY`
-   (a free TronGrid key) to raise rate limits.
-3. Done. The Support page shows the address and an "Apply my tier" form. A
-   supporter sends USDT, pastes their transaction hash, and the server confirms
-   the transfer on-chain (correct token, your address, enough USDT) and grants
-   the tier. Each tx hash can only be used once.
+Five networks are supported: **Tron (TRC-20), Ethereum (ERC-20), BNB Chain
+(BEP-20), Polygon, and Solana (SPL).** The receive addresses live in
+`routes/billing.js` (`NETWORKS`, set to the founder's wallets) and can be
+overridden by env (`SUPPORT_USDT_TRON`, `SUPPORT_USDT_ETH`, `SUPPORT_USDT_BSC`,
+`SUPPORT_USDT_POLYGON`, `SUPPORT_USDT_SOLANA`).
+
+How it works: the Support page shows each network's address with its logo and a
+copy button, plus one "Apply my tier" form. A supporter sends USDT, picks the
+network, pastes their transaction hash, and the server confirms the transfer
+on-chain (correct token + your address + enough USDT) and grants the tier. Each
+hash can be used once. On-chain reads use public RPC/explorer endpoints
+(overridable via `ETH_RPC`, `BSC_RPC`, `POLYGON_RPC`, `SOLANA_RPC`, `TRON_API_BASE`
+/ `TRON_API_KEY`). If a chain's read ever fails, the supporter is asked to retry
+and the founder can still grant manually from `/admin`.
 
 ## Tuning (optional env)
-- `PRICE_SUPPORTER_YEAR` (12), `PRICE_PLUS_YEAR` (36), `PRICE_PREMIUM_MONTH` (10).
-- `BILLING_TEST_MODE=1` bypasses PayPal/TronGrid verification. **Tests only;
+- Prices: `PRICE_SUPPORTER` (12), `PRICE_PLUS` (18), `PRICE_PREMIUM` (30).
+- `BILLING_TEST_MODE=1` bypasses PayPal/on-chain verification. **Tests only;
   never set this in production.**
 
 ## How a grant is recorded

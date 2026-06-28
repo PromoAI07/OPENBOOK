@@ -42,7 +42,8 @@ const API = {
   support() { return this.get('/api/support'); },
   tiers() { return this.get('/api/tiers'); },
   billingPlans() { return this.get('/api/billing/plans'); },
-  claimCrypto(tier, txHash) { return this.post('/api/billing/crypto/claim', { tier, txHash }); },
+  billingNetworks() { return this.get('/api/billing/networks'); },
+  claimCrypto(network, tier, txHash) { return this.post('/api/billing/crypto/claim', { network, tier, txHash }); },
   myPayments() { return this.get('/api/billing/me'); },
   // Admin (supporter tiers)
   adminGrantTier(userId, tier, days) { return this.post('/api/admin/grant', { userId, tier, days }); },
