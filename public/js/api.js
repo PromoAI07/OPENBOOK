@@ -41,6 +41,7 @@ const API = {
   resetPassword(token, password) { return this.post('/api/auth/reset-password', { token, password }); },
   support() { return this.get('/api/support'); },
   tiers() { return this.get('/api/tiers'); },
+  communityStats() { return this.get('/api/community-stats'); },
   billingPlans() { return this.get('/api/billing/plans'); },
   billingNetworks() { return this.get('/api/billing/networks'); },
   claimCrypto(network, tier, txHash) { return this.post('/api/billing/crypto/claim', { network, tier, txHash }); },

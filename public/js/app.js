@@ -99,6 +99,11 @@
     if (!user || !user.founder) return '';
     return ' <span class="founder-badge" title="Founder of OpenBook">&#9733; Founder</span>';
   }
+  // Cosmetic blue Pioneer badge for the first 5000 members. Never reputation.
+  function pioneerBadge(user) {
+    if (!user || !user.pioneer) return '';
+    return ' <span class="pioneer-badge" title="One of the first 5,000 members of OpenBook">&#9873; Pioneer</span>';
+  }
   // Supporter blue verified tick (any paid tier) plus the Founder badge if set.
   // Both are cosmetic, never reputation. Appended to author names everywhere
   // through this one helper, so the Founder badge follows the founder wherever
@@ -112,6 +117,7 @@
         '<path class="vtick-check" d="M8.2 12.2l2.4 2.4 5-5"/></svg>';
     }
     out += founderBadge(user);
+    out += pioneerBadge(user);
     return out;
   }
   // Small colored supporter badge (bronze/silver/gold). Shown on profiles.
@@ -530,14 +536,34 @@
 
   async function renderSupport() {
     view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading...</div></div>';
-    const [lk, tr, st, pl, nw] = await Promise.all([
+    const [lk, tr, st, pl, nw, cs] = await Promise.all([
       API.support().catch(() => ({})),
       API.tiers().then((r) => r.tiers).catch(() => []),
       API.myStats().then((r) => r.supporter).catch(() => null),
       API.billingPlans().then((r) => r.plans).catch(() => []),
       API.billingNetworks().then((r) => r.networks).catch(() => []),
+      API.communityStats().catch(() => null),
     ]);
     const links = lk || {}, tiers = tr || [], mine = st, networks = nw || [];
+
+    // Pioneer count card: the first 5,000 members get a permanent blue badge.
+    let pioneerCard = '';
+    if (cs && cs.cap) {
+      const n = cs.users || 0, cap = cs.cap, filled = Math.min(n, cap);
+      const pct = Math.max(2, Math.round((filled / cap) * 100));
+      const full = n >= cap;
+      pioneerCard = '<div class="card">' +
+        '<div style="font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          '<span class="pioneer-badge">&#9873; Pioneer</span> Founding members</div>' +
+        '<div class="shint" style="font-size:13px;line-height:1.55;margin:5px 0 10px">The first 5,000 people to join OpenBook keep a blue <strong>Pioneer</strong> badge forever, for helping build the community early. ' +
+          (full ? 'All 5,000 Pioneer spots are claimed.' : 'There is still time to be one of them.') + '</div>' +
+        '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px">' +
+          '<span style="font-size:30px;font-weight:800;line-height:1;color:var(--brand)">' + n.toLocaleString() + '</span>' +
+          '<span class="shint" style="font-size:14px">of 5,000 members</span></div>' +
+        '<div style="height:9px;border-radius:99px;background:var(--hover);overflow:hidden">' +
+          '<div style="height:100%;width:' + pct + '%;border-radius:99px;background:linear-gradient(135deg,#4f8cff,#2563eb)"></div></div>' +
+        '</div>';
+    }
     const plans = {};
     (pl || []).forEach((p) => { plans[p.tier] = p; });
     const planDefault = { 1: { usd: 12, label: '1 year' }, 2: { usd: 18, label: '6 months' }, 3: { usd: 30, label: '3 months' } };
@@ -655,6 +681,7 @@
       'OpenBook is free and open source, and it will stay that way. There is no paywall and we never sell your data. ' +
       'Supporter perks are cosmetic and convenience only: supporting us can never buy a place in the feed or extra weight in a vote. That stays equal for everyone.' +
       expiresNote + '</div></div>' +
+      pioneerCard +
       '<div class="section-title">Supporter tiers</div>' +
       '<div class="tier-grid">' + tiers.map(tierCard).join('') + '</div>' +
       feeNote +

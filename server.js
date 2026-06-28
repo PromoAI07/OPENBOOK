@@ -159,6 +159,19 @@ app.get('/api/tiers', (req, res) => {
   res.json({ tiers: require('./entitlements').tierList() });
 });
 
+// Public community size: total members and how many of the first-5000 Pioneer
+// spots are filled. Sentinel accounts (the [deleted] ghost + system actor) are
+// excluded from the member count.
+app.get('/api/community-stats', async (req, res) => {
+  try {
+    const m = await gateDb.prepare("SELECT COUNT(*) c FROM users WHERE email NOT IN ('ghost@deleted.openbook.local','system@openbook.local')").get();
+    const p = await gateDb.prepare('SELECT COUNT(*) c FROM users WHERE is_pioneer = 1').get();
+    res.json({ users: m.c, pioneers: p.c, cap: 5000 });
+  } catch (e) {
+    res.json({ users: 0, pioneers: 0, cap: 5000 });
+  }
+});
+
 // JSON API.
 app.use('/api/auth', authLimiter, require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));

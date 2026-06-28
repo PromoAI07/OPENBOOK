@@ -768,6 +768,14 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
   color: #4a3200; background: linear-gradient(135deg, #ffd34d, #f7a823);
   border: 1px solid rgba(0,0,0,0.08); white-space: nowrap;
 }
+/* Blue Pioneer badge for the first 5,000 members (cosmetic, never reputation). */
+.pioneer-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; font-weight: 800; line-height: 1;
+  padding: 2px 7px; border-radius: 999px; vertical-align: middle;
+  color: #fff; background: linear-gradient(135deg, #4f8cff, #2563eb);
+  border: 1px solid rgba(0,0,0,0.08); white-space: nowrap;
+}
 /* Profile header name column: take the remaining width and let long names wrap
    cleanly instead of being clipped under the avatar / cover overlap. */
 /* The name column claims at least ~240px and grows; if the row is too tight for

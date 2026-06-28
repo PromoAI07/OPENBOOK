@@ -874,6 +874,23 @@ db.init = async function init() {
     }
   } catch (e) { /* column may not be ready on a brand new db */ }
 
+  // --- Pioneer badge: the first 5000 members get a permanent blue badge ---
+  // Awarded by signup order (lowest ids first), excluding the founder(s) and the
+  // internal sentinel accounts (the [deleted] ghost + the OpenBook system actor).
+  // Stored as a flag so it is permanent and cosmetic only (never reputation).
+  // Runs AFTER the founder sync so founders are correctly excluded. Idempotent:
+  // the earliest-5000 set is fixed once the platform passes 5000 real members.
+  await addColumn('users', 'is_pioneer INTEGER NOT NULL DEFAULT 0', 'is_pioneer');
+  try {
+    await db.exec(
+      "UPDATE users SET is_pioneer = 1 WHERE id IN (" +
+      "SELECT id FROM users WHERE is_founder = 0 AND email NOT IN ('ghost@deleted.openbook.local','system@openbook.local') " +
+      "ORDER BY id ASC LIMIT 5000) AND is_pioneer = 0;"
+    );
+    // The founder is explicitly NOT a Pioneer (they have the Founder badge).
+    await db.exec('UPDATE users SET is_pioneer = 0 WHERE is_founder = 1;');
+  } catch (e) { /* users table/columns may not be ready on a brand new db */ }
+
   // Clear out sessions older than 30 days on startup.
   await db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");
 

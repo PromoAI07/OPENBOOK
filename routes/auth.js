@@ -91,6 +91,15 @@ router.post('/signup', async (req, res, next) => {
   const refCode = (req.body.ref || '').toString().trim();
   if (refCode) await attachReferral(info.lastInsertRowid, refCode);
 
+  // Pioneer badge: the first 5000 real members (signup order) get it forever.
+  // Cosmetic only. Founders + sentinel accounts are excluded from the count.
+  try {
+    const cnt = await db.prepare(
+      "SELECT COUNT(*) c FROM users WHERE is_founder = 0 AND email NOT IN ('ghost@deleted.openbook.local','system@openbook.local')"
+    ).get();
+    if (cnt && cnt.c <= 5000) await db.prepare('UPDATE users SET is_pioneer = 1 WHERE id = ?').run(info.lastInsertRowid);
+  } catch (e) { /* non-fatal */ }
+
   const out = { user: selfUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid)) };
   if (EMAIL_CONFIGURED && REQUIRE_EMAIL_VERIFICATION) {
     const link = verifyLink(req, token);
