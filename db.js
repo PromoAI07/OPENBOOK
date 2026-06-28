@@ -483,6 +483,10 @@ db.init = async function init() {
   // their photos like Facebook. Stored as a CSS position string, e.g. "50% 30%".
   await addColumn('users', "avatar_pos TEXT NOT NULL DEFAULT '50% 50%'", 'avatar_pos');
   await addColumn('users', "cover_pos TEXT NOT NULL DEFAULT '50% 50%'", 'cover_pos');
+  // Supporter perk: a custom profile accent color (hex). Stored for everyone but
+  // only APPLIED for paid tiers / founders (see auth.publicUser), so it is a real
+  // tier perk and stops applying if supporter time lapses.
+  await addColumn('users', "accent_color TEXT NOT NULL DEFAULT ''", 'accent_color');
   await addColumn('posts', 'locked INTEGER NOT NULL DEFAULT 0', 'locked');   // comments locked
   await addColumn('posts', 'pinned INTEGER NOT NULL DEFAULT 0', 'pinned');   // pinned in its community
   // Site-wide announcement pin: the founder/admin flags a post as an official,

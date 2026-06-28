@@ -84,6 +84,9 @@ function publicUser(u) {
     // high standing). This is the standard anti-spam gate: a brand-new account
     // cannot drop a clickable link, but an established or supporting member can.
     bioLinks: effectiveTier(u) >= 2 || (u.trust_level || 0) >= 3 || (u.standing == null ? 100 : u.standing) >= 150,
+    // A custom profile accent color is a paid perk (any tier 1+), so it only
+    // applies while the account is a supporter / founder. Stored either way.
+    accent: effectiveTier(u) >= 1 ? (u.accent_color || '') : '',
   }, publicTierFields(u)); // tier, tierName, verified (blue tick), badge
 }
 

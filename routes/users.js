@@ -125,6 +125,14 @@ router.put('/me', requireAuth, async (req, res) => {
     await db.prepare('UPDATE users SET bio = ? WHERE id = ?').run(bio, req.user.id);
   }
 
+  // Profile accent color (a paid perk). Only updated when the field is present, so
+  // a bio-only save never clears it. Validated as a #rrggbb hex (or empty to clear).
+  if (req.body.accentColor !== undefined) {
+    const raw = String(req.body.accentColor || '').trim();
+    const accent = /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : '';
+    await db.prepare('UPDATE users SET accent_color = ? WHERE id = ?').run(accent, req.user.id);
+  }
+
   const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: publicUser(user) });
 });

@@ -34,17 +34,17 @@ const TIERS = {
   1: {
     tier: 1, name: 'Supporter', price: 1, badge: 'bronze', verified: true, adFree: false,
     customization: 'accent',
-    perks: ['Blue verified tick', 'Bronze Supporter badge', '1 GB of media storage', 'A profile accent color', 'Your name in the supporters credits', 'Early access to new features'],
+    perks: ['Blue verified tick', 'Bronze Supporter badge', '1 GB of media storage', 'A custom profile accent color', 'Early access to new features'],
   },
   2: {
     tier: 2, name: 'Plus', price: 3, badge: 'silver', verified: true, adFree: true,
     customization: 'themes',
-    perks: ['Everything in Supporter', 'Silver badge', '3 GB of media storage', 'Clickable links in your profile bio', 'Ad-free, forever (if ads ever launch)', 'Bigger uploads (250 MB per file)', 'Profile themes'],
+    perks: ['Everything in Supporter', 'Silver badge', '3 GB of media storage', 'Clickable links in your profile bio', 'Ad-free, forever (if ads ever launch)', 'Bigger uploads (250 MB per file)'],
   },
   3: {
     tier: 3, name: 'Premium', price: 10, badge: 'gold', verified: true, adFree: true,
     customization: 'full',
-    perks: ['Everything in Plus', 'Gold badge', '10 GB of media storage', 'Full profile customization', 'Largest uploads (1 GB per file)', 'Pro analytics', 'Propose features first'],
+    perks: ['Everything in Plus', 'Gold badge', '10 GB of media storage', 'Largest uploads (1 GB per file)', 'Propose features first'],
   },
 };
 

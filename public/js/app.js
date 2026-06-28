@@ -1675,8 +1675,12 @@
     if (!raw) return '';
     var safe = esc(raw);
     if (u && u.bioLinks) {
-      safe = safe.replace(/(https?:\/\/[^\s<]+)/g, function (m) {
-        return '<a href="' + m + '" target="_blank" rel="noopener nofollow ugc" class="bio-link">' + m + '</a>';
+      // Linkify full URLs (http/https), www.* links, AND bare domains like
+      // "openbook.space/x" so a supporter does not have to type "https://".
+      var re = /(\bhttps?:\/\/[^\s<]+)|(\bwww\.[^\s<]+)|(\b[a-z0-9][a-z0-9-]*\.(?:com|net|org|io|co|me|app|dev|xyz|space|ai|gg|tv|info|biz|link|site|online|store|shop|page|live|vn|uk|us)(?:\/[^\s<]*)?)/gi;
+      safe = safe.replace(re, function (m) {
+        var href = /^https?:\/\//i.test(m) ? m : 'https://' + m;
+        return '<a href="' + href + '" target="_blank" rel="noopener nofollow ugc" class="bio-link">' + m + '</a>';
       });
     }
     return '<div class="profile-bio" style="margin-top:4px">' + safe + '</div>';
@@ -1697,7 +1701,7 @@
       '<div class="profile-cover"' + coverStyle + '>' + (isMe ? '<div class="cover-tools"><button class="btn btn-sm cover-btn" id="editCoverBtn">&#128247; Edit cover</button>' + (u.cover ? '<button class="btn btn-sm cover-btn" id="reposCoverBtn">&#8597; Reposition</button>' : '') + '</div>' : '') + '</div>' +
       '<div class="profile-head">' +
       '<div class="av-wrap">' + avatar(u, 130) + (isMe ? '<button class="cam" id="editAvatarBtn" title="Change photo">&#128247;</button>' + (u.avatar ? '<button class="cam cam-repos" id="reposAvatarBtn" title="Reposition photo">&#10021;</button>' : '') : '') + '</div>' +
-      '<div class="phead-main"><div class="pname">' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
+      '<div class="phead-main"><div class="pname"' + (u.accent && /^#[0-9a-fA-F]{6}$/.test(u.accent) ? ' style="color:' + esc(u.accent) + '"' : '') + '>' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
       '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + data.postsCount + ' posts</div>' +
       (data.nameHistory && data.nameHistory.length
         ? '<div class="pmeta" style="font-size:12px">Previously known as: ' + data.nameHistory.map((h) => esc(h.name)).join(', ') + '</div>'
@@ -1824,6 +1828,14 @@
       '<div class="shint" style="font-size:12px">Name changes are limited (first after 30 days, then every 3 months, then yearly) and your old names stay visible on your profile.</div></div>' +
       '<div class="field"><label>Bio</label><textarea class="input" id="epBio" rows="3" maxlength="300" placeholder="Tell people about yourself">' + esc(ME.bio || '') + '</textarea>' +
       '<div class="shint" style="font-size:12px;display:flex;justify-content:space-between;gap:10px"><span>Links become clickable on <strong>Plus</strong> and above (or for long-standing trusted accounts).</span><span id="epBioCount" style="white-space:nowrap;color:var(--text-soft)"></span></div></div>' +
+      ((ME.tier >= 1)
+        ? ('<div class="field"><label>Profile accent color</label>' +
+            '<div class="row" style="gap:10px;align-items:center">' +
+              '<input type="color" id="epAccent" value="' + ((ME.accent && /^#[0-9a-fA-F]{6}$/.test(ME.accent)) ? esc(ME.accent) : '#4f8cff') + '" style="width:48px;height:34px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--card);cursor:pointer">' +
+              '<button class="btn btn-sm" type="button" id="epAccentClear">Clear</button>' +
+              '<span class="shint" style="font-size:12px">A supporter perk: tints your name on your profile.</span>' +
+            '</div></div>')
+        : '') +
       '<button class="btn btn-primary btn-block" id="epSave">Save changes</button>' +
       '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +
       '<div class="shint" style="font-size:12px;margin-bottom:6px">Your data</div>' +
@@ -1840,12 +1852,20 @@
     );
     var _bioEl = m.q('#epBio'), _bioCount = m.q('#epBioCount');
     if (_bioEl && _bioCount) { var _updBio = function () { _bioCount.textContent = _bioEl.value.length + ' / 300'; }; _bioEl.addEventListener('input', _updBio); _updBio(); }
+    var _accent = (ME.accent && /^#[0-9a-fA-F]{6}$/.test(ME.accent)) ? ME.accent : '';
+    var _accentEl = m.q('#epAccent');
+    if (_accentEl) {
+      _accentEl.addEventListener('input', function () { _accent = _accentEl.value; });
+      var _accentClear = m.q('#epAccentClear');
+      if (_accentClear) _accentClear.onclick = function () { _accent = ''; _accentEl.value = '#4f8cff'; toast('Accent cleared, save to apply'); };
+    }
     m.q('#epSave').onclick = async () => {
       const name = m.q('#epName').value.trim();
       const bio = m.q('#epBio').value.trim();
       if (!name) { toast('Name cannot be empty'); return; }
       try {
-        ME = (await API.updateProfile(name, bio)).user;
+        const accentArg = (ME.tier >= 1) ? _accent : undefined; // only paid tiers/founder send it
+        ME = (await API.updateProfile(name, bio, accentArg)).user;
         m.close();
         toast('Profile saved');
         setupChromeAvatar();
