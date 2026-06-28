@@ -118,6 +118,14 @@
     graphite: { name: 'Graphite', accent: '#94a3b8', gradient: 'linear-gradient(135deg,#0f172a 0%,#334155 55%,#94a3b8 100%)' },
   };
   function themeFor(u) { return (u && u.theme && PROFILE_THEMES[u.theme]) ? PROFILE_THEMES[u.theme] : null; }
+  // Soft translucent tint from a theme accent hex, used to wash the profile
+  // background behind the posts (the vibrant gradient frames only the top).
+  function hexToRgba(hex, a) {
+    var h = String(hex || '').replace('#', '');
+    if (h.length !== 6) return 'rgba(99,102,241,' + a + ')';
+    var r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  }
   // Supporter blue verified tick (any paid tier) plus the Founder badge if set.
   // Both are cosmetic, never reputation. Appended to author names everywhere
   // through this one helper, so the Founder badge follows the founder wherever
@@ -1712,8 +1720,15 @@
     const coverStyle = u.cover
       ? ' style="background-image:url(\'' + esc(u.cover) + '\');background-position:' + esc(u.coverPos || '50% 50%') + '"'
       : (_themeObj ? ' style="background:' + _themeObj.gradient + '"' : '');
+    // The theme also skins the whole profile background (always visible, even
+    // when a cover photo is set): the gradient frames the top identity area and
+    // a soft accent tint washes behind the posts. Independent of the name color.
+    const skinOpen = _themeObj
+      ? '<div class="profile-skin themed" style="background-image:' + _themeObj.gradient + ';background-color:' + hexToRgba(_themeObj.accent, 0.14) + '">'
+      : '<div class="profile-skin">';
 
     view.innerHTML =
+      skinOpen +
       '<div class="card card-pad-0">' +
       '<div class="profile-cover"' + coverStyle + '>' + (isMe ? '<div class="cover-tools"><button class="btn btn-sm cover-btn" id="editCoverBtn">&#128247; Edit cover</button>' + (u.cover ? '<button class="btn btn-sm cover-btn" id="reposCoverBtn">&#8597; Reposition</button>' : '') + '</div>' : '') + '</div>' +
       '<div class="profile-head">' +
@@ -1731,7 +1746,8 @@
       '</div>' +
       '<div id="profileAlbums"></div>' +
       (isMe ? composerHtml() : '') +
-      '<div id="profilePosts"><div class="card"><div class="empty">Loading posts...</div></div></div>';
+      '<div id="profilePosts"><div class="card"><div class="empty">Loading posts...</div></div></div>' +
+      '</div>';
 
     wireProfileActions(view, data);
     if (isMe) {
@@ -1864,7 +1880,7 @@
               '<button type="button" class="theme-sw theme-none" data-th="">None</button>' +
               Object.keys(PROFILE_THEMES).map(function (id) { return '<button type="button" class="theme-sw" data-th="' + id + '" title="' + esc(PROFILE_THEMES[id].name) + '" style="background:' + PROFILE_THEMES[id].gradient + '"></button>'; }).join('') +
             '</div>' +
-            '<div class="shint" style="font-size:12px">A Premium perk: a preset color theme for your profile. Overrides your accent color.</div></div>')
+            '<div class="shint" style="font-size:12px">A Premium perk: a preset gradient that skins your profile background and tints your name. Overrides your accent color.</div></div>')
         : '') +
       '<button class="btn btn-primary btn-block" id="epSave">Save changes</button>' +
       '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +

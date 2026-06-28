@@ -714,6 +714,20 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 }
 
 /* ---------- Profile ---------- */
+/* Premium theme skin: a gradient that frames the whole profile background.
+   The vibrant gradient paints the top identity area (background-size height);
+   below that, the inline background-color (a soft accent tint) washes behind the
+   posts. Cards float on top as solid surfaces, so text stays readable. Untheme
+   leaves .profile-skin as a plain transparent wrapper. */
+.profile-skin.themed {
+  padding: 14px;
+  border-radius: var(--radius);
+  background-repeat: no-repeat;
+  background-size: 100% 300px;
+}
+.profile-skin.themed > :last-child { margin-bottom: 0; }
+.profile-skin.themed .profile-cover { border-radius: var(--radius); }
+
 .profile-cover {
   height: 260px;
   background: var(--brand-grad);
