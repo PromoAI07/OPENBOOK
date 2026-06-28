@@ -66,7 +66,8 @@ const API = {
   // Users
   searchUsers(q) { return this.get('/api/users?q=' + encodeURIComponent(q || '')); },
   getProfile(id) { return this.get('/api/users/' + id); },
-  updateProfile(name, bio, accentColor) { return this.put('/api/users/me', { name, bio, accentColor }); },
+  updateProfile(name, bio, accentColor, username) { return this.put('/api/users/me', { name, bio, accentColor, username }); },
+  checkUsername(u) { return this.get('/api/users/me/username-available?u=' + encodeURIComponent(u)); },
   myStats() { return this.get('/api/users/me/stats'); },
   myAnalytics() { return this.get('/api/users/me/analytics'); },
   deleteAccount(password) { return this.request('DELETE', '/api/users/me', { password }); },

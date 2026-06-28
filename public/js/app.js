@@ -1702,6 +1702,7 @@
       '<div class="profile-head">' +
       '<div class="av-wrap">' + avatar(u, 130) + (isMe ? '<button class="cam" id="editAvatarBtn" title="Change photo">&#128247;</button>' + (u.avatar ? '<button class="cam cam-repos" id="reposAvatarBtn" title="Reposition photo">&#10021;</button>' : '') : '') + '</div>' +
       '<div class="phead-main"><div class="pname"' + (u.accent && /^#[0-9a-fA-F]{6}$/.test(u.accent) ? ' style="color:' + esc(u.accent) + '"' : '') + '>' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
+      (u.username ? '<div class="pmeta" style="color:var(--text-soft);font-weight:600">@' + esc(u.username) + '</div>' : '') +
       '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + data.postsCount + ' posts</div>' +
       (data.nameHistory && data.nameHistory.length
         ? '<div class="pmeta" style="font-size:12px">Previously known as: ' + data.nameHistory.map((h) => esc(h.name)).join(', ') + '</div>'
@@ -1826,6 +1827,10 @@
       '<div class="mh"><h3>Edit profile</h3></div><div class="mc">' +
       '<div class="field"><label>Name</label><input class="input" id="epName" value="' + esc(ME.name) + '">' +
       '<div class="shint" style="font-size:12px">Name changes are limited (first after 30 days, then every 3 months, then yearly) and your old names stay visible on your profile.</div></div>' +
+      '<div class="field"><label>Username</label>' +
+      '<div class="row" style="gap:6px;align-items:center"><span style="font-weight:800;color:var(--text-soft);font-size:16px">@</span>' +
+      '<input class="input" id="epUsername" maxlength="20" placeholder="username" value="' + esc(ME.username || '') + '" style="flex:1"></div>' +
+      '<div class="shint" id="epUserMsg" style="font-size:12px">Your unique @handle: 3 to 20 characters, letters, numbers, or underscore.</div></div>' +
       '<div class="field"><label>Bio</label><textarea class="input" id="epBio" rows="3" maxlength="300" placeholder="Tell people about yourself">' + esc(ME.bio || '') + '</textarea>' +
       '<div class="shint" style="font-size:12px;display:flex;justify-content:space-between;gap:10px"><span>Links become clickable on <strong>Plus</strong> and above (or for long-standing trusted accounts).</span><span id="epBioCount" style="white-space:nowrap;color:var(--text-soft)"></span></div></div>' +
       ((ME.tier >= 1)
@@ -1852,6 +1857,20 @@
     );
     var _bioEl = m.q('#epBio'), _bioCount = m.q('#epBioCount');
     if (_bioEl && _bioCount) { var _updBio = function () { _bioCount.textContent = _bioEl.value.length + ' / 300'; }; _bioEl.addEventListener('input', _updBio); _updBio(); }
+    var _userEl = m.q('#epUsername'), _userMsg = m.q('#epUserMsg'), _userT;
+    if (_userEl) _userEl.addEventListener('input', function () {
+      clearTimeout(_userT);
+      if (_userEl.value.charAt(0) === '@') _userEl.value = _userEl.value.slice(1);
+      var v = _userEl.value.trim();
+      if (!v || v.toLowerCase() === (ME.username || '').toLowerCase()) { _userMsg.textContent = 'Your unique @handle: 3 to 20 characters, letters, numbers, or underscore.'; _userMsg.style.color = ''; return; }
+      _userMsg.textContent = 'Checking...'; _userMsg.style.color = '';
+      _userT = setTimeout(function () {
+        API.checkUsername(v).then(function (r) {
+          _userMsg.textContent = r.available ? ('@' + v + ' is available') : (r.error || 'That username is taken.');
+          _userMsg.style.color = r.available ? '#2e8b57' : '#e5484d';
+        }).catch(function () { _userMsg.textContent = ''; });
+      }, 350);
+    });
     var _accent = (ME.accent && /^#[0-9a-fA-F]{6}$/.test(ME.accent)) ? ME.accent : '';
     var _accentEl = m.q('#epAccent');
     if (_accentEl) {
@@ -1865,7 +1884,8 @@
       if (!name) { toast('Name cannot be empty'); return; }
       try {
         const accentArg = (ME.tier >= 1) ? _accent : undefined; // only paid tiers/founder send it
-        ME = (await API.updateProfile(name, bio, accentArg)).user;
+        const userArg = _userEl ? _userEl.value.trim() : undefined;
+        ME = (await API.updateProfile(name, bio, accentArg, userArg)).user;
         m.close();
         toast('Profile saved');
         setupChromeAvatar();

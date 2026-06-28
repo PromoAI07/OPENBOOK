@@ -101,12 +101,48 @@ router.get('/', requireAuth, async (req, res) => {
   res.json({ users: rows.map(publicUser) });
 });
 
+// --- Unique @username (handle) ---
+// 3 to 20 chars, starts with a letter, letters/numbers/underscore only. A small
+// reserved set is blocked. Case-insensitive uniqueness is enforced at PUT time
+// plus a unique index in db.js as a backstop.
+const USERNAME_RE = /^[a-zA-Z][a-zA-Z0-9_]{2,19}$/;
+const RESERVED_USERNAMES = new Set(['admin', 'administrator', 'openbook', 'support', 'system', 'root', 'help', 'about', 'mod', 'moderator', 'official', 'staff', 'deleted', 'ghost', 'founder', 'me', 'api', 'null', 'undefined']);
+function usernameError(name) {
+  if (!USERNAME_RE.test(name)) return 'Usernames are 3 to 20 characters, start with a letter, and use only letters, numbers, or underscores.';
+  if (RESERVED_USERNAMES.has(name.toLowerCase())) return 'That username is reserved. Please choose another.';
+  return null;
+}
+
+// Live availability check for the username picker. Returns { available, error }.
+router.get('/me/username-available', requireAuth, async (req, res) => {
+  const u = String(req.query.u || '').trim().replace(/^@/, '');
+  const err = usernameError(u);
+  if (err) return res.json({ available: false, error: err });
+  const taken = await db.prepare('SELECT id FROM users WHERE lower(username) = lower(?) AND id != ?').get(u, req.user.id);
+  res.json({ available: !taken, error: taken ? 'That username is taken.' : null });
+});
+
 // Update your own name and bio. The bio is always free to edit; the display name
 // is rate-limited, and each change leaves a public trail in name_history.
 router.put('/me', requireAuth, async (req, res) => {
   const name = (req.body.name || '').trim();
   const bio = (req.body.bio || '').trim().slice(0, 300); // bios are capped at 300 characters
   if (!name) return res.status(400).json({ error: 'Your name cannot be empty' });
+
+  // Validate the @username up front (if provided) so an invalid/taken handle does
+  // not half-save the rest of the profile. undefined = leave as-is, null = clear.
+  let unameToSet;
+  if (req.body.username !== undefined) {
+    const uname = String(req.body.username || '').trim().replace(/^@/, '');
+    if (uname === '') unameToSet = null;
+    else {
+      const uerr = usernameError(uname);
+      if (uerr) return res.status(400).json({ error: uerr });
+      const taken = await db.prepare('SELECT id FROM users WHERE lower(username) = lower(?) AND id != ?').get(uname, req.user.id);
+      if (taken) return res.status(409).json({ error: 'That username is taken. Please choose another.' });
+      unameToSet = uname;
+    }
+  }
 
   const cur = await db.prepare('SELECT name, created_at FROM users WHERE id = ?').get(req.user.id);
 
@@ -131,6 +167,14 @@ router.put('/me', requireAuth, async (req, res) => {
     const raw = String(req.body.accentColor || '').trim();
     const accent = /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : '';
     await db.prepare('UPDATE users SET accent_color = ? WHERE id = ?').run(accent, req.user.id);
+  }
+
+  if (unameToSet !== undefined) {
+    try {
+      await db.prepare('UPDATE users SET username = ? WHERE id = ?').run(unameToSet, req.user.id);
+    } catch (e) {
+      return res.status(409).json({ error: 'That username is taken. Please choose another.' });
+    }
   }
 
   const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);

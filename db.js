@@ -487,6 +487,10 @@ db.init = async function init() {
   // only APPLIED for paid tiers / founders (see auth.publicUser), so it is a real
   // tier perk and stops applying if supporter time lapses.
   await addColumn('users', "accent_color TEXT NOT NULL DEFAULT ''", 'accent_color');
+  // Unique @username (handle). Nullable until a user picks one. Case-insensitively
+  // unique via a partial index (empty/null handles do not collide).
+  await addColumn('users', 'username TEXT', 'username');
+  await db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username COLLATE NOCASE) WHERE username IS NOT NULL AND username != ''");
   await addColumn('posts', 'locked INTEGER NOT NULL DEFAULT 0', 'locked');   // comments locked
   await addColumn('posts', 'pinned INTEGER NOT NULL DEFAULT 0', 'pinned');   // pinned in its community
   // Site-wide announcement pin: the founder/admin flags a post as an official,

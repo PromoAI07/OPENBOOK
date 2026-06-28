@@ -70,6 +70,7 @@ function publicUser(u) {
   return Object.assign({
     id: u.id,
     name: u.name,
+    username: u.username || '', // unique @handle, empty until chosen
     avatar: u.avatar || '',
     cover: u.cover || '',
     bio: u.bio || '',
