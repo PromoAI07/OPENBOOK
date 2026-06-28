@@ -78,6 +78,11 @@ function parseTs(ts) {
 // lapsed. supporter_expires NULL means a permanent grant.
 function effectiveTier(user) {
   if (!user) return 0;
+  // Founders get all Premium perks. These are CAPACITY + CONVENIENCE only
+  // (storage, upload size, customization, analytics) and never touch karma,
+  // standing, reach, feed ranking, or vote weight, so this stays inside the
+  // credible-neutrality guardrail.
+  if (user.is_founder) return 3;
   const t = user.supporter_tier | 0;
   if (t <= 0) return 0;
   const exp = parseTs(user.supporter_expires);
@@ -88,6 +93,9 @@ function effectiveTier(user) {
 // Compact fields safe to attach to ANY public user object (drives the tick +
 // badge in the UI). Never includes anything reach/standing related.
 function publicTierFields(user) {
+  // A founder has Premium features but displays ONLY the gold Founder badge: no
+  // supporter tick or badge (they are the founder, not a paying supporter).
+  if (user && user.is_founder) return { tier: 3, tierName: 'Premium', verified: false, badge: null };
   const t = effectiveTier(user);
   const cfg = tierConfig(t);
   return { tier: t, tierName: cfg.name, verified: cfg.verified, badge: cfg.badge };

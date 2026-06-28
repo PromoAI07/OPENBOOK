@@ -768,6 +768,9 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
   color: #4a3200; background: linear-gradient(135deg, #ffd34d, #f7a823);
   border: 1px solid rgba(0,0,0,0.08); white-space: nowrap;
 }
+/* Golden ring around the founder's avatar (cosmetic). */
+.av-gold { box-shadow: 0 0 0 2px var(--card, #fff), 0 0 0 4px #f5b301, 0 0 0 6px rgba(245,179,1,0.28); }
+
 /* Blue Pioneer badge for the first 5,000 members (cosmetic, never reputation). */
 .pioneer-badge {
   display: inline-flex; align-items: center; gap: 3px;

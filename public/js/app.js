@@ -84,13 +84,14 @@
   function avatar(user, size) {
     size = size || 40;
     const dim = 'width:' + size + 'px;height:' + size + 'px;';
+    const gold = (user && user.founder) ? ' av-gold' : ''; // golden ring for the founder
     if (user && user.avatar) {
       const pos = user.avatarPos ? 'object-position:' + esc(user.avatarPos) + ';' : '';
-      return '<img class="avatar" style="' + dim + pos + '" src="' + esc(user.avatar) + '" alt="">';
+      return '<img class="avatar' + gold + '" style="' + dim + pos + '" src="' + esc(user.avatar) + '" alt="">';
     }
     const initial = (((user && user.name) || '?').trim().charAt(0) || '?');
     const fs = Math.round(size * 0.42);
-    return '<span class="avatar-fallback" style="' + dim + 'background:' + colorFor((user && user.name) || '?') +
+    return '<span class="avatar-fallback' + gold + '" style="' + dim + 'background:' + colorFor((user && user.name) || '?') +
       ';font-size:' + fs + 'px">' + esc(initial) + '</span>';
   }
 
