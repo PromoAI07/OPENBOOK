@@ -86,6 +86,29 @@ function publicNetworks() {
     .filter((n) => n.address);
 }
 
+// Human-readable bits for the supporter thank-you / receipt email.
+function tierName(tier) { try { return require('../entitlements').tierConfig(tier).name; } catch (e) { return 'Supporter'; } }
+function methodLabel(provider) {
+  if (provider === 'paypal') return 'PayPal';
+  if (String(provider).indexOf('usdt-') === 0) {
+    const NETS = { tron: 'Tron', ethereum: 'Ethereum', bsc: 'BNB Chain', polygon: 'Polygon', solana: 'Solana' };
+    const net = provider.slice(5);
+    return 'USDT (' + (NETS[net] || net) + ')';
+  }
+  return String(provider || '');
+}
+function amountText(amount, currency) {
+  const n = Number(amount);
+  const a = Number.isFinite(n) ? (Math.round(n * 100) / 100) : amount;
+  return String(currency || '').toUpperCase() === 'USD' ? ('$' + a) : (a + ' ' + (currency || ''));
+}
+function fmtDate(ts) {
+  const m = String(ts || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return '';
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return months[Number(m[2]) - 1] + ' ' + Number(m[3]) + ', ' + m[1];
+}
+
 // The single idempotent, audited grant step shared by both rails.
 async function applyPayment(provider, externalId, userId, tier, amount, currency, detail) {
   tier = Number(tier);
@@ -96,7 +119,7 @@ async function applyPayment(provider, externalId, userId, tier, amount, currency
     logger.warn({ provider, externalId, tier, amount, need: plan.usd }, 'payment: amount below tier price');
     return { ok: false, reason: 'amount_too_low' };
   }
-  const u = userId ? await db.prepare('SELECT id FROM users WHERE id = ?').get(Number(userId)) : null;
+  const u = userId ? await db.prepare('SELECT id, email, name FROM users WHERE id = ?').get(Number(userId)) : null;
   if (!u) { logger.warn({ provider, externalId, userId }, 'payment: unknown user'); return { ok: false, reason: 'unknown_user' }; }
 
   const ins = await db.prepare(
@@ -107,6 +130,27 @@ async function applyPayment(provider, externalId, userId, tier, amount, currency
 
   const snapshot = await extendTier(u.id, tier, plan.days, provider + ':' + externalId);
   logger.info({ provider, externalId, userId: u.id, tier, days: plan.days }, 'payment applied, tier granted');
+
+  // Thank-you + receipt email. Fire-and-forget so a slow/misconfigured mailer can
+  // never delay or fail the webhook/claim response. It runs HERE, after the
+  // INSERT OR IGNORE already proved this is a fresh, non-duplicate payment, so a
+  // re-delivered webhook or re-submitted tx hash can never re-email.
+  if (u.email) {
+    try {
+      const { sendSupporterThankYouEmail } = require('../mailer');
+      const base = (process.env.APP_BASE_URL || '').replace(/\/+$/, '');
+      Promise.resolve(sendSupporterThankYouEmail(u.email, u.name, {
+        tierName: tierName(tier),
+        amountText: amountText(amount, currency),
+        method: methodLabel(provider),
+        durationText: plan.label,
+        untilText: snapshot && snapshot.expires ? fmtDate(snapshot.expires) : '',
+        txId: externalId,
+        supportUrl: base ? (base + '/app') : '',
+      })).catch((e) => logger.warn({ err: e }, 'thank-you email failed'));
+    } catch (e) { logger.warn({ err: e }, 'thank-you email dispatch failed'); }
+  }
+
   return { ok: true, tier, days: plan.days, snapshot };
 }
 
