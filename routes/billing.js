@@ -165,6 +165,23 @@ async function applyPayment(provider, externalId, userId, tier, amount, currency
   return { ok: true, tier, days: plan.days, snapshot };
 }
 
+// A TIP is a one-off donation that grants NOTHING (no tier, no badge). It is only
+// recorded for the separate tips counter. tier 0 keeps it out of the supporter
+// wall + supporter total (both filter tier >= 1). Idempotent via UNIQUE(provider,
+// external_id). user_id is stored only if it points at a real account.
+async function recordTip(externalId, userId, amount, currency, detail) {
+  externalId = String(externalId || '').trim();
+  if (!externalId || !(Number(amount) > 0)) { logger.warn({ externalId, amount }, 'tip: bad id/amount'); return { ok: false }; }
+  let uid = null;
+  if (userId) { const u = await db.prepare('SELECT id FROM users WHERE id = ?').get(Number(userId)); if (u) uid = u.id; }
+  const ins = await db.prepare(
+    "INSERT OR IGNORE INTO payment_events (provider, external_id, user_id, tier, days, amount, currency, status, detail) " +
+    "VALUES ('paypal-tip', ?, ?, 0, 0, ?, ?, 'applied', ?)"
+  ).run(externalId, uid, Number(amount), currency || '', String(detail || 'tip'));
+  if (ins.changes) logger.info({ externalId, uid, amount }, 'tip recorded');
+  return { ok: !!ins.changes };
+}
+
 function parseCustom(custom) {
   const parts = String(custom || '').split(':');
   if (parts[0] !== 'ob') return null;
@@ -303,7 +320,14 @@ webhooks.post('/paypal', async (req, res) => {
     const receiver = String(body.receiver_email || body.business || '').toLowerCase();
     const want = String(process.env.PAYPAL_RECEIVER_EMAIL || '').toLowerCase();
     if (want && receiver && receiver !== want) { logger.warn({ receiver }, 'paypal ipn wrong receiver'); return res.status(200).send('OK'); }
-    const parsed = parseCustom(body.custom);
+    const custom = String(body.custom || '');
+    // Tip: a one-off donation, no tier or badge, counted on its own.
+    if (/^ob:tip(:|$)/.test(custom)) {
+      const uid = Number(custom.split(':')[2]) || null;
+      await recordTip(body.txn_id, uid, Number(body.mc_gross || 0), 'USD', 'paypal tip');
+      return res.status(200).send('OK');
+    }
+    const parsed = parseCustom(custom);
     if (!parsed) { logger.warn('paypal ipn missing/invalid custom'); return res.status(200).send('OK'); }
     await applyPayment('paypal', body.txn_id, parsed.userId, parsed.tier, Number(body.mc_gross || 0), 'USD', 'paypal ipn');
     return res.status(200).send('OK');
@@ -359,10 +383,12 @@ api.get('/me', requireAuth, async (req, res) => {
 // from the list but still counted in the total (anonymously).
 api.get('/leaderboard', async (req, res) => {
   try {
+    // tier >= 1 keeps tips (tier 0) off the supporter wall and out of the
+    // supporter total; tips are counted on their own below.
     const rows = await db.prepare(
       "SELECT pe.tier t, pe.created_at d, u.username un, u.name nm, u.avatar av " +
       "FROM payment_events pe JOIN users u ON u.id = pe.user_id " +
-      "WHERE pe.status = 'applied' AND COALESCE(u.hide_supporter, 0) = 0 " +
+      "WHERE pe.status = 'applied' AND pe.tier >= 1 AND COALESCE(u.hide_supporter, 0) = 0 " +
       "ORDER BY pe.created_at DESC, pe.id DESC LIMIT 100"
     ).all();
     const supporters = rows.map((r) => {
@@ -370,7 +396,10 @@ api.get('/leaderboard', async (req, res) => {
       return { username: r.un || '', name: maskName(r.nm), avatar: r.av || '', tier: r.t, tierName: cfg.name, badge: cfg.badge, date: r.d };
     });
     const agg = await db.prepare(
-      "SELECT COALESCE(SUM(amount), 0) total, COUNT(*) payments, COUNT(DISTINCT user_id) supporters FROM payment_events WHERE status = 'applied'"
+      "SELECT COALESCE(SUM(amount), 0) total, COUNT(*) payments, COUNT(DISTINCT user_id) supporters FROM payment_events WHERE status = 'applied' AND tier >= 1"
+    ).get();
+    const tip = await db.prepare(
+      "SELECT COALESCE(SUM(amount), 0) total, COUNT(*) count FROM payment_events WHERE status = 'applied' AND tier = 0"
     ).get();
     res.json({
       supporters,
@@ -378,6 +407,7 @@ api.get('/leaderboard', async (req, res) => {
       currency: 'USD',
       supporterCount: agg.supporters || 0,
       paymentCount: agg.payments || 0,
+      tips: { total: Math.round((tip.total || 0) * 100) / 100, count: tip.count || 0 },
     });
   } catch (e) {
     logger.warn({ err: e }, 'leaderboard failed');

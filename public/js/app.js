@@ -100,10 +100,20 @@
     if (!user || !user.founder) return '';
     return ' <span class="founder-badge" title="Founder of OpenBook">&#9733; Founder</span>';
   }
-  // Cosmetic blue Pioneer badge for the first 5000 members. Never reputation.
+  // Cosmetic Pioneer badge for the first 5000 members. It is blue by default, but
+  // takes the COLOR of the member's ACTIVE support tier while they support (bronze
+  // / silver / gold for Supporter / Plus / Premium), and reverts to blue when
+  // support lapses. This merges the Pioneer + supporter badges into ONE, so a
+  // supporting Pioneer shows a single colored Pioneer badge, not two badges. Never
+  // reputation.
   function pioneerBadge(user) {
     if (!user || !user.pioneer) return '';
-    return ' <span class="pioneer-badge" title="One of the first 5,000 members of OpenBook">&#9873; Pioneer</span>';
+    const tierClass = { bronze: ' pio-bronze', silver: ' pio-silver', gold: ' pio-gold' };
+    const cls = (user.badge && tierClass[user.badge]) ? tierClass[user.badge] : '';
+    const tip = user.badge
+      ? 'Pioneer + ' + (user.tierName || 'Supporter') + ' supporter'
+      : 'One of the first 5,000 members of OpenBook';
+    return ' <span class="pioneer-badge' + cls + '" title="' + esc(tip) + '">&#9873; Pioneer</span>';
   }
   // Premium profile themes: preset accent + gradient combos. Ids MUST match the
   // server allowlist in routes/users.js (THEME_IDS).
@@ -143,8 +153,11 @@
     return out;
   }
   // Small colored supporter badge (bronze/silver/gold). Shown on profiles.
+  // For a Pioneer we SUPPRESS this chip: their support tier is shown by coloring
+  // their Pioneer badge instead (see pioneerBadge), so they never carry two badges.
   function badgeChip(user) {
     if (!user || !user.badge) return '';
+    if (user.pioneer) return '';
     const map = { bronze: 'Supporter', silver: 'Plus', gold: 'Premium' };
     const label = map[user.badge] || 'Supporter';
     return '<span class="badge-chip badge-' + esc(user.badge) + '">' + esc(label) + '</span>';
@@ -718,6 +731,23 @@
       return 'https://www.paypal.com/cgi-bin/webscr?' + p.toString();
     }
 
+    // A one-off TIP via the same PayPal account. custom = ob:tip:<userId> so the
+    // IPN records it as a tip (no tier, no badge), counted on its own.
+    function tipPaypalUrl(amount) {
+      const p = new URLSearchParams({
+        cmd: '_xclick',
+        business: links.paypalEmail || '',
+        currency_code: 'USD',
+        amount: String(amount),
+        item_name: 'OpenBook tip (thank you!)',
+        custom: 'ob:tip:' + (ME && ME.id ? ME.id : ''),
+        notify_url: origin + '/api/webhooks/paypal',
+        'return': origin + '/app#support',
+        cancel_return: origin + '/app#support',
+      });
+      return 'https://www.paypal.com/cgi-bin/webscr?' + p.toString();
+    }
+
     function tierCard(t) {
       const isCur = t.tier === curTier;
       const plan = plans[t.tier] || planDefault[t.tier] || { usd: t.price, label: '' };
@@ -785,6 +815,27 @@
           '</div>' +
         '</div>')
       : '<div class="card"><div style="font-weight:700">Pay with USDT</div><div class="shint" style="font-size:13px;margin-top:4px">Crypto addresses are being set up. Check back soon.</div></div>';
+
+    // --- Tip card: one-off donation, no perks, with its own running total ---
+    const TIP_PRESETS = [3, 5, 7, 10];
+    const tipTotalStr = '$' + (((board.tips && board.tips.total) || 0)).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const tipCount = (board.tips && board.tips.count) || 0;
+    const tipCard = '<div class="card" id="tipCard">' +
+      '<div style="font-weight:700;display:flex;align-items:center;gap:8px"><span style="font-size:20px">&#9749;</span> Tip the project</div>' +
+      '<div class="shint" style="font-size:13px;line-height:1.55;margin:4px 0 10px">Just want to help us keep going, with no perks or badge attached? Leave a one-off tip of any size. Every bit goes straight to running OpenBook.</div>' +
+      (links.paypalEmail
+        ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">' +
+            TIP_PRESETS.map((a) => '<a class="btn btn-sm" href="' + esc(tipPaypalUrl(a)) + '" target="_blank" rel="noopener">$' + a + '</a>').join('') +
+            '<span class="shint" style="font-size:13px">or</span>' +
+            '<input class="input" id="tipAmount" type="number" min="1" step="1" placeholder="$ other" style="width:96px">' +
+            '<button class="btn btn-primary btn-sm" id="tipGo">Tip via PayPal</button>' +
+          '</div>'
+        : '<div style="margin-bottom:8px"><span class="pill">PayPal is being set up</span></div>') +
+      '<div style="border-top:1px solid var(--line);padding-top:10px">' +
+        '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><span style="font-size:22px;font-weight:800;line-height:1;color:var(--brand)" id="tipTotal">' + esc(tipTotalStr) + '</span>' +
+        '<span class="shint" style="font-size:12.5px">in tips from <span id="tipCount">' + tipCount + '</span> tip' + (tipCount === 1 ? '' : 's') + ' so far. Thank you.</span></div>' +
+      '</div>' +
+    '</div>';
 
     // Your support history: the supporter's own payment receipts (GET /api/billing/me).
     function _payMethod(provider) {
@@ -862,6 +913,7 @@
       '<div class="tier-grid">' + tiers.map(tierCard).join('') + '</div>' +
       feeNote +
       cryptoBlock +
+      tipCard +
       linkCard('&#128081;', 'Sponsor on GitHub', 'Back the project directly through GitHub Sponsors.', links.github, 'Sponsor on GitHub') +
       linkCard('&#129309;', 'Open Collective', 'Transparent, community funding where every expense is public.', links.opencollective, 'Give on Open Collective') +
       '<div class="card"><div class="shint" style="font-size:12px">Why not ads? OpenBook is built on the promise that your data is yours. Surveillance ads would break that promise, so we will not run them.</div></div>';
@@ -921,6 +973,14 @@
       showToggle.disabled = false;
     };
 
+    // Custom-amount tip: build the PayPal link with the entered amount on click.
+    const tipGo = document.getElementById('tipGo');
+    if (tipGo) tipGo.onclick = () => {
+      const amt = Math.floor(Number((document.getElementById('tipAmount') || {}).value));
+      if (!(amt >= 1)) { toast('Enter a tip amount of $1 or more'); return; }
+      window.open(tipPaypalUrl(amt), '_blank', 'noopener');
+    };
+
     // Live-ish refresh: re-pull the wall + member count every ~45s while the page
     // is open. Self-clears once the user navigates away (the #supWall node is gone),
     // and is reset on each render so it never stacks.
@@ -937,6 +997,8 @@
           if (list) list.innerHTML = b2.supporters.length ? b2.supporters.map(supporterRow).join('') : '<div class="shint" style="font-size:13px;padding:12px 0">No supporters yet.</div>';
           const t = document.getElementById('supTotal'); if (t) t.textContent = wallTotalStr(b2);
           const cc = document.getElementById('supCount'); if (cc) cc.textContent = b2.supporterCount || 0;
+          const tt = document.getElementById('tipTotal'); if (tt && b2.tips) tt.textContent = '$' + (b2.tips.total || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+          const tc = document.getElementById('tipCount'); if (tc && b2.tips) tc.textContent = b2.tips.count || 0;
         }
         if (c2) { const mc = document.getElementById('supMembers'); if (mc) mc.textContent = (c2.users || 0).toLocaleString(); }
       } catch (e) { /* transient */ }

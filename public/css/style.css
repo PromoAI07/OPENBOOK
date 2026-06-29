@@ -825,6 +825,11 @@ html[data-theme="dark"] .profile-head .pname { color: var(--text); }
   color: #fff; background: linear-gradient(135deg, #4f8cff, #2563eb);
   border: 1px solid rgba(0,0,0,0.08); white-space: nowrap;
 }
+/* A Pioneer who supports: the Pioneer badge takes their tier color (matching the
+   supporter badge colors), reverting to the default blue when support lapses. */
+.pioneer-badge.pio-bronze { background: linear-gradient(135deg, #e8b27a, #cd7f32); color: #3a2400; }
+.pioneer-badge.pio-silver { background: linear-gradient(135deg, #e4e7eb, #9aa4ad); color: #2a2f34; }
+.pioneer-badge.pio-gold   { background: linear-gradient(135deg, #ffe08a, #e3b341); color: #3a2c00; }
 /* Growth-phase ladder on the Support page (done / current / upcoming). Scrolls
    horizontally on narrow screens so the four phases never crush together. */
 .phase-ladder { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
