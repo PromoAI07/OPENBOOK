@@ -8,14 +8,8 @@
   <script>try{var t=localStorage.getItem('ob_theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
   <link rel="stylesheet" href="/css/style.css" />
   <style>
-    .why { max-width: 1100px; margin: 4px auto 56px; padding: 0 24px; }
-    .why h2 { font-size: 28px; text-align: center; margin: 0 0 8px; letter-spacing: -0.5px; }
-    .why .why-lead { text-align: center; color: var(--text-soft); font-size: 16px; line-height: 1.55; max-width: 720px; margin: 0 auto 26px; }
-    .why-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(258px, 1fr)); gap: 16px; }
-    .why-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
-    .why-card h3 { margin: 0 0 6px; font-size: 16.5px; display: flex; align-items: baseline; gap: 8px; }
-    .why-card h3 .ck { color: var(--green); font-weight: 800; flex: none; }
-    .why-card p { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--text-soft); }
+    /* The "Why OpenBook is different" cards now live only on the roadmap page; the
+       login page keeps a single consolidated promises list to avoid duplication. */
     /* Honeypot: kept far off-screen (not display:none, which some bots skip) and
        out of the tab order. Real users never see or focus it. */
     .hp-field { position: absolute !important; left: -9999px !important; top: -9999px !important; width: 1px; height: 1px; overflow: hidden; }
@@ -43,7 +37,7 @@
               </span>
               <span class="promise-text">
                 <strong>We never sell your data.</strong>
-                <span class="promise-sub">Not to advertisers, not to brokers, not to anyone, ever.</span>
+                <span class="promise-sub">Funded by supporters, never ads or brokers, so you are the user, not the product.</span>
               </span>
             </li>
             <li class="promise">
@@ -51,8 +45,8 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
               </span>
               <span class="promise-text">
-                <strong>Nothing is hidden from you.</strong>
-                <span class="promise-sub">No secret rules, no silent throttling, just full transparency.</span>
+                <strong>Money never buys reach.</strong>
+                <span class="promise-sub">Supporting adds a badge and storage, never a feed spot, karma, or a louder vote. Everyone stays equal.</span>
               </span>
             </li>
             <li class="promise">
@@ -60,8 +54,35 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
               </span>
               <span class="promise-text">
-                <strong>You are in full control.</strong>
-                <span class="promise-sub">Your info, photos, and videos are 100% yours to manage, export, or delete anytime.</span>
+                <strong>Real humans, one voice each.</strong>
+                <span class="promise-sub">Anti-bot and anti-sybil protections stop influence being bought with fake accounts or bot farms.</span>
+              </span>
+            </li>
+            <li class="promise">
+              <span class="promise-check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              </span>
+              <span class="promise-text">
+                <strong>Fair, transparent moderation.</strong>
+                <span class="promise-sub">Every action is in a public log, flagged content is judged by a jury of real members, and you can always appeal.</span>
+              </span>
+            </li>
+            <li class="promise">
+              <span class="promise-check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              </span>
+              <span class="promise-text">
+                <strong>No secret algorithm.</strong>
+                <span class="promise-sub">Feed ranking is simple and published in our code, so nothing is hidden and no one is quietly throttled.</span>
+              </span>
+            </li>
+            <li class="promise">
+              <span class="promise-check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              </span>
+              <span class="promise-text">
+                <strong>Your data is truly yours.</strong>
+                <span class="promise-sub">Export everything in one click, or permanently delete your account and all media anytime. No lock-in.</span>
               </span>
             </li>
             <li class="promise">
@@ -70,7 +91,7 @@
               </span>
               <span class="promise-text">
                 <strong>The community decides.</strong>
-                <span class="promise-sub">Big changes and new features go to a public vote, not a boardroom.</span>
+                <span class="promise-sub">Big changes go to a public vote, one human one vote, not a boardroom.</span>
               </span>
             </li>
             <li class="promise">
@@ -80,7 +101,7 @@
               <span class="promise-text">
                 <strong>Open source, always.</strong>
                 <span class="promise-sub">Every line of our code lives in the open on
-                <a class="promise-link" href="https://github.com/PromoAI07/OPENBOOK" target="_blank" rel="noopener noreferrer">GitHub</a>.</span>
+                <a class="promise-link" href="https://github.com/PromoAI07/OPENBOOK" target="_blank" rel="noopener noreferrer">GitHub</a> under the AGPL licence.</span>
               </span>
             </li>
           </ul>
@@ -174,21 +195,6 @@
       </section>
     </div>
   </main>
-
-  <section class="why">
-    <h2>Why OpenBook is different</h2>
-    <p class="why-lead">Most social networks make money from your attention and your data. OpenBook is built on the opposite promise. You get a Facebook-style feed, friends, and photos together with Reddit-style communities and voting, all in one place, without the surveillance. Every claim below is checkable in our open source code.</p>
-    <div class="why-grid">
-      <div class="why-card"><h3><span class="ck">&#10003;</span> No ads, no data selling</h3><p>OpenBook is funded by supporters who want it to exist. We never run ads and never sell your data, so you are the user, not the product being sold.</p></div>
-      <div class="why-card"><h3><span class="ck">&#10003;</span> Money never buys reach</h3><p>Supporting us unlocks a badge and more storage, nothing more. It can never buy a place in the feed, extra karma, or a louder vote. Everyone stays equal.</p></div>
-      <div class="why-card"><h3><span class="ck">&#10003;</span> No secret algorithm</h3><p>The feed ranking is simple and published in the code. Nothing is hidden, and no one is quietly throttled in the dark.</p></div>
-      <div class="why-card"><h3><span class="ck">&#10003;</span> Your data is truly yours</h3><p>Export everything you have ever posted in one click, and permanently delete your account and all its media whenever you want. No lock-in.</p></div>
-      <div class="why-card"><h3><span class="ck">&#10003;</span> The community decides</h3><p>Big changes and new features go to a public vote, one human one vote, not a corporate boardroom.</p></div>
-      <div class="why-card"><h3><span class="ck">&#10003;</span> Open source, always</h3><p>Every line of OpenBook is public under the AGPL licence. If the rules and the code ever disagree, that is a bug you can point to. No black box to trust.</p></div>
-      <div class="why-card"><h3><span class="ck">&#10003;</span> Transparent, fair moderation</h3><p>Every moderation action is in a public log, flagged content is judged by a jury of real members, and any action can be appealed.</p></div>
-      <div class="why-card"><h3><span class="ck">&#10003;</span> Real humans, one voice each</h3><p>Anti-bot and anti-sybil protections keep influence from being bought with fake accounts or bot farms. No engagement farming, no manipulation rings.</p></div>
-    </div>
-  </section>
 
   <footer class="site-footer">
     <a href="/mission">Our Mission</a>
