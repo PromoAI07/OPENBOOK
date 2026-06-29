@@ -129,6 +129,12 @@ const API = {
   declineRequest(id) { return this.post('/api/friends/decline/' + id); },
   unfriend(id) { return this.del('/api/friends/' + id); },
 
+  // Follows (one-directional)
+  follow(id) { return this.post('/api/follows/' + id); },
+  unfollow(id) { return this.del('/api/follows/' + id); },
+  followers(id) { return this.get('/api/follows/' + id + '/followers'); },
+  following(id) { return this.get('/api/follows/' + id + '/following'); },
+
   // Notifications
   notifications() { return this.get('/api/notifications'); },
   unreadNotifs() { return this.get('/api/notifications/unread-count'); },

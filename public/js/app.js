@@ -1834,7 +1834,16 @@
       case 'incoming': main = '<button class="btn btn-primary" data-accept="' + u.id + '">Confirm request</button>&nbsp;<button class="btn" data-decline="' + u.id + '">Delete</button>'; break;
       default: main = '<button class="btn btn-primary" data-addfriend="' + u.id + '">Add friend</button>';
     }
-    return main + share;
+    return main + followBtn(data) + share;
+  }
+
+  // Follow / Following toggle, shown on everyone's profile except your own.
+  // Follow is independent of friendship: you can follow without a friend request.
+  function followBtn(data) {
+    if (data.friendStatus === 'self') return '';
+    return data.isFollowing
+      ? ' <button class="btn btn-soft btn-sm" data-unfollow="' + data.user.id + '">Following &#10003;</button>'
+      : ' <button class="btn btn-sm" data-follow="' + data.user.id + '">Follow</button>';
   }
 
   // Render a user's bio. URLs become clickable only when the server flags it
@@ -1927,7 +1936,7 @@
       '<div class="phead-row">' +
       '<div class="phead-id"><div class="pname"' + (_nameAccent ? ' style="--name-accent:' + esc(_nameAccent) + '"' : '') + '>' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
       (u.username ? '<div class="pmeta" style="color:var(--text-soft);font-weight:600">@' + esc(u.username) + '</div>' : '') +
-      '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + data.postsCount + ' posts</div>' +
+      '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + (data.followersCount || 0) + ' followers &#183; ' + data.postsCount + ' posts</div>' +
       (data.nameHistory && data.nameHistory.length
         ? '<div class="pmeta" style="font-size:12px">Previously known as: ' + data.nameHistory.map((h) => esc(h.name)).join(', ') + '</div>'
         : '') +
@@ -1970,6 +1979,14 @@
     root.querySelectorAll('[data-unfriend]').forEach((b) => (b.onclick = async () => {
       if (!window.confirm('Remove this connection?')) return;
       try { await API.unfriend(u.id); renderProfile(u.id); } catch (e) { toast(e.message); }
+    }));
+    root.querySelectorAll('[data-follow]').forEach((b) => (b.onclick = async () => {
+      b.disabled = true;
+      try { await API.follow(u.id); renderProfile(u.id); } catch (e) { toast(e.message); b.disabled = false; }
+    }));
+    root.querySelectorAll('[data-unfollow]').forEach((b) => (b.onclick = async () => {
+      b.disabled = true;
+      try { await API.unfollow(u.id); renderProfile(u.id); } catch (e) { toast(e.message); b.disabled = false; }
     }));
     root.querySelectorAll('[data-accept]').forEach((b) => (b.onclick = async () => {
       try { await API.acceptRequest(u.id); toast('You are now friends'); renderProfile(u.id); refreshBadges(); } catch (e) { toast(e.message); }
@@ -2374,6 +2391,7 @@
       case 'comment': return ' commented on your post';
       case 'friend_request': return ' sent you a friend request';
       case 'friend_accept': return ' accepted your friend request';
+      case 'follow': return ' started following you';
       case 'mod_removed': return ' (a moderator) removed your content';
       case 'mod_restored': return ' (a moderator) restored your content';
       case 'jury_duty': return ': you were picked for a community jury';
@@ -2389,7 +2407,7 @@
     );
     row.onclick = () => {
       document.getElementById('notifDropdown').classList.add('hidden');
-      if (n.type === 'friend_request' || n.type === 'friend_accept') go('profile', n.actor.id);
+      if (n.type === 'friend_request' || n.type === 'friend_accept' || n.type === 'follow') go('profile', n.actor.id);
       else go('profile', ME.id);
     };
     return row;

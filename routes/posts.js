@@ -130,7 +130,27 @@ router.get('/feed/home', requireAuth, async (req, res) => {
     )
     .all(uid);
 
-  const decorated = await decoratePosts(personal.concat(community), uid);
+  // Posts from people you FOLLOW (one-directional). Only their PUBLIC posts: a
+  // follow never exposes friends-only content. Friends are already covered above;
+  // dedupe below removes any overlap.
+  const followed = await db
+    .prepare(
+      `SELECT p.* FROM posts p
+       WHERE p.group_id IS NULL AND p.community_id IS NULL AND p.visibility = 'visible' AND p.announcement = 0
+         AND p.audience = 'public'
+         AND p.user_id IN (SELECT followee_id FROM follows WHERE follower_id = ?)
+       ORDER BY p.created_at DESC, p.id DESC LIMIT 80`
+    )
+    .all(uid);
+
+  // Merge candidates and dedupe by post id (a friend you also follow, etc.).
+  const seen = new Set();
+  const candidates = personal.concat(community).concat(followed).filter((p) => {
+    if (seen.has(p.id)) return false;
+    seen.add(p.id);
+    return true;
+  });
+  const decorated = await decoratePosts(candidates, uid);
 
   // Author reach multiplier (the graduated shadowban). Looked up here and folded
   // into the ranking only, never attached to the post, so reach stays invisible

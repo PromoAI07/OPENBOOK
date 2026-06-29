@@ -446,6 +446,11 @@ router.get('/:id', requireAuth, async (req, res) => {
       "SELECT COUNT(*) c FROM friendships WHERE status = 'accepted' AND (requester_id = ? OR addressee_id = ?)"
     )
     .get(id, id)).c;
+  const followersCount = (await db.prepare('SELECT COUNT(*) c FROM follows WHERE followee_id = ?').get(id)).c;
+  const followingCount = (await db.prepare('SELECT COUNT(*) c FROM follows WHERE follower_id = ?').get(id)).c;
+  // Does the viewer follow this profile? (false on your own profile.)
+  const isFollowing = id !== req.user.id
+    && !!(await db.prepare('SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?').get(req.user.id, id));
 
   let friendStatus = 'none';
   if (id === req.user.id) {
@@ -472,7 +477,8 @@ router.get('/:id', requireAuth, async (req, res) => {
     return res.json({
       user: Object.assign(publicUser(user), { bio: '', cover: '' }),
       locked: vis, // 'private' | 'friends'
-      friendStatus, friendsCount: 0, postsCount: 0, nameHistory: [], nextNameChange: null,
+      friendStatus, friendsCount: 0, postsCount: 0, followersCount, followingCount, isFollowing,
+      nameHistory: [], nextNameChange: null,
     });
   }
 
@@ -483,7 +489,7 @@ router.get('/:id', requireAuth, async (req, res) => {
   // Only the owner is told when they may next change their name.
   const nextNameChange = id === req.user.id ? await nextNameChangeAt(id, user.created_at) : null;
 
-  res.json({ user: publicUser(user), postsCount, friendsCount, friendStatus, nameHistory, nextNameChange });
+  res.json({ user: publicUser(user), postsCount, friendsCount, followersCount, followingCount, friendStatus, isFollowing, nameHistory, nextNameChange });
 });
 
 // A user's accepted friends.

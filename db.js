@@ -909,6 +909,46 @@ db.init = async function init() {
     await db.exec('UPDATE users SET is_pioneer = 0 WHERE is_founder = 1;');
   } catch (e) { /* users table/columns may not be ready on a brand new db */ }
 
+  // --- Follows: one-directional (you follow someone to see their PUBLIC posts in
+  // your feed without a mutual friendship). Completely separate from friendships;
+  // following never grants access to friends-only content. ---
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS follows (
+      follower_id INTEGER NOT NULL,
+      followee_id INTEGER NOT NULL,
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (follower_id, followee_id),
+      FOREIGN KEY (follower_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (followee_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_follows_followee ON follows(followee_id);
+  `);
+
+  // --- Illegal-content blocklist (SPEC 12): SHA-256 hashes of media confirmed
+  // illegal. Every upload is checked against this BEFORE it is stored, and the
+  // list grows when a platform admin confirms an 'illegal' report. algo lets a
+  // future perceptual-hash provider (PDQ/PhotoDNA) coexist with the exact sha256. ---
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS blocked_hashes (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      algo       TEXT    NOT NULL DEFAULT 'sha256',
+      hash       TEXT    NOT NULL,
+      reason     TEXT    NOT NULL DEFAULT 'illegal',
+      added_by   INTEGER,
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (algo, hash),
+      FOREIGN KEY (added_by) REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_blocked_hashes_hash ON blocked_hashes(hash);
+  `);
+  // 'illegal' reports escalate to a confidential platform-admin queue (separate
+  // from the neutrality jury). priority + the admin who claimed/closed it live here.
+  await addColumn('reports', "priority TEXT NOT NULL DEFAULT 'normal'", 'priority');
+  // The sha256 of a post/reel's primary media, so a confirmed-illegal removal can
+  // blocklist the exact bytes and so an upload-time match can be recorded.
+  await addColumn('posts', "media_hash TEXT NOT NULL DEFAULT ''", 'media_hash');
+  await addColumn('reels', "media_hash TEXT NOT NULL DEFAULT ''", 'media_hash');
+
   // Clear out sessions older than 30 days on startup.
   await db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");
 

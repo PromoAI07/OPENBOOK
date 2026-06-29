@@ -293,6 +293,7 @@ app.get('/api/community-stats', async (req, res) => {
 // JSON API.
 app.use('/api/auth', authLimiter, require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
+app.use('/api/follows', require('./routes/follows'));
 app.use('/api/posts', require('./routes/posts'));
 app.use('/api/comments', require('./routes/comments'));
 app.use('/api/friends', require('./routes/friends'));
