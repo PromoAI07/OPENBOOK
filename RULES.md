@@ -9,6 +9,9 @@ runs them. If the code and this page ever disagree, that is a bug worth reportin
 Nothing on this page can be bought. Money never changes ranking, karma, standing,
 reach, votes, or moderation outcomes (see "What money does and does not do").
 
+And one line is absolute: being open source and fully transparent never means
+anything goes. OpenBook does not allow illegal activity, full stop (see Section 5).
+
 Source of truth: [`ranking.js`](ranking.js), [`trust.js`](trust.js),
 [`moderation.js`](moderation.js), [`antisybil.js`](antisybil.js),
 [`illegal.js`](illegal.js), and the routes under [`routes/`](routes/). Every
@@ -183,12 +186,36 @@ checkable by anyone.
 
 ---
 
-## 5. Illegal content (a separate, non-negotiable track)
+## 5. Illegal activity: the one hard line
 
-This is **not** a free-speech question and is handled completely apart from the
-neutrality machinery above. Illegal media (CSAM, credible threats, and the like)
-is removed regardless of votes, standing, or the jury. (SPEC section 12,
+OpenBook protects unpopular opinions. It does not protect crime. Those are not the
+same thing, and keeping them apart is exactly what lets us defend the first one.
+
+Everything else here is settled in the open: the ranking is published, moderation
+is logged in public, and big changes go to a community vote. But being open source
+and fully transparent is a promise about HOW we run the platform, not a loophole
+that makes anything goes. **Illegal activity is not allowed on OpenBook, full
+stop.** This is the one rule that is not up for a vote, cannot be appealed on
+free-speech grounds, and is never treated as just an unpopular idea. It is handled
+completely apart from the neutrality machinery above. (SPEC section 12,
 [`illegal.js`](illegal.js))
+
+It covers anything genuinely illegal under the law that applies to us, including
+but not limited to:
+
+- Child sexual abuse material, and any sexual content involving minors.
+- Credible threats of violence, incitement to violence, and terrorism.
+- Human trafficking and exploitation.
+- Sharing someone's intimate images without their consent.
+- Fraud, scams, and the sale of clearly illegal goods.
+- Malware, and doxxing that puts a real person in danger.
+
+The line is drawn at illegal **acts** and illegal **material**, never at ideas.
+You can criticise a government, a company, a faith, or any of us, and argue for
+views most people reject, and that stays protected. What is not protected is using
+OpenBook to break the law or to harm real people.
+
+### How it works
 
 - **Hash-matching on upload.** Every uploaded image, video, or file is SHA-256
   hashed and checked against a blocklist **before** it is stored. A match is
@@ -205,6 +232,22 @@ is removed regardless of votes, standing, or the jury. (SPEC section 12,
   standing penalty, and the public log gets only a **generic** entry ("illegal
   content (legal removal)") with no details, so a takedown is transparent without
   re-exposing the material.
+
+### This is still transparent, and the line cuts both ways
+
+Refusing to host illegal content does not make us a black box. We publish exactly
+how it is handled (right here), every takedown is in the public mod log written
+generically (because republishing or describing the material would re-expose
+victims), and anyone who believes their content was lawful and removed in error
+can appeal.
+
+And we hold ourselves to the same line. We comply with valid legal obligations,
+such as removing unlawful content and reporting what the law requires us to report,
+while refusing to censor lawful speech just because someone powerful dislikes it. A
+platform that knowingly hosted illegal content would be cut off by its providers
+and shut down, taking every voice on it, including the dissenting ones we exist to
+protect, down with it. Staying lawful is not the opposite of staying free. It is
+what keeps OpenBook alive to be free at all.
 
 ---
 
