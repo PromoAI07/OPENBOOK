@@ -422,9 +422,13 @@ router.get('/me/analytics', requireAuth, async (req, res) => {
 
 // View one profile, with counts and the friendship status from your point of view.
 router.get('/:id', requireAuth, async (req, res) => {
-  const id = Number(req.params.id);
-  const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  // Accept a numeric id OR a @username, so shareable /u/<username> links resolve.
+  const raw = String(req.params.id || '').replace(/^@/, '');
+  const user = /^\d+$/.test(raw)
+    ? await db.prepare('SELECT * FROM users WHERE id = ?').get(Number(raw))
+    : await db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE').get(raw);
   if (!user) return res.status(404).json({ error: 'User not found' });
+  const id = user.id;
 
   const postsCount = (await db.prepare('SELECT COUNT(*) c FROM posts WHERE user_id = ?').get(id)).c;
   const friendsCount = (await db

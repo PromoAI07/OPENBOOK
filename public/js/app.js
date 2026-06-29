@@ -189,6 +189,16 @@
     return { node: back, close: close, q: (sel) => back.querySelector(sel) };
   }
 
+  // Share a link via the device's native share sheet (mobile, and some desktops),
+  // falling back to copying it to the clipboard so it always works.
+  function shareLink(url, title) {
+    try { if (navigator.share) { navigator.share({ title: title || 'OpenBook', url: url }).catch(function () {}); return; } } catch (e) {}
+    try { navigator.clipboard.writeText(url).then(function () { toast('Link copied to clipboard'); }, function () { toast(url); }); }
+    catch (e) { toast(url); }
+  }
+  function profileShareUrl(u) { return window.location.origin + '/u/' + encodeURIComponent((u && u.username) || (u && u.id) || ''); }
+  function postShareUrl(id) { return window.location.origin + '/p/' + id; }
+
   function pickImage(cb) {
     const input = document.createElement('input');
     input.type = 'file';
@@ -222,9 +232,16 @@
 
     renderVerifyBanner();
 
-    // Deep link to a specific reel (/app#reel=<id>) opens the Reels feed there.
+    // Deep links from a shared URL: /u/<username-or-id> opens a profile, /p/<id>
+    // opens a post, /app#reel=<id> opens a reel. The clean path is normalised back
+    // to /app once handled so the running app's URL stays tidy.
+    const dpath = window.location.pathname;
+    const um = /^\/u\/([^\/?#]+)/.exec(dpath);
+    const ppm = /^\/p\/(\d+)/.exec(dpath);
     const reelMatch = /(?:^|#)reel=(\d+)/.exec(window.location.hash);
-    if (reelMatch) { pendingReel = Number(reelMatch[1]); go('reels'); }
+    if (um) { window.history.replaceState({}, '', '/app'); go('profile', decodeURIComponent(um[1])); }
+    else if (ppm) { window.history.replaceState({}, '', '/app'); go('post', Number(ppm[1])); }
+    else if (reelMatch) { pendingReel = Number(reelMatch[1]); go('reels'); }
     else go('feed');
   }
 
@@ -289,6 +306,10 @@
     // Delegated handlers for report and appeal buttons (they appear on many
     // dynamically-rendered surfaces, so one listener covers them all).
     document.addEventListener('click', (e) => {
+      const shp = e.target.closest('[data-share-post]');
+      if (shp) { e.preventDefault(); e.stopPropagation(); shareLink(postShareUrl(shp.getAttribute('data-share-post')), 'OpenBook post'); return; }
+      const shu = e.target.closest('[data-share-profile]');
+      if (shu) { e.preventDefault(); e.stopPropagation(); shareLink(window.location.origin + '/u/' + encodeURIComponent(shu.getAttribute('data-share-profile')), 'OpenBook profile'); return; }
       const rep = e.target.closest('[data-report]');
       if (rep) { e.preventDefault(); e.stopPropagation(); reportModal(rep.getAttribute('data-report'), Number(rep.getAttribute('data-report-id'))); return; }
       const ap = e.target.closest('[data-appeal]');
@@ -1381,6 +1402,7 @@
       '<span data-vote></span>' +
       '<span data-react></span>' +
       '<button class="post-action" data-comment="' + p.id + '">&#128172; Comment</button>' +
+      '<button class="post-action" data-share-post="' + p.id + '" title="Share this post">&#128279; Share</button>' +
       (mineP ? '' : '<button class="post-action" data-report="post" data-report-id="' + p.id + '">&#9873; Report</button>') +
       '</div>' +
       '<div class="comments hidden" data-comments="' + p.id + '"></div>';
@@ -1733,13 +1755,16 @@
 
   function profileActions(data) {
     const u = data.user;
+    const share = ' <button class="btn" data-share-profile="' + esc((u.username || u.id) + '') + '" title="Share this profile">&#128279; Share</button>';
+    let main;
     switch (data.friendStatus) {
-      case 'self': return '<button class="btn btn-soft" id="editProfileBtn">Edit profile</button>';
-      case 'friends': return '<button class="btn btn-primary" data-msg="' + u.id + '">Message</button>&nbsp;<button class="btn" data-unfriend="' + u.id + '">Friends &#10003;</button>';
-      case 'requested': return '<button class="btn" data-unfriend="' + u.id + '">Cancel request</button>';
-      case 'incoming': return '<button class="btn btn-primary" data-accept="' + u.id + '">Confirm request</button>&nbsp;<button class="btn" data-decline="' + u.id + '">Delete</button>';
-      default: return '<button class="btn btn-primary" data-addfriend="' + u.id + '">Add friend</button>';
+      case 'self': main = '<button class="btn btn-soft" id="editProfileBtn">Edit profile</button>'; break;
+      case 'friends': main = '<button class="btn btn-primary" data-msg="' + u.id + '">Message</button>&nbsp;<button class="btn" data-unfriend="' + u.id + '">Friends &#10003;</button>'; break;
+      case 'requested': main = '<button class="btn" data-unfriend="' + u.id + '">Cancel request</button>'; break;
+      case 'incoming': main = '<button class="btn btn-primary" data-accept="' + u.id + '">Confirm request</button>&nbsp;<button class="btn" data-decline="' + u.id + '">Delete</button>'; break;
+      default: main = '<button class="btn btn-primary" data-addfriend="' + u.id + '">Add friend</button>';
     }
+    return main + share;
   }
 
   // Render a user's bio. URLs become clickable only when the server flags it
@@ -2892,6 +2917,7 @@
     let opsHtml = '';
     if (postOwner) opsHtml += '<button class="btn btn-sm" data-editpost>Edit</button><button class="btn btn-danger btn-sm" data-delpost>Delete</button>';
     else opsHtml += '<button class="btn btn-sm" data-report="post" data-report-id="' + p.id + '">&#9873; Report</button>';
+    opsHtml += '<button class="btn btn-sm" data-share-post="' + p.id + '" title="Share this post">&#128279; Share</button>';
     if (postMod) {
       opsHtml += p.removed
         ? '<button class="btn btn-sm" data-modrestore>Restore</button>'

@@ -303,6 +303,11 @@ app.use('/api/billing', require('./routes/billing').api);
 // The authenticated single page app shell.
 app.get('/app', (req, res) => sendPage(res, path.join(__dirname, 'public', 'app.html')));
 
+// Clean, shareable links: /u/<username-or-id> opens a profile, /p/<id> opens a
+// post. Both serve the app shell; the client reads the path and navigates there.
+app.get('/u/:handle', (req, res) => sendPage(res, path.join(__dirname, 'public', 'app.html')));
+app.get('/p/:id', (req, res) => sendPage(res, path.join(__dirname, 'public', 'app.html')));
+
 // Password-reset page (the target of the emailed link; the token is in the URL).
 app.get('/reset', (req, res) => sendPage(res, path.join(__dirname, 'public', 'reset.html')));
 
