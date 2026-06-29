@@ -28,6 +28,9 @@ services:
         value: production
       - key: NODE_VERSION
         value: "24"
+      # Public site URL, used to build verification/reset email links safely.
+      - key: APP_BASE_URL
+        value: https://openbook.space
       # --- Database (Turso / libSQL). Set both in the dashboard. ---
       - key: LIBSQL_URL          # libsql://<db>-<org>.turso.io
         sync: false

@@ -54,9 +54,43 @@ app.use((req, res, next) => {
 });
 
 // Security headers (clickjacking, MIME sniffing, HSTS in production, etc.).
-// CSP is left off so the CDN script and inline styles keep working; it can be
-// tightened later.
-app.use(helmet({ contentSecurityPolicy: false }));
+// Content Security Policy is a defense-in-depth backstop against XSS: even if a
+// future bug let user input reach the page unescaped, an injected <script> still
+// could not run. Inline scripts are allowed ONLY by exact hash (the tiny theme
+// bootstrap in every page + the mod-log / roadmap / reset page scripts), never via
+// 'unsafe-inline', so injected script is blocked. Inline STYLES stay allowed
+// (the UI uses style="" heavily and they are far lower risk). anime.js loads from
+// jsdelivr; media may load from the R2 CDN (MEDIA_CDN_BASE) in production.
+// NOTE: if any of those inline scripts is edited, recompute its sha256 (the page
+// will silently stop running its inline script otherwise).
+let MEDIA_CDN_ORIGIN = null;
+try { if (process.env.MEDIA_CDN_BASE) MEDIA_CDN_ORIGIN = new URL(process.env.MEDIA_CDN_BASE).origin; } catch (e) { /* ignore malformed */ }
+const cspMedia = ["'self'", 'data:', 'blob:'].concat(MEDIA_CDN_ORIGIN ? [MEDIA_CDN_ORIGIN] : []);
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"],
+      baseUri: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'self'"],
+      formAction: ["'self'"],
+      scriptSrc: [
+        "'self'",
+        'https://cdn.jsdelivr.net',
+        "'sha256-apLTUSMFZuZAtzWoTdV33CsRHoEOsCI2D2lpgZPPGis='",
+        "'sha256-cjhgIjErkpeNsXIshFs2wR4gRyiTXY+mRAXoztRgGDg='",
+        "'sha256-ytyQvOsgtV7eJdHGW9zlZX8F7mYVeu3bt/mgOGmpIWM='",
+        "'sha256-HC2JrvzdpH/EBUlPjja+fPvhFIblcsnF0RwO7DZbY4I='",
+      ],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: cspMedia,
+      mediaSrc: cspMedia,
+      fontSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"].concat(MEDIA_CDN_ORIGIN ? [MEDIA_CDN_ORIGIN] : []),
+    },
+  },
+}));
 
 // Parsers and session attachment run on every request.
 app.use(express.json());

@@ -23,8 +23,41 @@ const router = express.Router();
 // while keeping signups frictionless until they choose to require verification.
 const REQUIRE_EMAIL_VERIFICATION = process.env.REQUIRE_EMAIL_VERIFICATION === '1';
 
+// Pin the public base URL used in emailed links, so a spoofed Host header can
+// never point a verification/reset link at an attacker's domain. Falls back to
+// the request's own protocol+host when APP_BASE_URL is not set (fine for dev).
+function baseUrl(req) {
+  const env = (process.env.APP_BASE_URL || '').replace(/\/+$/, '');
+  return env || (req.protocol + '://' + req.get('host'));
+}
+
+// Per-account login throttle (in-memory, single instance like antisybil.js).
+// Slows online password guessing against ONE account even across many IPs. A high
+// threshold + short cooldown means a user mistyping their password is never
+// locked out; the worst an attacker can do is impose a brief cooldown on an email
+// (they still cannot read or change anything). Move to Redis before running
+// multiple instances. DUMMY_HASH makes the unknown-email path spend the same
+// bcrypt time as a real one, closing the login timing side-channel.
+const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 10);
+const loginFails = new Map(); // email -> { count, first, until }
+const LOGIN_MAX_FAILS = 10;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_COOLDOWN_MS = 15 * 60 * 1000;
+function loginBlocked(email) {
+  const r = loginFails.get(email);
+  return !!(r && r.until && r.until > Date.now());
+}
+function recordLoginFail(email) {
+  const now = Date.now();
+  let r = loginFails.get(email);
+  if (!r || (now - r.first) > LOGIN_WINDOW_MS) r = { count: 0, first: now, until: 0 };
+  r.count++;
+  if (r.count >= LOGIN_MAX_FAILS) r.until = now + LOGIN_COOLDOWN_MS;
+  loginFails.set(email, r);
+}
+
 function verifyLink(req, token) {
-  return req.protocol + '://' + req.get('host') + '/api/auth/verify?token=' + encodeURIComponent(token);
+  return baseUrl(req) + '/api/auth/verify?token=' + encodeURIComponent(token);
 }
 
 // Issue a proof-of-work challenge for the signup form (anti-mass-signup cost).
@@ -48,8 +81,8 @@ router.post('/signup', async (req, res, next) => {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return res.status(400).json({ error: 'Please enter a valid email address' });
   }
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
   // Anti-sybil: block throwaway inboxes (cheap mass accounts).
   if (isDisposableEmail(email)) {
@@ -148,7 +181,7 @@ router.post('/forgot-password', async (req, res) => {
   if (u) {
     const token = crypto.randomBytes(24).toString('hex');
     await db.prepare("UPDATE users SET reset_token = ?, reset_expires = datetime('now', '+1 hour') WHERE id = ?").run(token, u.id);
-    const link = req.protocol + '://' + req.get('host') + '/reset?token=' + encodeURIComponent(token);
+    const link = baseUrl(req) + '/reset?token=' + encodeURIComponent(token);
     sendPasswordResetEmail(u.email, link, u.name).catch(() => {});
     if (process.env.NODE_ENV !== 'production') out.devResetLink = link; // dev testing only
   }
@@ -160,7 +193,7 @@ router.post('/reset-password', async (req, res) => {
   const token = (req.body.token || '').toString();
   const password = req.body.password || '';
   if (!token) return res.status(400).json({ error: 'Missing reset token' });
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   const u = await db.prepare("SELECT * FROM users WHERE reset_token = ? AND reset_expires >= datetime('now')").get(token);
   if (!u) return res.status(400).json({ error: 'This reset link is invalid or has expired. Please request a new one.' });
   const hash = bcrypt.hashSync(password, 10);
@@ -174,10 +207,19 @@ router.post('/login', async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password || '';
 
+  if (email && loginBlocked(email)) {
+    return res.status(429).json({ error: 'Too many failed attempts for this account. Please wait a few minutes, or reset your password.' });
+  }
   const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+  // Always run one bcrypt comparison (the real hash, or a dummy when the email is
+  // unknown) so a wrong email and a wrong password take the same time, closing the
+  // timing side-channel that would otherwise reveal which emails are registered.
+  const ok = bcrypt.compareSync(password, user ? user.password_hash : DUMMY_HASH);
+  if (!user || !ok) {
+    if (email) recordLoginFail(email);
     return res.status(401).json({ error: 'Wrong email or password' });
   }
+  loginFails.delete(email);
 
   await createSession(user.id, res);
   // Keep the device/IP record fresh so multi-account concentration stays visible.

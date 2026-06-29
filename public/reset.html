@@ -62,7 +62,7 @@
         var btn = document.getElementById('resetBtn');
         var pw = document.getElementById('pw').value;
         var pw2 = document.getElementById('pw2').value;
-        if (pw.length < 6) { show('Password must be at least 6 characters.'); return; }
+        if (pw.length < 8) { show('Password must be at least 8 characters.'); return; }
         if (pw !== pw2) { show('The two passwords do not match.'); return; }
         if (!token) { show('Missing reset token.'); return; }
         btn.disabled = true; btn.textContent = 'Updating...';
