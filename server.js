@@ -311,6 +311,7 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/stories', require('./routes/stories'));
 app.use('/api/messages', require('./routes/messages'));
 app.use('/api/marketplace', require('./routes/marketplace'));
+app.use('/api/escrow', require('./routes/escrow'));
 app.use('/api/groups', require('./routes/groups'));
 app.use('/api/albums', require('./routes/albums'));
 app.use('/api/communities', require('./routes/communities'));
