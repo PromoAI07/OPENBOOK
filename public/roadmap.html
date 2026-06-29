@@ -34,6 +34,13 @@
     .rm-empty { color: var(--text-soft); font-size: 12.5px; padding: 6px 4px; opacity: .7; }
     .rm-filtered { opacity: .7; }
     @media (max-width: 900px) { .rm-board { grid-template-columns: 1fr; } }
+    .rm-why { margin-top: 52px; }
+    .rm-why-h { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.4px; }
+    .rm-why-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(252px, 1fr)); gap: 14px; margin-top: 20px; }
+    .rm-why-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+    .rm-why-card h3 { margin: 0 0 6px; font-size: 16px; display: flex; align-items: baseline; gap: 8px; }
+    .rm-why-card h3 .ck { color: var(--green); font-weight: 800; flex: none; }
+    .rm-why-card p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text-soft); }
   </style>
 </head>
 <body>
@@ -51,6 +58,21 @@
     <div class="rm-board" id="board">
       <div class="rm-empty">Loading the roadmap...</div>
     </div>
+
+    <section class="rm-why">
+      <h2 class="rm-why-h">Why OpenBook is different</h2>
+      <p class="rm-lead">Most social networks make money from your attention and your data. OpenBook is built on the opposite promise. You get a Facebook-style feed, friends, and photos together with Reddit-style communities and voting, all in one place, without the surveillance. Every claim below is checkable in the open source code.</p>
+      <div class="rm-why-grid">
+        <div class="rm-why-card"><h3><span class="ck">&#10003;</span> No ads, no data selling</h3><p>OpenBook is funded by supporters who want it to exist. We never run ads and never sell your data, so you are the user, not the product being sold.</p></div>
+        <div class="rm-why-card"><h3><span class="ck">&#10003;</span> Money never buys reach</h3><p>Supporting us unlocks a badge and more storage, nothing more. It can never buy a place in the feed, extra karma, or a louder vote. Everyone stays equal.</p></div>
+        <div class="rm-why-card"><h3><span class="ck">&#10003;</span> No secret algorithm</h3><p>The feed ranking is simple and published in the code. Nothing is hidden, and no one is quietly throttled in the dark.</p></div>
+        <div class="rm-why-card"><h3><span class="ck">&#10003;</span> Your data is truly yours</h3><p>Export everything you have ever posted in one click, and permanently delete your account and all its media whenever you want. No lock-in.</p></div>
+        <div class="rm-why-card"><h3><span class="ck">&#10003;</span> The community decides</h3><p>Big changes go to a public vote, one human one vote, not a corporate boardroom. The roadmap above is steered by the people who use OpenBook.</p></div>
+        <div class="rm-why-card"><h3><span class="ck">&#10003;</span> Open source, always</h3><p>Every line of OpenBook is public under the AGPL licence. If the rules and the code ever disagree, that is a bug you can point to. No black box to trust.</p></div>
+        <div class="rm-why-card"><h3><span class="ck">&#10003;</span> Transparent, fair moderation</h3><p>Every moderation action is in a public log, flagged content is judged by a jury of real members, and any action can be appealed.</p></div>
+        <div class="rm-why-card"><h3><span class="ck">&#10003;</span> Real humans, one voice each</h3><p>Anti-bot and anti-sybil protections keep influence from being bought with fake accounts or bot farms. No engagement farming, no manipulation rings.</p></div>
+      </div>
+    </section>
   </div>
 
   <script>

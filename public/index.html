@@ -7,6 +7,16 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%235b51e8'/><text x='16' y='23' font-size='20' fill='white' text-anchor='middle' font-family='Arial' font-weight='bold'>O</text></svg>" />
   <script>try{var t=localStorage.getItem('ob_theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
   <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .why { max-width: 1100px; margin: 4px auto 56px; padding: 0 24px; }
+    .why h2 { font-size: 28px; text-align: center; margin: 0 0 8px; letter-spacing: -0.5px; }
+    .why .why-lead { text-align: center; color: var(--text-soft); font-size: 16px; line-height: 1.55; max-width: 720px; margin: 0 auto 26px; }
+    .why-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(258px, 1fr)); gap: 16px; }
+    .why-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+    .why-card h3 { margin: 0 0 6px; font-size: 16.5px; display: flex; align-items: baseline; gap: 8px; }
+    .why-card h3 .ck { color: var(--green); font-weight: 800; flex: none; }
+    .why-card p { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--text-soft); }
+  </style>
 </head>
 <body>
   <main class="landing">
@@ -135,7 +145,7 @@
               <div class="field">
                 <label for="signupPassword">Password</label>
                 <div class="pw-wrap">
-                  <input class="input" type="password" id="signupPassword" placeholder="At least 6 characters" autocomplete="new-password" required />
+                  <input class="input" type="password" id="signupPassword" placeholder="At least 8 characters" autocomplete="new-password" required />
                   <button type="button" class="pw-toggle" data-pw="signupPassword" aria-label="Show password">Show</button>
                 </div>
               </div>
@@ -149,6 +159,21 @@
       </section>
     </div>
   </main>
+
+  <section class="why">
+    <h2>Why OpenBook is different</h2>
+    <p class="why-lead">Most social networks make money from your attention and your data. OpenBook is built on the opposite promise. You get a Facebook-style feed, friends, and photos together with Reddit-style communities and voting, all in one place, without the surveillance. Every claim below is checkable in our open source code.</p>
+    <div class="why-grid">
+      <div class="why-card"><h3><span class="ck">&#10003;</span> No ads, no data selling</h3><p>OpenBook is funded by supporters who want it to exist. We never run ads and never sell your data, so you are the user, not the product being sold.</p></div>
+      <div class="why-card"><h3><span class="ck">&#10003;</span> Money never buys reach</h3><p>Supporting us unlocks a badge and more storage, nothing more. It can never buy a place in the feed, extra karma, or a louder vote. Everyone stays equal.</p></div>
+      <div class="why-card"><h3><span class="ck">&#10003;</span> No secret algorithm</h3><p>The feed ranking is simple and published in the code. Nothing is hidden, and no one is quietly throttled in the dark.</p></div>
+      <div class="why-card"><h3><span class="ck">&#10003;</span> Your data is truly yours</h3><p>Export everything you have ever posted in one click, and permanently delete your account and all its media whenever you want. No lock-in.</p></div>
+      <div class="why-card"><h3><span class="ck">&#10003;</span> The community decides</h3><p>Big changes and new features go to a public vote, one human one vote, not a corporate boardroom.</p></div>
+      <div class="why-card"><h3><span class="ck">&#10003;</span> Open source, always</h3><p>Every line of OpenBook is public under the AGPL licence. If the rules and the code ever disagree, that is a bug you can point to. No black box to trust.</p></div>
+      <div class="why-card"><h3><span class="ck">&#10003;</span> Transparent, fair moderation</h3><p>Every moderation action is in a public log, flagged content is judged by a jury of real members, and any action can be appealed.</p></div>
+      <div class="why-card"><h3><span class="ck">&#10003;</span> Real humans, one voice each</h3><p>Anti-bot and anti-sybil protections keep influence from being bought with fake accounts or bot farms. No engagement farming, no manipulation rings.</p></div>
+    </div>
+  </section>
 
   <footer class="site-footer">
     <a href="/mission">Our Mission</a>
