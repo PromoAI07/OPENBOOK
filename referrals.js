@@ -148,7 +148,7 @@ async function statsFor(userId) {
 
 async function leaderboard(limit) {
   return db.prepare(
-    "SELECT u.id, u.name, u.avatar, u.supporter_tier, u.supporter_expires, COUNT(r.id) qualified " +
+    "SELECT u.*, COUNT(r.id) qualified " +
     "FROM referrals r JOIN users u ON u.id = r.referrer_id " +
     "WHERE r.status = 'qualified' GROUP BY r.referrer_id ORDER BY qualified DESC, u.id ASC LIMIT ?"
   ).all(Math.max(1, Math.min(100, limit || 10)));

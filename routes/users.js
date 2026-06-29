@@ -331,7 +331,7 @@ router.get('/me/export/:id/download', requireAuth, async (req, res, next) => {
 // graduated shadowban stays silent, even to the account owner).
 router.get('/me/stats', requireAuth, async (req, res) => {
   const id = req.user.id;
-  const u = await db.prepare('SELECT karma, standing, trust_level, created_at, supporter_tier, supporter_since, supporter_expires FROM users WHERE id = ?').get(id);
+  const u = await db.prepare('SELECT karma, standing, trust_level, created_at, is_founder, supporter_tier, supporter_since, supporter_expires FROM users WHERE id = ?').get(id);
   const posts = (await db.prepare('SELECT COUNT(*) c FROM posts WHERE user_id = ?').get(id)).c;
   const comments = (await db.prepare('SELECT COUNT(*) c FROM comments WHERE user_id = ?').get(id)).c;
   const communities = (await db.prepare('SELECT COUNT(*) c FROM community_members WHERE user_id = ?').get(id)).c;

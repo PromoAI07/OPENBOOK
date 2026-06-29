@@ -161,7 +161,7 @@ async function revokeTier(userId, cause) {
 // reward can never accidentally cut someone's existing paid time short.
 async function extendTier(userId, tier, days, cause) {
   tier = Math.max(0, Math.min(3, tier | 0));
-  const u = await db.prepare('SELECT supporter_tier, supporter_expires FROM users WHERE id = ?').get(userId);
+  const u = await db.prepare('SELECT is_founder, supporter_tier, supporter_since, supporter_expires FROM users WHERE id = ?').get(userId);
   if (!u) return null;
   const now = Date.now();
   let baseMs = now;
@@ -186,7 +186,7 @@ async function logEvent(userId, tier, days, cause) {
 }
 
 async function effectiveSnapshot(userId) {
-  const u = await db.prepare('SELECT supporter_tier, supporter_since, supporter_expires FROM users WHERE id = ?').get(userId);
+  const u = await db.prepare('SELECT is_founder, supporter_tier, supporter_since, supporter_expires FROM users WHERE id = ?').get(userId);
   return entitlementsFor(u || {});
 }
 
