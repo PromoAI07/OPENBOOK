@@ -490,6 +490,9 @@ db.init = async function init() {
   // Premium perk: a preset profile theme (color + gradient combo). Stored for
   // everyone but only APPLIED for Premium / founders (see auth.publicUser).
   await addColumn('users', "profile_theme TEXT NOT NULL DEFAULT ''", 'profile_theme');
+  // Profile visibility chosen by the owner: 'public' (everyone), 'friends' (only
+  // accepted friends), or 'private' (only the owner). Gates the profile page + wall.
+  await addColumn('users', "profile_visibility TEXT NOT NULL DEFAULT 'public'", 'profile_visibility');
   // Unique @username (handle). Nullable until a user picks one. Case-insensitively
   // unique via a partial index (empty/null handles do not collide).
   await addColumn('users', 'username TEXT', 'username');

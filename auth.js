@@ -90,6 +90,9 @@ function publicUser(u) {
     accent: effectiveTier(u) >= 1 ? (u.accent_color || '') : '',
     // A preset profile theme is a Premium perk (tier 3), applied only while Premium.
     theme: effectiveTier(u) >= 3 ? (u.profile_theme || '') : '',
+    // Who can see this profile: 'public' | 'friends' | 'private'. The owner uses it
+    // to drive the visibility control; it gates the profile page + wall server-side.
+    visibility: u.profile_visibility || 'public',
   }, publicTierFields(u)); // tier, tierName, verified (blue tick), badge
 }
 

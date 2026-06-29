@@ -198,6 +198,16 @@ router.put('/me', requireAuth, async (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
+// Set who can see your profile: 'public' | 'friends' | 'private'. A dedicated
+// route so flipping visibility never touches the rest of the profile.
+router.put('/me/visibility', requireAuth, async (req, res) => {
+  const v = String((req.body && req.body.visibility) || '').trim();
+  if (['public', 'friends', 'private'].indexOf(v) < 0) return res.status(400).json({ error: 'Invalid profile visibility.' });
+  await db.prepare('UPDATE users SET profile_visibility = ? WHERE id = ?').run(v, req.user.id);
+  const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  res.json({ user: publicUser(user) });
+});
+
 // Upload a new avatar.
 router.post('/me/avatar', requireAuth, upload.single('image'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No image was uploaded' });
@@ -451,6 +461,19 @@ router.get('/:id', requireAuth, async (req, res) => {
       else if (f.requester_id === req.user.id) friendStatus = 'requested'; // I sent the request
       else friendStatus = 'incoming'; // they sent it to me
     }
+  }
+
+  // Profile visibility gate: the owner always sees their own profile; others see
+  // it only if it is public, or friends-only and they are friends. Otherwise they
+  // get a minimal locked stub (name + avatar, no bio, no cover) and no posts.
+  const vis = user.profile_visibility || 'public';
+  const canSee = friendStatus === 'self' || vis === 'public' || (vis === 'friends' && friendStatus === 'friends');
+  if (!canSee) {
+    return res.json({
+      user: Object.assign(publicUser(user), { bio: '', cover: '' }),
+      locked: vis, // 'private' | 'friends'
+      friendStatus, friendsCount: 0, postsCount: 0, nameHistory: [], nextNameChange: null,
+    });
   }
 
   // Public trail of previous display names, newest first.

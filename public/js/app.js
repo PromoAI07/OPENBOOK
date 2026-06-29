@@ -1781,12 +1781,54 @@
 
   /* ============================ profile ============================ */
 
+  // Who-can-see-my-profile control. The three levels gate the profile page + wall
+  // server-side; this is the owner's button + the explain-and-approve modal.
+  var VIS_META = {
+    public: { icon: '&#127760;', label: 'Public', desc: 'Anyone on OpenBook can see your profile and your public posts. Best for reaching the most people.' },
+    friends: { icon: '&#128101;', label: 'Friends only', desc: 'Only people you have accepted as friends can see your profile and posts. Everyone else just sees your name and photo.' },
+    private: { icon: '&#128274;', label: 'Private', desc: 'Only you can see your profile and posts. Nobody else, not even your friends, can open it.' },
+  };
+  function visibilityBtn(u) {
+    var m = VIS_META[u.visibility] || VIS_META.public;
+    return ' <button class="btn btn-soft" id="visBtn" title="Choose who can see your profile">' + m.icon + ' ' + m.label + '</button>';
+  }
+  function openVisibilityModal(current) {
+    var selected = VIS_META[current] ? current : 'public';
+    function optHtml(v) {
+      var m = VIS_META[v];
+      return '<button type="button" class="vis-opt' + (v === selected ? ' sel' : '') + '" data-vis="' + v + '">' +
+        '<span class="vis-ic">' + m.icon + '</span>' +
+        '<span class="vis-txt"><span class="vis-label">' + m.label + '</span><span class="vis-desc">' + m.desc + '</span></span>' +
+        '<span class="vis-check">&#10003;</span></button>';
+    }
+    var m = modal(
+      '<div class="mh"><h3>Who can see your profile?</h3></div>' +
+      '<div class="mc">' +
+      '<p class="shint" style="font-size:13px;margin:0 0 12px">Choose who can open your profile and see your posts. You can change this any time, and it takes effect immediately.</p>' +
+      '<div class="vis-opts">' + ['public', 'friends', 'private'].map(optHtml).join('') + '</div>' +
+      '<button class="btn btn-primary btn-block" id="visApply" style="margin-top:14px">Apply</button>' +
+      '</div>'
+    );
+    function mark() { m.node.querySelectorAll('.vis-opt').forEach(function (b) { b.classList.toggle('sel', b.getAttribute('data-vis') === selected); }); }
+    m.node.querySelectorAll('.vis-opt').forEach(function (b) { b.onclick = function () { selected = b.getAttribute('data-vis'); mark(); }; });
+    m.q('#visApply').onclick = async function () {
+      const btn = m.q('#visApply'); btn.disabled = true;
+      try {
+        await API.setVisibility(selected);
+        if (ME) ME.visibility = selected;
+        m.close();
+        toast('Profile visibility set to "' + (VIS_META[selected] ? VIS_META[selected].label : selected) + '".');
+        renderProfile(ME.id);
+      } catch (e) { toast(e.message); btn.disabled = false; }
+    };
+  }
+
   function profileActions(data) {
     const u = data.user;
     const share = ' <button class="btn btn-icon" data-share-profile="' + esc((u.username || u.id) + '') + '" title="Share profile" aria-label="Share profile">&#128279;</button>';
     let main;
     switch (data.friendStatus) {
-      case 'self': main = '<button class="btn btn-soft" id="editProfileBtn">Edit profile</button>'; break;
+      case 'self': main = '<button class="btn btn-soft" id="editProfileBtn">Edit profile</button>' + visibilityBtn(u); break;
       case 'friends': main = '<button class="btn btn-primary" data-msg="' + u.id + '">Message</button>&nbsp;<button class="btn" data-unfriend="' + u.id + '">Friends &#10003;</button>'; break;
       case 'requested': main = '<button class="btn" data-unfriend="' + u.id + '">Cancel request</button>'; break;
       case 'incoming': main = '<button class="btn btn-primary" data-accept="' + u.id + '">Confirm request</button>&nbsp;<button class="btn" data-decline="' + u.id + '">Delete</button>'; break;
@@ -1814,6 +1856,39 @@
     return '<div class="profile-bio" style="margin-top:4px">' + safe + '</div>';
   }
 
+  // A minimal, content-free profile shown when the owner set it to friends-only or
+  // private and the viewer is not allowed in: name + photo + an explanation (and an
+  // Add friend action for the friends-only case).
+  function renderLockedProfile(u, data) {
+    const isPrivate = data.locked === 'private';
+    const msg = isPrivate
+      ? esc(u.name) + ' keeps this profile private. Only they can see it.'
+      : esc(u.name) + ' shares this profile with friends only. Add them as a friend to see their profile and posts.';
+    let act = '';
+    if (!isPrivate) {
+      if (data.friendStatus === 'none') act = '<button class="btn btn-primary" data-addfriend="' + u.id + '">Add friend</button>';
+      else if (data.friendStatus === 'requested') act = '<span class="shint">Friend request sent.</span>';
+      else if (data.friendStatus === 'incoming') act = '<button class="btn btn-primary" data-accept="' + u.id + '">Confirm friend request</button>';
+    }
+    view.innerHTML =
+      '<div class="card card-pad-0">' +
+      '<div class="profile-cover"></div>' +
+      '<div class="profile-head">' +
+      '<div class="av-wrap">' + avatar(u, 130) + '</div>' +
+      '<div class="phead-main"><div class="phead-row"><div class="phead-id">' +
+      '<div class="pname">' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
+      (u.username ? '<div class="pmeta" style="color:var(--text-soft);font-weight:600">@' + esc(u.username) + '</div>' : '') +
+      '</div><div class="pactions"><button class="btn btn-icon" data-share-profile="' + esc((u.username || u.id) + '') + '" title="Share profile" aria-label="Share profile">&#128279;</button></div></div></div>' +
+      '</div></div>' +
+      '<div class="card"><div class="empty" style="padding:40px 20px">' +
+      '<div style="font-size:34px;margin-bottom:10px">' + (isPrivate ? '&#128274;' : '&#128101;') + '</div>' +
+      '<div style="max-width:380px;margin:0 auto;line-height:1.5">' + msg + '</div>' +
+      (act ? '<div style="margin-top:16px">' + act + '</div>' : '') +
+      '</div></div>';
+    wireProfileActions(view, data);
+    renderRightRail();
+  }
+
   async function renderProfile(id) {
     view.innerHTML = '<div class="card card-pad-0"><div class="empty" style="padding:40px">Loading profile...</div></div>';
     let data;
@@ -1824,6 +1899,9 @@
     // Reflect this profile's shareable link in the address bar so it can be copied
     // straight from there: /u/<username> (or /u/<id> if no username is set).
     try { window.history.replaceState({}, '', '/u/' + encodeURIComponent(u.username || u.id)); } catch (e) {}
+    // The owner set this profile to friends-only or private and the viewer is not
+    // allowed: show a minimal locked view instead of the full profile.
+    if (data.locked) { renderLockedProfile(u, data); return; }
     const isMe = data.friendStatus === 'self';
     const _themeObj = themeFor(u); // Premium background gradient (gated server-side via u.theme)
     // Name color is chosen SEPARATELY from the background gradient: it comes only
@@ -1901,6 +1979,8 @@
     }));
     const edit = root.querySelector('#editProfileBtn');
     if (edit) edit.onclick = openEditProfile;
+    const vis = root.querySelector('#visBtn');
+    if (vis) vis.onclick = () => openVisibilityModal(data.user.visibility);
   }
 
   function wireProfilePhotoEdits() {

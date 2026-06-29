@@ -199,6 +199,13 @@ router.get('/feed/discover', requireAuth, async (req, res) => {
 router.get('/user/:id', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   const friend = await areFriends(req.user.id, id); // also true when viewing yourself
+  // Profile visibility gate (mirrors the profile route): a private profile shows
+  // no wall to anyone but the owner; a friends-only profile shows none to non-friends.
+  const target = await db.prepare('SELECT profile_visibility FROM users WHERE id = ?').get(id);
+  const vis = (target && target.profile_visibility) || 'public';
+  if (id !== req.user.id && (vis === 'private' || (vis === 'friends' && !friend))) {
+    return res.json({ posts: [], locked: true });
+  }
   const rows = friend
     ? await db
         .prepare('SELECT * FROM posts WHERE user_id = ? AND group_id IS NULL AND community_id IS NULL ORDER BY created_at DESC, id DESC')
