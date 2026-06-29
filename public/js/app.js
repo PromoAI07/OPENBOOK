@@ -578,15 +578,16 @@
 
   async function renderSupport() {
     view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading...</div></div>';
-    const [lk, tr, st, pl, nw, cs] = await Promise.all([
+    const [lk, tr, st, pl, nw, cs, pm] = await Promise.all([
       API.support().catch(() => ({})),
       API.tiers().then((r) => r.tiers).catch(() => []),
       API.myStats().then((r) => r.supporter).catch(() => null),
       API.billingPlans().then((r) => r.plans).catch(() => []),
       API.billingNetworks().then((r) => r.networks).catch(() => []),
       API.communityStats().catch(() => null),
+      API.myPayments().then((r) => r.payments).catch(() => []),
     ]);
-    const links = lk || {}, tiers = tr || [], mine = st, networks = nw || [];
+    const links = lk || {}, tiers = tr || [], mine = st, networks = nw || [], payments = pm || [];
 
     // Pioneer count card: the first 5,000 members get a permanent blue badge.
     let pioneerCard = '';
@@ -717,12 +718,43 @@
         '</div>')
       : '<div class="card"><div style="font-weight:700">Pay with USDT</div><div class="shint" style="font-size:13px;margin-top:4px">Crypto addresses are being set up. Check back soon.</div></div>';
 
+    // Your support history: the supporter's own payment receipts (GET /api/billing/me).
+    function _payMethod(provider) {
+      if (provider === 'paypal') return 'PayPal';
+      if (String(provider).indexOf('usdt-') === 0) {
+        var NETS = { tron: 'Tron', ethereum: 'Ethereum', bsc: 'BNB Chain', polygon: 'Polygon', solana: 'Solana' };
+        return 'USDT (' + (NETS[provider.slice(5)] || provider.slice(5)) + ')';
+      }
+      return provider || '';
+    }
+    var _TIERN = { 1: 'Supporter', 2: 'Plus', 3: 'Premium' };
+    function _payAmt(p) {
+      var n = Number(p.amount), a = isFinite(n) ? (Math.round(n * 100) / 100) : p.amount;
+      return String(p.currency || '').toUpperCase() === 'USD' ? ('$' + a) : (a + ' ' + (p.currency || ''));
+    }
+    function _payDate(ts) { try { return new Date(String(ts).replace(' ', 'T') + 'Z').toLocaleDateString(); } catch (e) { return String(ts || ''); } }
+    const historyCard = payments.length
+      ? ('<div class="card"><div class="section-title">Your support history</div>' +
+          '<div class="shint" style="font-size:12px;margin:-4px 0 8px">A record of your support. You also get an email receipt for each one.</div>' +
+          payments.map(function (p) {
+            return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)">' +
+              '<div style="flex:1;min-width:0">' +
+                '<div style="font-weight:600;font-size:13px">' + esc(_TIERN[p.tier] || ('Tier ' + p.tier)) + ' &middot; ' + esc(_payMethod(p.provider)) + '</div>' +
+                '<div class="shint" style="font-size:12px">' + esc(_payDate(p.created_at)) + '</div>' +
+              '</div>' +
+              '<div style="font-weight:700;font-size:13px;white-space:nowrap">' + esc(_payAmt(p)) + '</div>' +
+            '</div>';
+          }).join('') +
+        '</div>')
+      : '';
+
     view.innerHTML =
       '<div class="card"><div class="pname">&#10084;&#65039; Support OpenBook</div>' +
       '<div class="shint" style="font-size:14px;line-height:1.6;margin-top:6px">' +
       'OpenBook is free and open source, and it will stay that way. There is no paywall and we never sell your data. ' +
       'Supporter perks are cosmetic and convenience only: supporting us can never buy a place in the feed or extra weight in a vote. That stays equal for everyone.' +
       expiresNote + '</div></div>' +
+      historyCard +
       pioneerCard +
       '<div class="section-title">Supporter tiers</div>' +
       '<div class="tier-grid">' + tiers.map(tierCard).join('') + '</div>' +
