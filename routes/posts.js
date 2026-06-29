@@ -26,6 +26,22 @@ async function canSeeRemovedPost(user, post) {
   return post.user_id === user.id || isAdmin(user) || (post.community_id && await isCommunityMod(user.id, post.community_id));
 }
 
+// Author reach multipliers for a set of decorated posts, fetched in ONE query
+// (WHERE id IN ...) instead of a separate lookup per author. Returns a synchronous
+// reachOf(post) -> number so the ranking/filter code stays unchanged. Reach is
+// folded into ranking only, never attached to a post, so it stays invisible to
+// other users. Feeds cap candidates well under SQLite's IN-list limit.
+async function buildReachOf(decorated) {
+  const ids = [...new Set(decorated.map((p) => p.author.id))];
+  const reach = {};
+  if (ids.length) {
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = await db.prepare('SELECT id, reach_score FROM users WHERE id IN (' + placeholders + ')').all(...ids);
+    for (const r of rows) reach[r.id] = r.reach_score != null ? r.reach_score : 1;
+  }
+  return (p) => (reach[p.author.id] !== undefined ? reach[p.author.id] : 1);
+}
+
 async function myCommentVote(id, userId) {
   const v = await db.prepare("SELECT value FROM votes WHERE target_type = 'comment' AND target_id = ? AND user_id = ?").get(id, userId);
   return v ? v.value : 0;
@@ -119,20 +135,7 @@ router.get('/feed/home', requireAuth, async (req, res) => {
   // Author reach multiplier (the graduated shadowban). Looked up here and folded
   // into the ranking only, never attached to the post, so reach stays invisible
   // to other users. Phase 4 adds the appeal flow on top of this.
-  const reachCache = {};
-  async function loadReach(aid) {
-    if (reachCache[aid] === undefined) {
-      const u = await db.prepare('SELECT reach_score FROM users WHERE id = ?').get(aid);
-      reachCache[aid] = u && u.reach_score != null ? u.reach_score : 1;
-    }
-    return reachCache[aid];
-  }
-  function reachOf(p) {
-    const aid = p.author.id;
-    return reachCache[aid] !== undefined ? reachCache[aid] : 1;
-  }
-  // Pre-populate the reach cache so reachOf stays synchronous for filter/rankPosts.
-  for (const p of decorated) await loadReach(p.author.id);
+  const reachOf = await buildReachOf(decorated);
 
   // Fully floored authors (reach at the shadowban floor) are excluded outright so
   // they cannot resurface by toggling the sort; the viewer still sees their OWN
@@ -179,20 +182,7 @@ router.get('/feed/discover', requireAuth, async (req, res) => {
     .all();
   const decorated = await decoratePosts(rows, uid);
 
-  const reachCache = {};
-  async function loadReach(aid) {
-    if (reachCache[aid] === undefined) {
-      const u = await db.prepare('SELECT reach_score FROM users WHERE id = ?').get(aid);
-      reachCache[aid] = u && u.reach_score != null ? u.reach_score : 1;
-    }
-    return reachCache[aid];
-  }
-  function reachOf(p) {
-    const aid = p.author.id;
-    return reachCache[aid] !== undefined ? reachCache[aid] : 1;
-  }
-  // Pre-populate the reach cache so reachOf stays synchronous for filter/rankPosts.
-  for (const p of decorated) await loadReach(p.author.id);
+  const reachOf = await buildReachOf(decorated);
 
   const SHADOW_FLOOR = 0.05;
   const visible = decorated.filter((p) => p.author.id === uid || reachOf(p) > SHADOW_FLOOR);

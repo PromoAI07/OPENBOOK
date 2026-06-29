@@ -11,6 +11,26 @@ const db = require('./db');
 const { userFromToken, COOKIE_NAME } = require('./auth');
 const presence = require('./presence');
 
+// Notify only a user's accepted friends (the people whose contacts list shows
+// their dot) when they come online or go offline, by emitting to each friend's
+// private "user:<id>" room. This replaces a global io.emit broadcast, which sent
+// every connect/disconnect to EVERY connected socket (O(users) per event).
+// Offline friends pick up fresh state from the contacts API on their next load.
+// Fire-and-forget with its own try/catch so a presence hiccup never disturbs the
+// connection.
+async function emitPresenceToFriends(io, userId, online) {
+  try {
+    const rows = await db.prepare(
+      `SELECT CASE WHEN requester_id = ? THEN addressee_id ELSE requester_id END AS fid
+       FROM friendships
+       WHERE status = 'accepted' AND (requester_id = ? OR addressee_id = ?)`
+    ).all(userId, userId, userId);
+    for (const r of rows) io.to('user:' + r.fid).emit('presence', { userId, online });
+  } catch (e) {
+    console.error('[socket presence]', e && e.message);
+  }
+}
+
 function initSockets(io) {
   io.on('connection', async (socket) => {
     // Authenticate the socket using the same session cookie as the web app.
@@ -30,13 +50,13 @@ function initSockets(io) {
     socket.userId = user.id;
     socket.join('user:' + user.id);
 
-    // Presence: track this connection. If the user just came online, tell everyone
-    // so contacts lists can flip the dot to green in real time. (Broadcasting to
-    // all is fine at this scale; clients ignore ids not in their contacts.)
-    if (presence.markOnline(user.id)) io.emit('presence', { userId: user.id, online: true });
+    // Presence: track this connection. If the user just came online, tell ONLY
+    // their friends (whose contacts list shows their dot) so it flips green in
+    // real time, instead of broadcasting to every connected socket.
+    if (presence.markOnline(user.id)) emitPresenceToFriends(io, user.id, true);
 
     socket.on('disconnect', () => {
-      if (presence.markOffline(user.id)) io.emit('presence', { userId: user.id, online: false });
+      if (presence.markOffline(user.id)) emitPresenceToFriends(io, user.id, false);
     });
 
     // Send a direct message to another user.
