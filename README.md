@@ -31,9 +31,11 @@ and spammers slip through. OpenBook splits those signals apart:
 
 So you can hold an unpopular view, collect a pile of downvotes, and still be
 seen, as long as your standing is healthy. A spammer with positive karma still
-gets caught, because standing is what falls. The ranking and reputation rules
-live in the open in this repo (see [`ranking.js`](ranking.js) and
-[`trust.js`](trust.js)), because a neutrality claim has to be auditable, not a
+gets caught, because standing is what falls. The full rulebook (ranking,
+reputation, moderation, the illegal-content track, anti-sybil, and exactly what
+money does and does not do) is published in plain language in [`RULES.md`](RULES.md),
+and the code that runs it lives in the open in this repo (see [`ranking.js`](ranking.js)
+and [`trust.js`](trust.js)), because a neutrality claim has to be auditable, not a
 black box.
 
 ## Features
@@ -155,6 +157,7 @@ ranking.js       Published ranking math: hot, Wilson, controversy, vote weight
 entitlements.js  Supporter tiers and perks (cosmetic / capacity / convenience only)
 referrals.js     Invite rewards (free Premium months) with anti-farming checks
 antisybil.js     Disposable-email + proof-of-work + vote-ring detection
+illegal.js       Illegal-content blocklist + upload hash-matching (SPEC 12)
 moderation.js    Distributed moderation permission helpers
 visibility.js    Shared who-can-see and who-can-interact rules
 postview.js      Shared post shaping for every surface
