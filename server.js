@@ -56,13 +56,32 @@ app.use((req, res, next) => {
 // Security headers (clickjacking, MIME sniffing, HSTS in production, etc.).
 // Content Security Policy is a defense-in-depth backstop against XSS: even if a
 // future bug let user input reach the page unescaped, an injected <script> still
-// could not run. Inline scripts are allowed ONLY by exact hash (the tiny theme
-// bootstrap in every page + the mod-log / roadmap / reset page scripts), never via
-// 'unsafe-inline', so injected script is blocked. Inline STYLES stay allowed
-// (the UI uses style="" heavily and they are far lower risk). anime.js loads from
-// jsdelivr; media may load from the R2 CDN (MEDIA_CDN_BASE) in production.
-// NOTE: if any of those inline scripts is edited, recompute its sha256 (the page
-// will silently stop running its inline script otherwise).
+// could not run. Inline scripts are allowed ONLY by exact sha256 hash, never via
+// 'unsafe-inline', so injected script is blocked. The hashes are computed ONCE AT
+// STARTUP by scanning every HTML file we serve (public/ + admin.html at the app
+// root), so editing or adding an inline script can never silently break a page,
+// and no file is ever missed. Inline STYLES stay allowed (the UI uses style=""
+// heavily and they are far lower risk). anime.js loads from jsdelivr; media may
+// load from the R2 CDN (MEDIA_CDN_BASE) in production.
+const fs = require('fs');
+function inlineScriptHashes() {
+  const crypto = require('crypto');
+  const dirs = [path.join(__dirname, 'public'), __dirname]; // served HTML lives here (admin.html is at the root)
+  const hashes = new Set();
+  for (const dir of dirs) {
+    let files = [];
+    try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.html')); } catch (e) { continue; }
+    for (const f of files) {
+      let html = '';
+      try { html = fs.readFileSync(path.join(dir, f), 'utf8'); } catch (e) { continue; }
+      // Only <script> with NO src attribute is inline (external <script src=...> never matches).
+      const re = /<script>([\s\S]*?)<\/script>/g;
+      let m;
+      while ((m = re.exec(html))) hashes.add("'sha256-" + crypto.createHash('sha256').update(m[1], 'utf8').digest('base64') + "'");
+    }
+  }
+  return [...hashes];
+}
 let MEDIA_CDN_ORIGIN = null;
 try { if (process.env.MEDIA_CDN_BASE) MEDIA_CDN_ORIGIN = new URL(process.env.MEDIA_CDN_BASE).origin; } catch (e) { /* ignore malformed */ }
 const cspMedia = ["'self'", 'data:', 'blob:'].concat(MEDIA_CDN_ORIGIN ? [MEDIA_CDN_ORIGIN] : []);
@@ -75,14 +94,7 @@ app.use(helmet({
       objectSrc: ["'none'"],
       frameAncestors: ["'self'"],
       formAction: ["'self'"],
-      scriptSrc: [
-        "'self'",
-        'https://cdn.jsdelivr.net',
-        "'sha256-apLTUSMFZuZAtzWoTdV33CsRHoEOsCI2D2lpgZPPGis='",
-        "'sha256-cjhgIjErkpeNsXIshFs2wR4gRyiTXY+mRAXoztRgGDg='",
-        "'sha256-ytyQvOsgtV7eJdHGW9zlZX8F7mYVeu3bt/mgOGmpIWM='",
-        "'sha256-HC2JrvzdpH/EBUlPjja+fPvhFIblcsnF0RwO7DZbY4I='",
-      ],
+      scriptSrc: ["'self'", 'https://cdn.jsdelivr.net'].concat(inlineScriptHashes()),
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: cspMedia,
       mediaSrc: cspMedia,
