@@ -181,6 +181,19 @@ const API = {
   toggleSold(id) { return this.post('/api/marketplace/' + id + '/sold'); },
   deleteListing(id) { return this.del('/api/marketplace/' + id); },
 
+  // Marketplace escrow (protected transactions)
+  escrowConfig() { return this.get('/api/escrow/config'); },
+  escrowBuy(listingId) { return this.post('/api/escrow/buy', { listingId }); },
+  escrowOrders() { return this.get('/api/escrow/orders'); },
+  escrowOrder(id) { return this.get('/api/escrow/orders/' + id); },
+  escrowShipped(id, note) { return this.post('/api/escrow/orders/' + id + '/shipped', { note }); },
+  escrowReceived(id) { return this.post('/api/escrow/orders/' + id + '/received'); },
+  escrowDispute(id, reason) { return this.post('/api/escrow/orders/' + id + '/dispute', { reason }); },
+  escrowCancel(id) { return this.post('/api/escrow/orders/' + id + '/cancel'); },
+  escrowEvidence(id, fields, file) { const f = new FormData(); Object.keys(fields).forEach((k) => f.append(k, fields[k] == null ? '' : fields[k])); if (file) f.append('image', file); return this.postForm('/api/escrow/orders/' + id + '/evidence', f); },
+  escrowDisputes() { return this.get('/api/escrow/disputes'); },
+  escrowResolve(id, decision, note) { return this.post('/api/escrow/orders/' + id + '/resolve', { decision, note }); },
+
   // Groups
   groups() { return this.get('/api/groups'); },
   group(id) { return this.get('/api/groups/' + id); },

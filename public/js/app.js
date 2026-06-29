@@ -2603,6 +2603,7 @@
       case 'friend_request': return ' sent you a friend request';
       case 'friend_accept': return ' accepted your friend request';
       case 'follow': return ' started following you';
+      case 'escrow_update': return ' updated a protected order';
       case 'mod_removed': return ' (a moderator) removed your content';
       case 'mod_restored': return ' (a moderator) restored your content';
       case 'jury_duty': return ': you were picked for a community jury';
@@ -2618,7 +2619,8 @@
     );
     row.onclick = () => {
       document.getElementById('notifDropdown').classList.add('hidden');
-      if (n.type === 'friend_request' || n.type === 'friend_accept' || n.type === 'follow') go('profile', n.actor.id);
+      if (n.type === 'escrow_update') openMyOrders();
+      else if (n.type === 'friend_request' || n.type === 'friend_accept' || n.type === 'follow') go('profile', n.actor.id);
       else go('profile', ME.id);
     };
     return row;
@@ -2658,6 +2660,8 @@
     view.innerHTML =
       '<div class="card"><div class="mk-head">' +
       '<div class="section-title" style="flex:1;margin:0">Marketplace</div>' +
+      '<button class="btn btn-sm" id="ordersBtn">&#128230; My orders</button>' +
+      (ME && ME.isAdmin ? '<button class="btn btn-sm" id="dispBtn">Disputes</button>' : '') +
       '<button class="btn btn-primary btn-sm" id="sellBtn">&#10010; Sell something</button></div>' +
       '<input class="input" id="mkSearch" placeholder="Search marketplace" value="' + esc(marketState.q) + '" style="margin-top:10px">' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
@@ -2681,6 +2685,10 @@
       chips.appendChild(chip);
     });
     document.getElementById('sellBtn').onclick = openSellModal;
+    const ordersBtn = document.getElementById('ordersBtn');
+    if (ordersBtn) ordersBtn.onclick = openMyOrders;
+    const dispBtn = document.getElementById('dispBtn');
+    if (dispBtn) dispBtn.onclick = openEscrowDisputes;
     const search = document.getElementById('mkSearch');
     let to;
     search.addEventListener('input', () => { clearTimeout(to); marketState.q = search.value.trim(); to = setTimeout(loadListings, 300); });
@@ -2736,7 +2744,10 @@
       (l.isMine
         ? '<button class="btn btn-block" id="mkSold">' + (l.status === 'sold' ? 'Mark available' : 'Mark as sold') + '</button>' +
           '<button class="btn btn-danger btn-block" id="mkDel" style="margin-top:8px">Delete listing</button>'
-        : '<button class="btn btn-primary btn-block" id="mkMsg">Message ' + esc(firstName) + '</button>' +
+        : (l.status !== 'sold' && Number(l.price) > 0
+            ? '<button class="btn btn-primary btn-block" id="mkBuy">&#128274; Buy with escrow protection</button>' +
+              '<button class="btn btn-block" id="mkMsg" style="margin-top:8px">Message ' + esc(firstName) + '</button>'
+            : '<button class="btn btn-primary btn-block" id="mkMsg">Message ' + esc(firstName) + '</button>') +
           '<button class="btn btn-block" id="mkSeller" style="margin-top:8px">View seller profile</button>') +
       '</div>'
     );
@@ -2744,6 +2755,7 @@
       m.q('#mkSold').onclick = async () => { try { await API.toggleSold(l.id); m.close(); toast('Updated'); if (currentView === 'marketplace') loadListings(); } catch (e) { toast(e.message); } };
       m.q('#mkDel').onclick = async () => { if (!window.confirm('Delete this listing?')) return; try { await API.deleteListing(l.id); m.close(); toast('Listing deleted'); if (currentView === 'marketplace') loadListings(); } catch (e) { toast(e.message); } };
     } else {
+      if (m.q('#mkBuy')) m.q('#mkBuy').onclick = () => { m.close(); escrowBuyFlow(l); };
       m.q('#mkMsg').onclick = () => { m.close(); go('messages', l.seller.id); };
       m.q('#mkSeller').onclick = () => { m.close(); go('profile', l.seller.id); };
     }
@@ -2778,6 +2790,167 @@
         m.close(); toast('Listing posted'); if (currentView === 'marketplace') loadListings();
       } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Post listing'; }
     };
+  }
+
+  /* ============================ marketplace escrow ============================ */
+
+  var _escrowCfg = null;
+  async function escrowCfg() {
+    if (!_escrowCfg) { try { _escrowCfg = await API.escrowConfig(); } catch (e) { _escrowCfg = { live: false, feePct: 5 }; } }
+    return _escrowCfg;
+  }
+  var ORDER_STATUS = {
+    awaiting_funds: { label: 'Awaiting payment', cls: 'pill' },
+    funds_held: { label: 'Held in escrow', cls: 'pill pill-ok' },
+    shipped: { label: 'Shipped / handed over', cls: 'pill pill-ok' },
+    completed: { label: 'Completed', cls: 'pill pill-ok' },
+    disputed: { label: 'In dispute', cls: 'pill' },
+    resolved_release: { label: 'Resolved: paid the seller', cls: 'pill pill-ok' },
+    resolved_refund: { label: 'Resolved: refunded the buyer', cls: 'pill' },
+    cancelled: { label: 'Cancelled', cls: 'pill' },
+  };
+  function orderPill(status) { var s = ORDER_STATUS[status] || { label: status, cls: 'pill' }; return '<span class="' + s.cls + '">' + esc(s.label) + '</span>'; }
+
+  // Buy-with-protection confirm flow, opened from a listing.
+  async function escrowBuyFlow(listing) {
+    const cfg = await escrowCfg();
+    const fee = Math.round(listing.price * (cfg.feePct / 100) * 100) / 100;
+    const sellerGets = Math.round((listing.price - fee) * 100) / 100;
+    const m = modal(
+      '<div class="mh"><h3>&#128274; Buy with escrow protection</h3></div><div class="mc">' +
+      '<div style="font-weight:700;font-size:16px;margin-bottom:2px">' + esc(listing.title) + '</div>' +
+      '<div class="mk-price" style="font-size:22px">' + money(listing.price) + '</div>' +
+      '<div class="shint" style="font-size:13px;line-height:1.6;margin:10px 0">OpenBook holds your payment safely and only releases it to the seller once <strong>you confirm you received the item and it is as described</strong>. If something goes wrong, you open a dispute and an OpenBook admin reviews the evidence from both sides and decides. This protects you both, whether it is shipped or handed over in person.</div>' +
+      '<div style="background:var(--hover);border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.7;margin-bottom:10px">' +
+        'Item price <span style="float:right;font-weight:700">' + money(listing.price) + '</span><br>' +
+        'Platform fee (' + cfg.feePct + '%) <span style="float:right;font-weight:700">' + money(fee) + '</span><br>' +
+        'Seller receives <span style="float:right;font-weight:700">' + money(sellerGets) + '</span></div>' +
+      (cfg.live
+        ? '<div class="shint" style="font-size:12.5px;margin-bottom:10px">Payment is in <strong>USDT</strong>. After you confirm, you will be shown the escrow address to fund the order.</div>'
+        : '<div class="modbanner modbanner-soft" style="font-size:12.5px;margin-bottom:10px;padding:8px 10px;border-radius:8px">Heads up: escrow payments are in <strong>preview</strong>. This sets up the protected order and the full flow, but <strong>no real money moves yet</strong> while we finalize the payment side.</div>') +
+      '<button class="btn btn-primary btn-block" id="obfGo">Confirm and open protected order</button>' +
+      '<div id="obfMsg" class="shint" style="font-size:12px;margin-top:8px"></div></div>'
+    );
+    m.q('#obfGo').onclick = async () => {
+      const b = m.q('#obfGo'); b.disabled = true; b.textContent = 'Opening...';
+      try { const r = await API.escrowBuy(listing.id); m.close(); toast('Protected order opened'); openOrder(r.order.id); }
+      catch (e) { m.q('#obfMsg').textContent = e.message; b.disabled = false; b.textContent = 'Confirm and open protected order'; }
+    };
+  }
+
+  // The order detail view: status, money breakdown, role + state actions, evidence
+  // (both sides), and the event trail. Shared by buyer, seller, and admin.
+  async function openOrder(id) {
+    let data;
+    try { data = await API.escrowOrder(id); } catch (e) { toast(e.message); return; }
+    const o = data.order;
+    const meAdmin = !!(ME && ME.isAdmin);
+    const role = o.isBuyer ? 'You are the buyer' : (o.isSeller ? 'You are the seller' : (meAdmin ? 'Admin view' : ''));
+    const other = o.isBuyer ? o.seller : o.buyer;
+
+    let actions = '';
+    if (o.isSeller && o.status === 'funds_held') actions += '<button class="btn btn-primary btn-block" data-act="shipped">Mark as shipped / handed over</button>';
+    if (o.isBuyer && (o.status === 'funds_held' || o.status === 'shipped')) {
+      actions += '<button class="btn btn-primary btn-block" data-act="received">I got it, all good &#8594; release to seller</button>' +
+        '<button class="btn btn-block" data-act="dispute" style="margin-top:8px">Something is wrong, open a dispute</button>';
+    }
+    if ((o.isBuyer || o.isSeller) && o.status === 'funds_held') actions += '<button class="btn btn-block" data-act="cancel" style="margin-top:8px">Cancel this order</button>';
+    if (meAdmin && o.status === 'disputed') {
+      actions += '<div style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px">' +
+        '<div class="shint" style="font-size:12.5px;margin-bottom:6px"><strong>Admin:</strong> review both sides’ evidence, then decide who keeps the money.</div>' +
+        '<textarea class="input" id="ordResNote" rows="2" placeholder="Reason for your decision (shown on the order)"></textarea>' +
+        '<div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-primary" data-act="resolve-release" style="flex:1">Release to seller</button>' +
+        '<button class="btn btn-danger" data-act="resolve-refund" style="flex:1">Refund buyer</button></div></div>';
+    }
+
+    const evHtml = (o.evidence || []).length
+      ? o.evidence.map((e) => '<div style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:6px">' +
+          '<div style="font-size:12px;font-weight:700">' + esc(e.role === 'seller' ? 'Seller' : 'Buyer') + ' &#183; ' + esc(e.kind) + '</div>' +
+          (e.mediaUrl ? '<img src="' + esc(e.mediaUrl) + '" style="width:100%;border-radius:8px;max-height:240px;object-fit:cover;margin-top:6px">' : '') +
+          (e.note ? '<div style="font-size:13px;margin-top:4px;white-space:pre-wrap">' + esc(e.note) + '</div>' : '') + '</div>').join('')
+      : '<div class="shint" style="font-size:13px">No evidence added yet.</div>';
+    const canAddEvidence = (o.isBuyer || o.isSeller) && ['funds_held', 'shipped', 'disputed'].includes(o.status);
+    const trail = (o.events || []).map((e) => '<div style="font-size:12px;color:var(--text-soft);padding:2px 0">&#8226; ' + esc(e.event) + (e.detail ? ' — ' + esc(e.detail) : '') + ' <span style="opacity:.7">(' + timeAgo(e.created_at) + ')</span></div>').join('');
+
+    const m = modal(
+      '<div class="mh"><h3>Protected order</h3></div><div class="mc">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">' + orderPill(o.status) +
+        (role ? '<span class="shint" style="font-size:12px">' + esc(role) + '</span>' : '') + (o.live ? '' : '<span class="pill">preview</span>') + '</div>' +
+      '<div style="font-weight:700;font-size:16px">' + esc(o.title) + '</div>' +
+      (other ? '<div class="contact" style="padding:6px 0">' + avatar(other, 30) + '<span class="nm">' + esc(other.name) + '</span></div>' : '') +
+      '<div style="background:var(--hover);border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.7;margin:8px 0">' +
+        'Amount <span style="float:right;font-weight:700">' + money(o.amount) + '</span><br>' +
+        'Fee (' + o.feePct + '%) <span style="float:right;font-weight:700">' + money(o.feeAmount) + '</span><br>' +
+        'Seller receives <span style="float:right;font-weight:700">' + money(o.sellerAmount) + '</span></div>' +
+      (o.disputeReason ? '<div class="modbanner modbanner-soft" style="font-size:13px;padding:8px 10px;border-radius:8px;margin-bottom:8px"><strong>Dispute:</strong> ' + esc(o.disputeReason) + '</div>' : '') +
+      (o.resolution ? '<div class="shint" style="font-size:13px;margin-bottom:8px"><strong>Outcome:</strong> ' + esc(o.resolution) + '</div>' : '') +
+      (actions ? '<div style="margin:10px 0">' + actions + '</div>' : '') +
+      '<div class="section-title" style="font-size:14px;margin:14px 0 6px">Evidence</div>' + evHtml +
+      (canAddEvidence
+        ? '<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px">' +
+            '<select class="input" id="evKind" style="margin-bottom:6px">' +
+              (o.isSeller ? '<option value="shipping">Proof of sending</option><option value="receipt">Receipt</option>' : '<option value="damage">Damage / problem</option><option value="photo">Photo of item</option>') +
+              '<option value="other">Other</option></select>' +
+            '<textarea class="input" id="evNote" rows="2" placeholder="Add a note (what this shows)" style="margin-bottom:6px"></textarea>' +
+            '<input type="file" id="evImg" accept="image/*" class="input" style="margin-bottom:6px">' +
+            '<button class="btn btn-sm btn-block" id="evAdd">Add evidence</button></div>'
+        : '') +
+      (trail ? '<div class="section-title" style="font-size:14px;margin:14px 0 6px">History</div>' + trail : '') +
+      '</div>'
+    );
+
+    async function act(fn, confirmMsg) {
+      if (confirmMsg && !window.confirm(confirmMsg)) return;
+      try { await fn(); m.close(); openOrder(id); } catch (e) { toast(e.message); }
+    }
+    m.node.querySelectorAll('[data-act]').forEach((b) => (b.onclick = () => {
+      const a = b.getAttribute('data-act');
+      if (a === 'shipped') act(() => API.escrowShipped(id, ''));
+      else if (a === 'received') act(() => API.escrowReceived(id), 'Confirm you received the item and it is all good? This releases the payment to the seller.');
+      else if (a === 'cancel') act(() => API.escrowCancel(id), 'Cancel this order?');
+      else if (a === 'dispute') { const r = window.prompt('Briefly explain the problem (an admin will review both sides):'); if (r && r.trim()) act(() => API.escrowDispute(id, r.trim())); }
+      else if (a === 'resolve-release') act(() => API.escrowResolve(id, 'release', (m.q('#ordResNote') || {}).value || ''), 'Release the funds to the SELLER?');
+      else if (a === 'resolve-refund') act(() => API.escrowResolve(id, 'refund', (m.q('#ordResNote') || {}).value || ''), 'Refund the BUYER?');
+    }));
+    const evAdd = m.q('#evAdd');
+    if (evAdd) evAdd.onclick = async () => {
+      const kind = m.q('#evKind').value; const note = m.q('#evNote').value.trim(); const file = m.q('#evImg').files[0];
+      if (!note && !file) { toast('Add a photo or a note'); return; }
+      evAdd.disabled = true; evAdd.textContent = 'Adding...';
+      try { await API.escrowEvidence(id, { kind, note }, file); m.close(); openOrder(id); } catch (e) { toast(e.message); evAdd.disabled = false; evAdd.textContent = 'Add evidence'; }
+    };
+  }
+
+  async function openMyOrders() {
+    const m = modal('<div class="mh"><h3>My protected orders</h3></div><div class="mc" id="ordList"><div class="empty">Loading...</div></div>');
+    try {
+      const r = await API.escrowOrders();
+      const list = m.q('#ordList');
+      if (!r.orders.length) { list.innerHTML = '<div class="empty" style="padding:8px">No orders yet. Buy something with escrow protection and it shows up here.</div>'; return; }
+      list.innerHTML = '';
+      r.orders.forEach((o) => {
+        const row = el('<div class="card" style="margin:0 0 8px;cursor:pointer"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:600;flex:1;min-width:0">' + esc(o.title) + '</span><span style="font-weight:700">' + money(o.amount) + '</span></div>' +
+          '<div style="margin-top:4px;display:flex;align-items:center;gap:8px">' + orderPill(o.status) + '<span class="shint" style="font-size:12px">' + (o.isBuyer ? 'buying' : 'selling') + '</span></div></div>');
+        row.onclick = () => { m.close(); openOrder(o.id); };
+        list.appendChild(row);
+      });
+    } catch (e) { m.q('#ordList').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+  }
+
+  async function openEscrowDisputes() {
+    const m = modal('<div class="mh"><h3>Escrow disputes</h3></div><div class="mc" id="dispList"><div class="empty">Loading...</div></div>');
+    try {
+      const r = await API.escrowDisputes();
+      const list = m.q('#dispList');
+      if (!r.orders.length) { list.innerHTML = '<div class="empty" style="padding:8px">No open disputes.</div>'; return; }
+      list.innerHTML = '';
+      r.orders.forEach((o) => {
+        const row = el('<div class="card" style="margin:0 0 8px;cursor:pointer"><div style="font-weight:600">' + esc(o.title) + ' &#183; ' + money(o.amount) + '</div>' +
+          '<div class="shint" style="font-size:12.5px;margin-top:2px">' + esc((o.disputeReason || '').slice(0, 120)) + '</div></div>');
+        row.onclick = () => { m.close(); openOrder(o.id); };
+        list.appendChild(row);
+      });
+    } catch (e) { m.q('#dispList').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
   }
 
   /* ============================ groups ============================ */
