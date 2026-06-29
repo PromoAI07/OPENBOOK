@@ -71,6 +71,41 @@
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
+  // --- Cloudflare Turnstile (optional CAPTCHA) --------------------------------
+  // Renders only when the server reports a public site key (TURNSTILE_SITE_KEY).
+  // Until then nothing loads and the forms behave exactly as before, so building
+  // this changes nothing for the live site until the two keys are added. The site
+  // key is public by design; the secret never leaves the server. We let the
+  // server be the source of truth (it fails open on a Cloudflare outage), so we
+  // never hard-block a submit here; we just attach the token and reset the widget
+  // after a failure so the next try gets a fresh one.
+  const captcha = { siteKey: '', login: null, signup: null };
+  function captchaToken(which) {
+    try {
+      if (captcha.siteKey && window.turnstile && captcha[which] != null) return turnstile.getResponse(captcha[which]) || '';
+    } catch (e) {}
+    return '';
+  }
+  function captchaReset(which) {
+    try { if (captcha.siteKey && window.turnstile && captcha[which] != null) turnstile.reset(captcha[which]); } catch (e) {}
+  }
+  (function initCaptcha() {
+    API.config().then((cfg) => {
+      const key = cfg && cfg.turnstileSiteKey;
+      if (!key) return; // dormant: no CAPTCHA configured
+      captcha.siteKey = key;
+      // Global onload callback the Turnstile script calls once it is ready.
+      window.__obTurnstileReady = function () {
+        try { captcha.login = turnstile.render('#loginCaptcha', { sitekey: key }); } catch (e) {}
+        try { captcha.signup = turnstile.render('#signupCaptcha', { sitekey: key }); } catch (e) {}
+      };
+      const s = document.createElement('script');
+      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=__obTurnstileReady';
+      s.async = true; s.defer = true;
+      document.head.appendChild(s);
+    }).catch(() => { /* config fetch failed: leave the forms CAPTCHA-free */ });
+  })();
+
   // --- Anti-sybil: signup proof-of-work + a coarse device fingerprint ---
   // Compact synchronous SHA-256 (ASCII in, hex out), so the proof-of-work loop
   // runs fast in a tight loop without thousands of async Web Crypto calls.
@@ -175,9 +210,13 @@
     btn.disabled = true;
     btn.textContent = 'Logging in...';
     try {
-      await API.login(email, password);
+      await API.login(email, password, {
+        hp_token: document.getElementById('loginHp').value,
+        turnstileToken: captchaToken('login'),
+      });
       window.location.href = '/app';
     } catch (err) {
+      captchaReset('login');
       showAlert(document.getElementById('loginAlert'), err.message);
       btn.disabled = false;
       btn.textContent = 'Log in';
@@ -195,9 +234,14 @@
     try {
       const proof = await signupProof();
       const ref = new URLSearchParams(location.search).get('ref') || '';
-      await API.signup(name, email, password, Object.assign({ fp: deviceFingerprint(), ref: ref }, proof));
+      await API.signup(name, email, password, Object.assign({
+        fp: deviceFingerprint(), ref: ref,
+        hp_token: document.getElementById('signupHp').value,
+        turnstileToken: captchaToken('signup'),
+      }, proof));
       window.location.href = '/app';
     } catch (err) {
+      captchaReset('signup');
       showAlert(document.getElementById('signupAlert'), err.message);
       btn.disabled = false;
       btn.textContent = 'Sign up';

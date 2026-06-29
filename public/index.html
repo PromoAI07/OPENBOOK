@@ -16,6 +16,11 @@
     .why-card h3 { margin: 0 0 6px; font-size: 16.5px; display: flex; align-items: baseline; gap: 8px; }
     .why-card h3 .ck { color: var(--green); font-weight: 800; flex: none; }
     .why-card p { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--text-soft); }
+    /* Honeypot: kept far off-screen (not display:none, which some bots skip) and
+       out of the tab order. Real users never see or focus it. */
+    .hp-field { position: absolute !important; left: -9999px !important; top: -9999px !important; width: 1px; height: 1px; overflow: hidden; }
+    /* Turnstile widget holder: only takes space once a widget is rendered into it. */
+    .cf-holder:not(:empty) { margin: 0 0 14px; }
   </style>
 </head>
 <body>
@@ -90,6 +95,10 @@
             <p class="sub">Log in to your OpenBook account.</p>
             <div id="loginAlert"></div>
             <form id="loginForm">
+              <div class="hp-field" aria-hidden="true">
+                <label for="loginHp">Leave this field empty</label>
+                <input type="text" id="loginHp" name="hp_token" tabindex="-1" autocomplete="off" />
+              </div>
               <div class="field">
                 <label for="loginEmail">Email</label>
                 <input class="input" type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email" required />
@@ -101,6 +110,7 @@
                   <button type="button" class="pw-toggle" data-pw="loginPassword" aria-label="Show password">Show</button>
                 </div>
               </div>
+              <div class="cf-holder" id="loginCaptcha"></div>
               <button class="btn btn-primary btn-block" type="submit" id="loginBtn">Log in</button>
             </form>
             <div class="auth-switch">
@@ -134,6 +144,10 @@
             <p class="sub">It is quick and easy.</p>
             <div id="signupAlert"></div>
             <form id="signupForm">
+              <div class="hp-field" aria-hidden="true">
+                <label for="signupHp">Leave this field empty</label>
+                <input type="text" id="signupHp" name="hp_token" tabindex="-1" autocomplete="off" />
+              </div>
               <div class="field">
                 <label for="signupName">Full name</label>
                 <input class="input" type="text" id="signupName" placeholder="Jane Doe" autocomplete="name" required />
@@ -149,6 +163,7 @@
                   <button type="button" class="pw-toggle" data-pw="signupPassword" aria-label="Show password">Show</button>
                 </div>
               </div>
+              <div class="cf-holder" id="signupCaptcha"></div>
               <button class="btn btn-primary btn-block" type="submit" id="signupBtn">Sign up</button>
             </form>
             <div class="auth-switch">

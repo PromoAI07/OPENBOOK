@@ -60,6 +60,15 @@ function verifyLink(req, token) {
   return baseUrl(req) + '/api/auth/verify?token=' + encodeURIComponent(token);
 }
 
+// Silent honeypot. The signup and login forms carry an off-screen field that no
+// human ever sees or fills (hp_token). A non-empty value is a strong automated-bot
+// signal, so we reject with the SAME generic error a normal failure gives, so a
+// bot never learns the trap exists. Zero friction and zero privacy cost for real
+// users, who always submit it empty.
+function botTrapped(req) {
+  return !!String((req.body && req.body.hp_token) || '').trim();
+}
+
 // Issue a proof-of-work challenge for the signup form (anti-mass-signup cost).
 router.get('/challenge', (req, res) => res.json(makeChallenge()));
 // The self-facing user object includes the owner's own email + verification flag
@@ -75,6 +84,12 @@ router.post('/signup', async (req, res, next) => {
   const password = req.body.password || '';
   const fingerprint = (req.body.fp || req.body.fingerprint || '').toString();
 
+  // Silent honeypot first: if the hidden trap field is filled, this is a bot.
+  // Reject with the same generic message as a failed proof-of-work so the trap
+  // stays invisible.
+  if (botTrapped(req)) {
+    return res.status(400).json({ error: 'Could not verify your browser. Please refresh the page and try again.', code: 'POW_FAILED' });
+  }
   if (!name || !email || !password) {
     return res.status(400).json({ error: 'Name, email and password are all required' });
   }
@@ -207,6 +222,15 @@ router.post('/login', async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password || '';
 
+  // Silent honeypot: a filled trap field means a bot. Answer with the normal
+  // wrong-credentials error so it is indistinguishable from a real failure.
+  if (botTrapped(req)) return res.status(401).json({ error: 'Wrong email or password' });
+  // Optional CAPTCHA on login (no-op unless TURNSTILE_SECRET is set): stops
+  // automated credential-stuffing scripts from hammering this endpoint. Fails
+  // open on a Cloudflare outage, so real users are never locked out.
+  if (!(await verifyTurnstile(req.body.turnstileToken, req.ip))) {
+    return res.status(400).json({ error: 'CAPTCHA check failed. Please try again.', code: 'CAPTCHA_FAILED' });
+  }
   if (email && loginBlocked(email)) {
     return res.status(429).json({ error: 'Too many failed attempts for this account. Please wait a few minutes, or reset your password.' });
   }

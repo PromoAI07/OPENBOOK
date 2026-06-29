@@ -85,6 +85,12 @@ function inlineScriptHashes() {
 let MEDIA_CDN_ORIGIN = null;
 try { if (process.env.MEDIA_CDN_BASE) MEDIA_CDN_ORIGIN = new URL(process.env.MEDIA_CDN_BASE).origin; } catch (e) { /* ignore malformed */ }
 const cspMedia = ["'self'", 'data:', 'blob:'].concat(MEDIA_CDN_ORIGIN ? [MEDIA_CDN_ORIGIN] : []);
+// Cloudflare Turnstile (the optional CAPTCHA) loads its script + renders its
+// challenge in an iframe from this origin, and the widget talks back to it. The
+// CSP must allow all three (script-src, frame-src, connect-src) or the widget
+// silently fails to appear. Harmless when Turnstile is unconfigured: nothing
+// loads from here unless a site key is present.
+const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com';
 app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: false,
@@ -94,12 +100,13 @@ app.use(helmet({
       objectSrc: ["'none'"],
       frameAncestors: ["'self'"],
       formAction: ["'self'"],
-      scriptSrc: ["'self'", 'https://cdn.jsdelivr.net'].concat(inlineScriptHashes()),
+      scriptSrc: ["'self'", 'https://cdn.jsdelivr.net', TURNSTILE_ORIGIN].concat(inlineScriptHashes()),
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: cspMedia,
       mediaSrc: cspMedia,
       fontSrc: ["'self'", 'data:'],
-      connectSrc: ["'self'"].concat(MEDIA_CDN_ORIGIN ? [MEDIA_CDN_ORIGIN] : []),
+      frameSrc: ["'self'", TURNSTILE_ORIGIN],
+      connectSrc: ["'self'", TURNSTILE_ORIGIN].concat(MEDIA_CDN_ORIGIN ? [MEDIA_CDN_ORIGIN] : []),
     },
   },
 }));
@@ -255,6 +262,14 @@ app.get('/api/support', (req, res) => {
     crypto: process.env.SUPPORT_CRYPTO || '',
     paypalEmail: process.env.PAYPAL_RECEIVER_EMAIL || '',
   });
+});
+
+// Public client config. Only ever exposes values that are safe in the browser:
+// the Turnstile SITE key is public by design (it is rendered into the page); the
+// SECRET key stays server-side and is never sent here. When no site key is set,
+// the field is empty and the frontend renders no CAPTCHA (dormant).
+app.get('/api/config', (req, res) => {
+  res.json({ turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
 });
 
 // The supporter tiers and their perks, for the upgrade page (public).

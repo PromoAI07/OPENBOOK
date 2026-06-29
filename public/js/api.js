@@ -33,7 +33,8 @@ const API = {
   // Auth
   signup(name, email, password, extra) { return this.post('/api/auth/signup', Object.assign({ name, email, password }, extra || {})); },
   signupChallenge() { return this.get('/api/auth/challenge'); },
-  login(email, password) { return this.post('/api/auth/login', { email, password }); },
+  config() { return this.get('/api/config'); },
+  login(email, password, extra) { return this.post('/api/auth/login', Object.assign({ email, password }, extra || {})); },
   logout() { return this.post('/api/auth/logout'); },
   me() { return this.get('/api/auth/me'); },
   resendVerification() { return this.post('/api/auth/resend-verification'); },
