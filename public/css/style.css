@@ -778,7 +778,12 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
   background: var(--hover); border: 2px solid var(--card);
   display: flex; align-items: center; justify-content: center;
 }
-.profile-head .pname { font-size: 28px; font-weight: 800; }
+.profile-head .pname { font-size: 28px; font-weight: 800; color: var(--name-accent, var(--text)); }
+/* In dark mode the name is always bright for readability: a custom name color
+   (var(--name-accent), often a dark shade picked in light mode) would otherwise
+   render near-black on the dark card and disappear. The accent still shows in
+   light mode. */
+html[data-theme="dark"] .profile-head .pname { color: var(--text); }
 .profile-head .pmeta { color: var(--text-soft); }
 /* Name + actions sit on one row; the bio flows full-width below it (so action
    buttons never squeeze the bio). */
@@ -925,7 +930,10 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 
 /* ---------- Photo repositioning ---------- */
 .profile-cover .cover-tools { position: absolute; right: 14px; bottom: 14px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.cover-tools .cover-btn { background: rgba(255, 255, 255, 0.92); color: var(--text); }
+/* The cover buttons always sit on a near-white pill (same in both themes), so the
+   label must be a fixed dark color. Using var(--text) made it light-on-white and
+   invisible in dark mode. */
+.cover-tools .cover-btn { background: rgba(255, 255, 255, 0.92); color: #1c1e21; }
 .profile-head .av-wrap .cam.cam-repos { right: auto; left: 4px; }
 .repos-frame { position: relative; overflow: hidden; background: #000; width: 100%; touch-action: none; cursor: grab; user-select: none; }
 .repos-frame:active { cursor: grabbing; }
@@ -1119,7 +1127,10 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 
 /* ---------- Profile bio + clickable bio links (Plus tier / trusted accounts) ---------- */
 .profile-bio { white-space: pre-wrap; word-break: break-word; }
-.bio-link { color: var(--brand); text-decoration: underline; word-break: break-all; }
+/* Keep a link (e.g. a domain) intact: it wraps to the next line as a whole unit
+   instead of being split mid-word. word-break:normal overrides the parent
+   .profile-bio break-word, which was slicing the domain across two lines. */
+.bio-link { color: var(--brand); text-decoration: underline; word-break: normal; overflow-wrap: normal; white-space: nowrap; }
 
 /* ---------- Shared site footer (landing page + "Our Mission") ---------- */
 .site-footer { display: flex; gap: 18px; align-items: center; justify-content: center; flex-wrap: wrap; padding: 26px 16px 34px; color: var(--text-soft); font-size: 13px; }

@@ -1790,7 +1790,7 @@
   };
   function visibilityBtn(u) {
     var m = VIS_META[u.visibility] || VIS_META.public;
-    return ' <button class="btn btn-soft" id="visBtn" title="Choose who can see your profile">' + m.icon + ' ' + m.label + '</button>';
+    return ' <button class="btn btn-soft btn-sm" id="visBtn" title="Choose who can see your profile">' + m.icon + ' ' + m.label + '</button>';
   }
   function openVisibilityModal(current) {
     var selected = VIS_META[current] ? current : 'public';
@@ -1828,7 +1828,7 @@
     const share = ' <button class="btn btn-icon" data-share-profile="' + esc((u.username || u.id) + '') + '" title="Share profile" aria-label="Share profile">&#128279;</button>';
     let main;
     switch (data.friendStatus) {
-      case 'self': main = '<button class="btn btn-soft" id="editProfileBtn">Edit profile</button>' + visibilityBtn(u); break;
+      case 'self': main = '<button class="btn btn-soft btn-sm" id="editProfileBtn">Edit profile</button>' + visibilityBtn(u); break;
       case 'friends': main = '<button class="btn btn-primary" data-msg="' + u.id + '">Message</button>&nbsp;<button class="btn" data-unfriend="' + u.id + '">Friends &#10003;</button>'; break;
       case 'requested': main = '<button class="btn" data-unfriend="' + u.id + '">Cancel request</button>'; break;
       case 'incoming': main = '<button class="btn btn-primary" data-accept="' + u.id + '">Confirm request</button>&nbsp;<button class="btn" data-decline="' + u.id + '">Delete</button>'; break;
@@ -1925,7 +1925,7 @@
       '<div class="av-wrap">' + avatar(u, 130) + (isMe ? '<button class="cam" id="editAvatarBtn" title="Change photo">&#128247;</button>' + (u.avatar ? '<button class="cam cam-repos" id="reposAvatarBtn" title="Reposition photo">&#10021;</button>' : '') : '') + '</div>' +
       '<div class="phead-main">' +
       '<div class="phead-row">' +
-      '<div class="phead-id"><div class="pname"' + (_nameAccent ? ' style="color:' + esc(_nameAccent) + '"' : '') + '>' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
+      '<div class="phead-id"><div class="pname"' + (_nameAccent ? ' style="--name-accent:' + esc(_nameAccent) + '"' : '') + '>' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
       (u.username ? '<div class="pmeta" style="color:var(--text-soft);font-weight:600">@' + esc(u.username) + '</div>' : '') +
       '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + data.postsCount + ' posts</div>' +
       (data.nameHistory && data.nameHistory.length
