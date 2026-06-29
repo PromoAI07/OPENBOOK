@@ -825,6 +825,17 @@ html[data-theme="dark"] .profile-head .pname { color: var(--text); }
   color: #fff; background: linear-gradient(135deg, #4f8cff, #2563eb);
   border: 1px solid rgba(0,0,0,0.08); white-space: nowrap;
 }
+/* Growth-phase ladder on the Support page (done / current / upcoming). Scrolls
+   horizontally on narrow screens so the four phases never crush together. */
+.phase-ladder { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+.phase-step { flex: 1 1 0; min-width: 78px; border-radius: 10px; padding: 8px 10px; text-align: center; border: 1px solid var(--line); background: var(--hover); }
+.phase-step .ps-n { font-size: 12.5px; font-weight: 800; }
+.phase-step .ps-to { font-size: 11px; color: var(--text-soft); margin-top: 1px; }
+.phase-step.phase-done { background: var(--brand-soft); border-color: var(--brand); }
+.phase-step.phase-done .ps-n { color: var(--brand-dark); }
+.phase-step.phase-cur { background: linear-gradient(135deg, #4f8cff, #2563eb); border-color: transparent; }
+.phase-step.phase-cur .ps-n, .phase-step.phase-cur .ps-to { color: #fff; }
+.phase-step.phase-next { opacity: 0.85; }
 /* Premium profile theme swatches in the Edit profile dialog. */
 .theme-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .theme-sw { width: 56px; height: 34px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; padding: 0; }

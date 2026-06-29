@@ -646,6 +646,10 @@ db.init = async function init() {
   await addColumn('users', 'supporter_tier INTEGER NOT NULL DEFAULT 0', 'supporter_tier');
   await addColumn('users', 'supporter_since TEXT', 'supporter_since');
   await addColumn('users', 'supporter_expires TEXT', 'supporter_expires');
+  // Opt-out of the public supporters wall (default 0 = shown). A supporter who
+  // sets this still counts in the aggregate total (anonymously) but is not listed
+  // by name, honoring the "you are in control" promise.
+  await addColumn('users', 'hide_supporter INTEGER NOT NULL DEFAULT 0', 'hide_supporter');
 
   // A small, separate audit of tier grants/changes (kept apart from trust_events
   // so the karma/standing reputation trail stays clean).

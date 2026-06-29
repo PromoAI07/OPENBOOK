@@ -14,7 +14,7 @@
 const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../auth');
-const { extendTier } = require('../entitlements');
+const { extendTier, tierConfig } = require('../entitlements');
 const { logger } = require('../logger');
 
 // Test-only bypass of payment verification, used by offline smoke tests. HARD-OFF
@@ -107,6 +107,17 @@ function fmtDate(ts) {
   if (!m) return '';
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return months[Number(m[2]) - 1] + ' ' + Number(m[3]) + ', ' + m[1];
+}
+
+// Partial name for the PUBLIC supporters wall: only the first few letters of the
+// first name, the rest masked. A privacy courtesy on the real name (the username,
+// which the supporter chose as their public handle, is shown in full).
+function maskName(name) {
+  const s = String(name || '').trim();
+  if (!s) return 'Supporter';
+  const first = s.split(/\s+/)[0];
+  const keep = Math.max(1, Math.min(3, Math.ceil(first.length / 2)));
+  return first.length <= keep ? first : first.slice(0, keep) + '…';
 }
 
 // The single idempotent, audited grant step shared by both rails.
@@ -336,7 +347,50 @@ api.get('/me', requireAuth, async (req, res) => {
   const rows = await db.prepare(
     'SELECT provider, tier, days, amount, currency, status, created_at FROM payment_events WHERE user_id = ? ORDER BY id DESC LIMIT 50'
   ).all(req.user.id);
-  res.json({ payments: rows });
+  const u = await db.prepare('SELECT hide_supporter FROM users WHERE id = ?').get(req.user.id);
+  res.json({ payments: rows, hideSupporter: !!(u && u.hide_supporter) });
+});
+
+// PUBLIC supporters wall (transparency about funding). The last 100 supporter
+// payments, NEWEST FIRST (deliberately NOT ranked by amount, so it is a thank-you
+// + funding-transparency wall, never a "who paid most" board, which would imply
+// money buys status). Per-row shows only the tier/badge, never a dollar figure;
+// the one aggregate total is shown separately. Opted-out supporters are excluded
+// from the list but still counted in the total (anonymously).
+api.get('/leaderboard', async (req, res) => {
+  try {
+    const rows = await db.prepare(
+      "SELECT pe.tier t, pe.created_at d, u.username un, u.name nm, u.avatar av " +
+      "FROM payment_events pe JOIN users u ON u.id = pe.user_id " +
+      "WHERE pe.status = 'applied' AND COALESCE(u.hide_supporter, 0) = 0 " +
+      "ORDER BY pe.created_at DESC, pe.id DESC LIMIT 100"
+    ).all();
+    const supporters = rows.map((r) => {
+      const cfg = tierConfig(r.t);
+      return { username: r.un || '', name: maskName(r.nm), avatar: r.av || '', tier: r.t, tierName: cfg.name, badge: cfg.badge, date: r.d };
+    });
+    const agg = await db.prepare(
+      "SELECT COALESCE(SUM(amount), 0) total, COUNT(*) payments, COUNT(DISTINCT user_id) supporters FROM payment_events WHERE status = 'applied'"
+    ).get();
+    res.json({
+      supporters,
+      total: Math.round((agg.total || 0) * 100) / 100,
+      currency: 'USD',
+      supporterCount: agg.supporters || 0,
+      paymentCount: agg.payments || 0,
+    });
+  } catch (e) {
+    logger.warn({ err: e }, 'leaderboard failed');
+    res.json({ supporters: [], total: 0, currency: 'USD', supporterCount: 0, paymentCount: 0 });
+  }
+});
+
+// Opt in / out of being NAMED on the public supporters wall (default shown). Even
+// when hidden, the payment still counts in the aggregate total.
+api.post('/leaderboard-visibility', requireAuth, async (req, res) => {
+  const hidden = req.body.hidden ? 1 : 0;
+  await db.prepare('UPDATE users SET hide_supporter = ? WHERE id = ?').run(hidden, req.user.id);
+  res.json({ ok: true, hidden: !!hidden });
 });
 
 module.exports = { webhooks, api, applyPayment, PLANS, publicPlans, publicNetworks, parseCustom, tronHex };

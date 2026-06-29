@@ -281,10 +281,20 @@ app.get('/api/tiers', (req, res) => {
 // spots are filled. Sentinel accounts (the [deleted] ghost + system actor) are
 // excluded from the member count.
 app.get('/api/community-stats', async (req, res) => {
+  const growth = require('./growth');
   try {
     const m = await gateDb.prepare("SELECT COUNT(*) c FROM users WHERE email NOT IN ('ghost@deleted.openbook.local','system@openbook.local')").get();
     const p = await gateDb.prepare('SELECT COUNT(*) c FROM users WHERE is_pioneer = 1').get();
-    res.json({ users: m.c, pioneers: p.c, cap: 5000 });
+    const users = m.c;
+    res.json({
+      users,
+      pioneers: p.c,
+      cap: 5000, // the Pioneer-badge cap (first 5,000), shown on the Founding-members card
+      maxUsers: growth.MAX_USERS, // the live signup cap (Phase 1)
+      signupsFull: growth.MAX_USERS > 0 && users >= growth.MAX_USERS,
+      phase: growth.phaseFor(users), // { n, name, from, to }
+      phases: growth.PHASES, // the full public ladder
+    });
   } catch (e) {
     res.json({ users: 0, pioneers: 0, cap: 5000 });
   }

@@ -13,6 +13,7 @@ const {
   recordDevice, flagSignupRisk,
 } = require('../antisybil');
 const { ensureCode, attachReferral } = require('../referrals');
+const { signupsFull, MAX_USERS } = require('../growth');
 
 const router = express.Router();
 
@@ -115,6 +116,15 @@ router.post('/signup', async (req, res, next) => {
 
   const exists = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
   if (exists) return res.status(409).json({ error: 'That email is already registered' });
+
+  // Phase-1 signup cap: hold real membership at MAX_USERS until there is enough
+  // support to fund Phase 2 (bigger servers). Public and configurable (MAX_USERS).
+  if (await signupsFull()) {
+    return res.status(403).json({
+      error: 'OpenBook is in Phase 1 and is currently full at ' + MAX_USERS.toLocaleString() + ' members. We are raising support to open Phase 2 with bigger servers. Please check back soon.',
+      code: 'SIGNUPS_FULL',
+    });
+  }
 
   const hash = bcrypt.hashSync(password, 10);
   const token = crypto.randomBytes(24).toString('hex');

@@ -628,33 +628,50 @@
 
   async function renderSupport() {
     view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading...</div></div>';
-    const [lk, tr, st, pl, nw, cs, pm] = await Promise.all([
+    const [lk, tr, st, pl, nw, cs, pmFull, lb] = await Promise.all([
       API.support().catch(() => ({})),
       API.tiers().then((r) => r.tiers).catch(() => []),
       API.myStats().then((r) => r.supporter).catch(() => null),
       API.billingPlans().then((r) => r.plans).catch(() => []),
       API.billingNetworks().then((r) => r.networks).catch(() => []),
       API.communityStats().catch(() => null),
-      API.myPayments().then((r) => r.payments).catch(() => []),
+      API.myPayments().catch(() => ({ payments: [], hideSupporter: false })),
+      API.supporterLeaderboard().catch(() => ({ supporters: [], total: 0, supporterCount: 0 })),
     ]);
-    const links = lk || {}, tiers = tr || [], mine = st, networks = nw || [], payments = pm || [];
+    const links = lk || {}, tiers = tr || [], mine = st, networks = nw || [];
+    const payments = (pmFull && pmFull.payments) || [];
+    const myHidden = !!(pmFull && pmFull.hideSupporter);
+    const board = lb || { supporters: [], total: 0, supporterCount: 0 };
 
-    // Pioneer count card: the first 5,000 members get a permanent blue badge.
-    let pioneerCard = '';
-    if (cs && cs.cap) {
-      const n = cs.users || 0, cap = cs.cap, filled = Math.min(n, cap);
-      const pct = Math.max(2, Math.round((filled / cap) * 100));
-      const full = n >= cap;
-      pioneerCard = '<div class="card">' +
-        '<div style="font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-          '<span class="pioneer-badge">&#9873; Pioneer</span> Founding members</div>' +
-        '<div class="shint" style="font-size:13px;line-height:1.55;margin:5px 0 10px">The first 5,000 people to join OpenBook keep a blue <strong>Pioneer</strong> badge forever, for helping build the community early. ' +
-          (full ? 'All 5,000 Pioneer spots are claimed.' : 'There is still time to be one of them.') + '</div>' +
+    // Growth-phase card: where OpenBook is on its public scaling ladder, the live
+    // member count + the Phase-1 signup cap, and the Pioneer-badge note. Replaces
+    // the old standalone Pioneer card (both are about the same 5,000 milestone).
+    let growthCard = '';
+    if (cs && cs.phase) {
+      const users = cs.users || 0;
+      const ph = cs.phase; // { n, name, from, to }
+      const cap = cs.maxUsers || 5000;
+      const ceil = ph.to || 5000;
+      const into = Math.max(0, users - (ph.from || 0));
+      const span = Math.max(1, (ph.to || 5000) - (ph.from || 0));
+      const pct = Math.max(2, Math.min(100, Math.round((into / span) * 100)));
+      const full = !!cs.signupsFull;
+      const fmtN = (x) => x >= 1000000 ? (x / 1000000) + 'M' : (x >= 1000 ? (x / 1000) + 'k' : '' + x);
+      const ladder = (cs.phases || []).map((p) => {
+        const state = users >= p.to ? 'done' : (users >= p.from ? 'cur' : 'next');
+        return '<div class="phase-step phase-' + state + '"><div class="ps-n">' + esc(p.name) + '</div><div class="ps-to">to ' + fmtN(p.to) + '</div></div>';
+      }).join('');
+      growthCard = '<div class="card">' +
+        '<div style="font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:18px">&#128640;</span> Where OpenBook is now: <span style="color:var(--brand)">' + esc(ph.name) + '</span> <span class="pioneer-badge">&#9873; Pioneer era</span></div>' +
+        '<div class="shint" style="font-size:13px;line-height:1.55;margin:5px 0 10px">We grow in stages, opening more capacity as support funds bigger servers. ' +
+          (full ? 'Phase 1 is currently full at ' + cap.toLocaleString() + ' members. ' : 'Signups are open and capped at ' + cap.toLocaleString() + ' members for Phase 1. ') +
+          'The first 5,000 members keep a permanent Pioneer badge, and supporting us funds the jump to the next phase.</div>' +
         '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px">' +
-          '<span style="font-size:30px;font-weight:800;line-height:1;color:var(--brand)">' + n.toLocaleString() + '</span>' +
-          '<span class="shint" style="font-size:14px">of 5,000 members</span></div>' +
-        '<div style="height:9px;border-radius:99px;background:var(--hover);overflow:hidden">' +
+          '<span style="font-size:30px;font-weight:800;line-height:1;color:var(--brand)" id="supMembers">' + users.toLocaleString() + '</span>' +
+          '<span class="shint" style="font-size:14px">of ' + ceil.toLocaleString() + ' members (' + esc(ph.name) + ' ceiling)</span></div>' +
+        '<div style="height:9px;border-radius:99px;background:var(--hover);overflow:hidden;margin-bottom:14px">' +
           '<div style="height:100%;width:' + pct + '%;border-radius:99px;background:linear-gradient(135deg,#4f8cff,#2563eb)"></div></div>' +
+        '<div class="phase-ladder">' + ladder + '</div>' +
         '</div>';
     }
     const plans = {};
@@ -796,8 +813,41 @@
               '<div style="font-weight:700;font-size:13px;white-space:nowrap">' + esc(_payAmt(p)) + '</div>' +
             '</div>';
           }).join('') +
+          '<label style="display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:13px;cursor:pointer">' +
+            '<input type="checkbox" id="supShowToggle"' + (myHidden ? '' : ' checked') + '> Show me on the public supporters wall (your support still counts in the total either way)</label>' +
         '</div>')
       : '';
+
+    // --- The public supporters wall (newest first, never ranked by amount) ---
+    function badgeChipSm(badge, label) {
+      return '<span class="badge-chip badge-' + esc(badge || 'bronze') + '" style="font-size:11px;padding:2px 9px;flex:none">' + esc(label) + '</span>';
+    }
+    function supDate(ts) { try { return new Date(String(ts).replace(' ', 'T') + 'Z').toLocaleDateString(); } catch (e) { return String(ts || ''); } }
+    function supporterRow(s) {
+      const handle = s.username ? '@' + s.username : '';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)">' +
+        avatar({ avatar: s.avatar, name: s.name }, 34) +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">' + esc(s.name) +
+            (handle ? '<span class="shint" style="font-size:12px;font-weight:500">' + esc(handle) + '</span>' : '') + '</div>' +
+          '<div class="shint" style="font-size:12px">' + esc(supDate(s.date)) + '</div>' +
+        '</div>' +
+        badgeChipSm(s.badge, s.tierName) +
+      '</div>';
+    }
+    function wallTotalStr(b) { return '$' + (Number(b.total) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+    const wallRowsHtml = board.supporters.length
+      ? board.supporters.map(supporterRow).join('')
+      : '<div class="shint" style="font-size:13px;padding:12px 0">No supporters yet. Be the first to help OpenBook grow.</div>';
+    const wallCard = '<div class="card" id="supWall">' +
+      '<div class="section-title" style="margin-top:0">&#129351; Our supporters</div>' +
+      '<div class="shint" style="font-size:13px;line-height:1.55;margin:-4px 0 8px">Everyone who chips in to keep OpenBook running, newest first. This is a thank-you wall, not a ranking: it is ordered by date, never by amount, because money never buys status here. We show the last 100.</div>' +
+      '<div id="supWallList">' + wallRowsHtml + '</div>' +
+      '<div style="border-top:2px solid var(--line);margin-top:8px;padding-top:12px">' +
+        '<div style="font-size:28px;font-weight:800;line-height:1;color:var(--brand)" id="supTotal">' + esc(wallTotalStr(board)) + '</div>' +
+        '<div class="shint" style="font-size:12.5px;margin-top:2px">raised by <span id="supCount">' + (board.supporterCount || 0) + '</span> supporter' + (board.supporterCount === 1 ? '' : 's') + ' so far. Thank you.</div>' +
+      '</div>' +
+    '</div>';
 
     view.innerHTML =
       '<div class="card"><div class="pname">&#10084;&#65039; Support OpenBook</div>' +
@@ -806,7 +856,8 @@
       'Supporter perks are cosmetic and convenience only: supporting us can never buy a place in the feed or extra weight in a vote. That stays equal for everyone.' +
       expiresNote + '</div></div>' +
       historyCard +
-      pioneerCard +
+      growthCard +
+      wallCard +
       '<div class="section-title">Supporter tiers</div>' +
       '<div class="tier-grid">' + tiers.map(tierCard).join('') + '</div>' +
       feeNote +
@@ -853,6 +904,43 @@
       const ok = m.q('#cryptoHelpOk');
       if (ok) ok.onclick = () => m.close();
     };
+
+    // Opt in / out of being named on the public supporters wall (checked = shown).
+    const showToggle = document.getElementById('supShowToggle');
+    if (showToggle) showToggle.onchange = async () => {
+      const hidden = !showToggle.checked;
+      showToggle.disabled = true;
+      try {
+        await API.setSupporterVisibility(hidden);
+        toast(hidden ? 'You are now hidden from the supporters wall' : 'You are now shown on the supporters wall');
+        const b2 = await API.supporterLeaderboard().catch(() => null);
+        const list = document.getElementById('supWallList');
+        if (b2 && list) list.innerHTML = b2.supporters.length ? b2.supporters.map(supporterRow).join('') : '<div class="shint" style="font-size:13px;padding:12px 0">No supporters yet.</div>';
+        const cc = document.getElementById('supCount'); if (b2 && cc) cc.textContent = b2.supporterCount || 0;
+      } catch (e) { toast(e.message); showToggle.checked = !showToggle.checked; }
+      showToggle.disabled = false;
+    };
+
+    // Live-ish refresh: re-pull the wall + member count every ~45s while the page
+    // is open. Self-clears once the user navigates away (the #supWall node is gone),
+    // and is reset on each render so it never stacks.
+    if (window._obSupPoll) { clearInterval(window._obSupPoll); window._obSupPoll = null; }
+    window._obSupPoll = setInterval(async () => {
+      if (!document.getElementById('supWall')) { clearInterval(window._obSupPoll); window._obSupPoll = null; return; }
+      try {
+        const [b2, c2] = await Promise.all([
+          API.supporterLeaderboard().catch(() => null),
+          API.communityStats().catch(() => null),
+        ]);
+        if (b2) {
+          const list = document.getElementById('supWallList');
+          if (list) list.innerHTML = b2.supporters.length ? b2.supporters.map(supporterRow).join('') : '<div class="shint" style="font-size:13px;padding:12px 0">No supporters yet.</div>';
+          const t = document.getElementById('supTotal'); if (t) t.textContent = wallTotalStr(b2);
+          const cc = document.getElementById('supCount'); if (cc) cc.textContent = b2.supporterCount || 0;
+        }
+        if (c2) { const mc = document.getElementById('supMembers'); if (mc) mc.textContent = (c2.users || 0).toLocaleString(); }
+      } catch (e) { /* transient */ }
+    }, 45000);
 
     renderRightRail();
   }
