@@ -961,6 +961,10 @@ db.init = async function init() {
   // both. Both optional (empty = unspecified).
   await addColumn('listings', "condition TEXT NOT NULL DEFAULT ''", 'condition');
   await addColumn('listings', "delivery TEXT NOT NULL DEFAULT ''", 'delivery');
+  // escrow: 1 = the seller offers escrow protection on this item. Only allowed for
+  // items at or under ESCROW_MAX_AMOUNT; bigger items (cars, property) are sold
+  // face to face with no escrow. The seller opts in/out when posting.
+  await addColumn('listings', 'escrow INTEGER NOT NULL DEFAULT 0', 'escrow');
 
   // --- Marketplace escrow (SPEC: protected transactions) ---
   // An order is the escrow record for a purchase. Money handling is GATED by the

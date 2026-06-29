@@ -2720,7 +2720,7 @@
       '<div class="mk-card">' +
       '<div class="mk-photo">' + (l.image ? '<img src="' + esc(l.image) + '" alt="">' : '<div class="mk-noimg">&#128247;</div>') +
       (l.status === 'sold' ? '<div class="mk-sold">SOLD</div>' : '') + '</div>' +
-      '<div class="mk-info"><div class="mk-price">' + money(l.price) + '</div>' +
+      '<div class="mk-info"><div class="mk-price">' + money(l.price) + (l.escrow ? ' <span title="Escrow buyer protection" style="font-size:13px">&#128274;</span>' : '') + '</div>' +
       '<div class="mk-title">' + esc(l.title) + '</div>' +
       '<div class="mk-loc">' + (l.location ? esc(l.location) : esc(l.category)) + (l.condition ? ' &#183; ' + esc(COND_LABELS[l.condition] || l.condition) : '') + '</div></div></div>'
     );
@@ -2739,12 +2739,13 @@
       '<div class="mk-price" style="font-size:24px">' + money(l.price) + (l.status === 'sold' ? ' <span class="pill">Sold</span>' : '') + '</div>' +
       '<div style="font-size:18px;font-weight:700;margin:4px 0">' + esc(l.title) + '</div>' +
       '<div class="pmeta" style="margin-bottom:8px">' + esc(l.category) + (l.location ? ' &#183; ' + esc(l.location) : '') + (l.condition ? ' &#183; ' + esc(COND_LABELS[l.condition] || l.condition) : '') + (l.delivery ? ' &#183; ' + esc(DELIV_LABELS[l.delivery] || l.delivery) : '') + '</div>' +
+      (l.escrow ? '<div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--brand)">&#128274; Escrow buyer protection available</div>' : '') +
       (l.description ? '<div style="white-space:pre-wrap;margin-bottom:12px">' + linkify(esc(l.description)) + '</div>' : '') +
       '<div class="contact" style="padding:0;margin-bottom:14px">' + avatar(l.seller, 36) + '<span class="nm">' + esc(l.seller.name) + '</span></div>' +
       (l.isMine
         ? '<button class="btn btn-block" id="mkSold">' + (l.status === 'sold' ? 'Mark available' : 'Mark as sold') + '</button>' +
           '<button class="btn btn-danger btn-block" id="mkDel" style="margin-top:8px">Delete listing</button>'
-        : (l.status !== 'sold' && Number(l.price) > 0
+        : (l.escrow && l.status !== 'sold' && Number(l.price) > 0
             ? '<button class="btn btn-primary btn-block" id="mkBuy">&#128274; Buy with escrow protection</button>' +
               '<button class="btn btn-block" id="mkMsg" style="margin-top:8px">Message ' + esc(firstName) + '</button>'
             : '<button class="btn btn-primary btn-block" id="mkMsg">Message ' + esc(firstName) + '</button>') +
@@ -2761,7 +2762,8 @@
     }
   }
 
-  function openSellModal() {
+  async function openSellModal() {
+    const cfg = await escrowCfg();
     const m = modal(
       '<div class="mh"><h3>List an item</h3></div><div class="mc">' +
       '<div class="field"><label>Title</label><input class="input" id="slTitle" placeholder="What are you selling?"></div>' +
@@ -2773,6 +2775,8 @@
         Object.keys(DELIV_LABELS).map((k) => '<option value="' + k + '">' + DELIV_LABELS[k] + '</option>').join('') + '</select></div>' +
       '<div class="field"><label>Location (optional)</label><input class="input" id="slLoc" placeholder="City or area"></div>' +
       '<div class="field"><label>Description</label><textarea class="input" id="slDesc" rows="3" placeholder="Describe your item"></textarea></div>' +
+      '<label style="display:flex;align-items:flex-start;gap:8px;margin:0 0 6px;font-size:13px;line-height:1.5;cursor:pointer"><input type="checkbox" id="slEscrow" checked style="margin-top:3px;flex:none"><span>Offer <strong>escrow buyer protection</strong>. OpenBook holds the payment until the buyer confirms they got the item, with a ' + cfg.feePct + '% fee on a completed sale. For items up to $' + (cfg.maxAmount || 1000).toLocaleString() + '; bigger items (cars, property) are sold face to face.</span></label>' +
+      '<div class="shint" id="slEscrowNote" style="font-size:12px;margin:0 0 12px;display:none">Over $' + (cfg.maxAmount || 1000).toLocaleString() + ', so this item is face to face only (no escrow).</div>' +
       '<div class="field"><input type="file" id="slImg" accept="image/*" class="input"></div>' +
       '<div class="preview hidden" id="slPrev" style="margin-bottom:12px"></div>' +
       '<button class="btn btn-primary btn-block" id="slPost">Post listing</button></div>'
@@ -2781,12 +2785,20 @@
     MARKET_CATEGORIES.filter((c) => c !== 'All').forEach((c) => { const o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o); });
     const img = m.q('#slImg');
     img.onchange = () => { const f = img.files[0]; if (f) { const u = URL.createObjectURL(f); const pv = m.q('#slPrev'); pv.innerHTML = '<img src="' + u + '" style="border-radius:10px;max-height:240px;width:100%;object-fit:cover">'; pv.classList.remove('hidden'); } };
+    // Escrow only applies up to the cap: disable + uncheck it for bigger items.
+    const slPrice = m.q('#slPrice'), slEsc = m.q('#slEscrow'), slEscNote = m.q('#slEscrowNote');
+    function syncEscrow() {
+      const over = (cfg.maxAmount || 0) > 0 && Number(slPrice.value) > cfg.maxAmount;
+      if (slEsc) { slEsc.disabled = over; if (over) slEsc.checked = false; }
+      if (slEscNote) slEscNote.style.display = over ? 'block' : 'none';
+    }
+    slPrice.addEventListener('input', syncEscrow);
     m.q('#slPost').onclick = async () => {
       const title = m.q('#slTitle').value.trim();
       if (!title) { toast('Add a title'); return; }
       const btn = m.q('#slPost'); btn.disabled = true; btn.textContent = 'Posting...';
       try {
-        await API.createListing({ title, price: m.q('#slPrice').value || 0, category: sel.value, condition: m.q('#slCond').value, delivery: m.q('#slDeliv').value, location: m.q('#slLoc').value.trim(), description: m.q('#slDesc').value.trim() }, img.files[0]);
+        await API.createListing({ title, price: m.q('#slPrice').value || 0, category: sel.value, condition: m.q('#slCond').value, delivery: m.q('#slDeliv').value, location: m.q('#slLoc').value.trim(), description: m.q('#slDesc').value.trim(), escrow: (m.q('#slEscrow') && m.q('#slEscrow').checked && !m.q('#slEscrow').disabled) ? 1 : 0 }, img.files[0]);
         m.close(); toast('Listing posted'); if (currentView === 'marketplace') loadListings();
       } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Post listing'; }
     };

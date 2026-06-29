@@ -22,6 +22,7 @@ async function decorate(listing, viewerId) {
     location: listing.location,
     condition: listing.condition || '',
     delivery: listing.delivery || '',
+    escrow: !!listing.escrow,
     image: listing.image,
     status: listing.status,
     created_at: listing.created_at,
@@ -96,11 +97,17 @@ router.post('/', requireAuth, upload.single('image'), async (req, res) => {
   if (!title) return res.status(400).json({ error: 'A title is required' });
   if (!Number.isFinite(price) || price < 0) return res.status(400).json({ error: 'Enter a valid price' });
 
+  // Escrow: only offered when the seller opts in AND the price is within the cap
+  // (bigger items are face-to-face only). The buy route enforces this again.
+  const ESCROW_MAX = Math.max(0, Number(process.env.ESCROW_MAX_AMOUNT || 1000));
+  const wantsEscrow = [true, 1, '1', 'true', 'on'].includes(req.body.escrow);
+  const escrow = (wantsEscrow && price > 0 && (ESCROW_MAX === 0 || price <= ESCROW_MAX)) ? 1 : 0;
+
   const info = await db
     .prepare(
-      'INSERT INTO listings (seller_id, title, description, price, category, location, condition, delivery, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO listings (seller_id, title, description, price, category, location, condition, delivery, escrow, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     )
-    .run(req.user.id, title, description, price, category, location, condition, delivery, image);
+    .run(req.user.id, title, description, price, category, location, condition, delivery, escrow, image);
   const l = await db.prepare('SELECT * FROM listings WHERE id = ?').get(info.lastInsertRowid);
   res.json({ listing: await decorate(l, req.user.id) });
 });

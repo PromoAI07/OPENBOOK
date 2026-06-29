@@ -24,7 +24,10 @@ const { upload } = require('../upload');
 const router = express.Router();
 
 const ESCROW_LIVE = process.env.ESCROW_LIVE === '1';
-const ESCROW_FEE_PCT = Math.max(0, Math.min(50, Number(process.env.ESCROW_FEE_PCT || 5)));
+const ESCROW_FEE_PCT = Math.max(0, Math.min(50, Number(process.env.ESCROW_FEE_PCT || 2.5)));
+// Escrow only covers items at or under this amount. Bigger-ticket items (cars,
+// property) are sold face to face with no escrow, by design. Configurable.
+const ESCROW_MAX_AMOUNT = Math.max(0, Number(process.env.ESCROW_MAX_AMOUNT || 1000));
 
 function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 function computeAmounts(price) {
@@ -84,7 +87,7 @@ async function decorateOrder(o, viewerId, opts) {
 
 // Public escrow config so the UI can explain the state of things.
 router.get('/config', (req, res) => {
-  res.json({ live: ESCROW_LIVE, feePct: ESCROW_FEE_PCT });
+  res.json({ live: ESCROW_LIVE, feePct: ESCROW_FEE_PCT, maxAmount: ESCROW_MAX_AMOUNT });
 });
 
 // Buyer commits to buy a listing -> creates the escrow order. When the rail is
@@ -97,6 +100,10 @@ router.post('/buy', requireAuth, async (req, res) => {
   if (listing.status === 'sold') return res.status(409).json({ error: 'This item is already sold' });
   if (listing.status === 'pending') return res.status(409).json({ error: 'This item has a purchase in progress' });
   if (!(Number(listing.price) > 0)) return res.status(400).json({ error: 'This item has no price set, message the seller instead' });
+  if (!listing.escrow) return res.status(400).json({ error: 'This item is sold face to face without escrow. Message the seller to arrange it.' });
+  if (ESCROW_MAX_AMOUNT > 0 && Number(listing.price) > ESCROW_MAX_AMOUNT) {
+    return res.status(400).json({ error: 'Escrow is only available for items up to $' + ESCROW_MAX_AMOUNT.toLocaleString() + '. This one is sold face to face.' });
+  }
 
   const a = computeAmounts(listing.price);
   const status = ESCROW_LIVE ? 'awaiting_funds' : 'funds_held'; // gated: simulate the hold so the flow works
