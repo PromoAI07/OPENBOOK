@@ -711,7 +711,7 @@
                 '<option value="3" selected>Premium (' + (plans[3] ? plans[3].usd : 30) + ' USDT, 3 months)</option>' +
               '</select>' +
               '<input class="input" id="cryptoTx" placeholder="Paste transaction hash" style="flex:1;min-width:180px">' +
-              '<button type="button" class="btn btn-sm" id="cryptoHelp" title="How to find your transaction hash" aria-label="How to find your transaction hash" style="flex:none;font-weight:800;min-width:38px">?</button>' +
+              '<button type="button" class="btn btn-sm" id="cryptoHelp" title="How to find your transaction hash" aria-label="How to find your transaction hash" style="flex:none;font-weight:800">How</button>' +
               '<button class="btn btn-primary" id="cryptoClaim">Apply my tier</button>' +
             '</div>' +
             '<div id="cryptoMsg" class="shint" style="font-size:12px;margin-top:6px"></div>' +
