@@ -48,6 +48,7 @@ const API = {
   billingPlans() { return this.get('/api/billing/plans'); },
   billingNetworks() { return this.get('/api/billing/networks'); },
   claimCrypto(network, tier, txHash) { return this.post('/api/billing/crypto/claim', { network, tier, txHash }); },
+  cryptoTip(network, txHash) { return this.post('/api/billing/tip/crypto', { network, txHash }); },
   myPayments() { return this.get('/api/billing/me'); },
   supporterLeaderboard() { return this.get('/api/billing/leaderboard'); },
   setSupporterVisibility(hidden) { return this.post('/api/billing/leaderboard-visibility', { hidden }); },

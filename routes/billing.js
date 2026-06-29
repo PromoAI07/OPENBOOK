@@ -169,16 +169,17 @@ async function applyPayment(provider, externalId, userId, tier, amount, currency
 // recorded for the separate tips counter. tier 0 keeps it out of the supporter
 // wall + supporter total (both filter tier >= 1). Idempotent via UNIQUE(provider,
 // external_id). user_id is stored only if it points at a real account.
-async function recordTip(externalId, userId, amount, currency, detail) {
+async function recordTip(provider, externalId, userId, amount, currency, detail) {
+  provider = String(provider || 'paypal-tip');
   externalId = String(externalId || '').trim();
-  if (!externalId || !(Number(amount) > 0)) { logger.warn({ externalId, amount }, 'tip: bad id/amount'); return { ok: false }; }
+  if (!externalId || !(Number(amount) > 0)) { logger.warn({ provider, externalId, amount }, 'tip: bad id/amount'); return { ok: false }; }
   let uid = null;
   if (userId) { const u = await db.prepare('SELECT id FROM users WHERE id = ?').get(Number(userId)); if (u) uid = u.id; }
   const ins = await db.prepare(
     "INSERT OR IGNORE INTO payment_events (provider, external_id, user_id, tier, days, amount, currency, status, detail) " +
-    "VALUES ('paypal-tip', ?, ?, 0, 0, ?, ?, 'applied', ?)"
-  ).run(externalId, uid, Number(amount), currency || '', String(detail || 'tip'));
-  if (ins.changes) logger.info({ externalId, uid, amount }, 'tip recorded');
+    "VALUES (?, ?, ?, 0, 0, ?, ?, 'applied', ?)"
+  ).run(provider, externalId, uid, Number(amount), currency || '', String(detail || 'tip'));
+  if (ins.changes) logger.info({ provider, externalId, uid, amount }, 'tip recorded');
   return { ok: !!ins.changes };
 }
 
@@ -324,7 +325,7 @@ webhooks.post('/paypal', async (req, res) => {
     // Tip: a one-off donation, no tier or badge, counted on its own.
     if (/^ob:tip(:|$)/.test(custom)) {
       const uid = Number(custom.split(':')[2]) || null;
-      await recordTip(body.txn_id, uid, Number(body.mc_gross || 0), 'USD', 'paypal tip');
+      await recordTip('paypal-tip', body.txn_id, uid, Number(body.mc_gross || 0), 'USD', 'paypal tip');
       return res.status(200).send('OK');
     }
     const parsed = parseCustom(custom);
@@ -365,6 +366,29 @@ api.post('/crypto/claim', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Could not apply that payment. Check the hash and try again.' });
   }
   res.json({ ok: true, entitlements: result.snapshot });
+});
+
+// A one-off crypto TIP: send any USDT amount to a project address, then submit the
+// tx hash. Verified on-chain (like a tier claim) but grants NOTHING, just recorded
+// as a tip. The whole amount counts (no minimum). Lowest fees, so this is the path
+// we nudge tippers toward.
+api.post('/tip/crypto', requireAuth, async (req, res) => {
+  const network = String(req.body.network || '').toLowerCase();
+  const txHash = String(req.body.txHash || '').trim();
+  if (!NETWORKS[network]) return res.status(400).json({ error: 'Pick a network.' });
+  if (txHash.length < 16) return res.status(400).json({ error: 'Paste your transaction hash.' });
+  const provider = 'usdt-tip-' + network;
+  const seen = await db.prepare('SELECT 1 FROM payment_events WHERE provider = ? AND external_id = ?').get(provider, txHash);
+  if (seen) return res.status(409).json({ error: 'That transaction has already been used.' });
+  let amount = 1; // only trusted when TEST_MODE bypasses on-chain verification
+  if (!TEST_MODE) {
+    const v = await verifyUsdt(network, txHash);
+    if (!v.ok) return res.status(400).json({ error: v.error });
+    amount = v.amount;
+  }
+  const r = await recordTip(provider, txHash, req.user.id, amount, 'USDT', 'crypto tip ' + network);
+  if (!r.ok) return res.status(400).json({ error: 'Could not record that tip. Check the hash and try again.' });
+  res.json({ ok: true, amount });
 });
 
 api.get('/me', requireAuth, async (req, res) => {

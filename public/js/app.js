@@ -816,21 +816,38 @@
         '</div>')
       : '<div class="card"><div style="font-weight:700">Pay with USDT</div><div class="shint" style="font-size:13px;margin-top:4px">Crypto addresses are being set up. Check back soon.</div></div>';
 
-    // --- Tip card: one-off donation, no perks, with its own running total ---
+    // --- Tip card: one-off donation, no perks, with its own running total. Crypto
+    // first (lowest fees); PayPal tips go through a fee-nudge popup. ---
     const TIP_PRESETS = [3, 5, 7, 10];
     const tipTotalStr = '$' + (((board.tips && board.tips.total) || 0)).toLocaleString(undefined, { maximumFractionDigits: 2 });
     const tipCount = (board.tips && board.tips.count) || 0;
+    const hasNets = networks.length > 0;
     const tipCard = '<div class="card" id="tipCard">' +
       '<div style="font-weight:700;display:flex;align-items:center;gap:8px"><span style="font-size:20px">&#9749;</span> Tip the project</div>' +
-      '<div class="shint" style="font-size:13px;line-height:1.55;margin:4px 0 10px">Just want to help us keep going, with no perks or badge attached? Leave a one-off tip of any size. Every bit goes straight to running OpenBook.</div>' +
-      (links.paypalEmail
-        ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">' +
-            TIP_PRESETS.map((a) => '<a class="btn btn-sm" href="' + esc(tipPaypalUrl(a)) + '" target="_blank" rel="noopener">$' + a + '</a>').join('') +
-            '<span class="shint" style="font-size:13px">or</span>' +
-            '<input class="input" id="tipAmount" type="number" min="1" step="1" placeholder="$ other" style="width:96px">' +
-            '<button class="btn btn-primary btn-sm" id="tipGo">Tip via PayPal</button>' +
+      '<div class="shint" style="font-size:13px;line-height:1.55;margin:4px 0 10px">Just want to help us keep going, with no perks or badge attached? Leave a one-off tip of any size. ' +
+        (hasNets ? 'Tipping with <strong>USDT (crypto)</strong> is best: almost the whole amount reaches us, while PayPal takes a fee on every payment.' : 'Every bit goes straight to running OpenBook.') + '</div>' +
+      (hasNets
+        ? '<div style="margin-bottom:12px">' +
+            '<div class="shint" style="font-size:12.5px;margin-bottom:6px"><strong>Tip with USDT (lowest fees).</strong> Send any amount to one of the USDT addresses above, then paste your hash:</div>' +
+            '<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">' +
+              '<select class="input" id="tipNet" style="max-width:170px">' + networks.map((n) => '<option value="' + esc(n.id) + '">' + esc(n.name) + '</option>').join('') + '</select>' +
+              '<input class="input" id="tipTx" placeholder="Paste transaction hash" style="flex:1;min-width:160px">' +
+              '<button class="btn btn-primary btn-sm" id="tipCryptoGo">Apply crypto tip</button>' +
+            '</div>' +
+            '<div id="tipCryptoMsg" class="shint" style="font-size:12px;margin-top:6px"></div>' +
           '</div>'
-        : '<div style="margin-bottom:8px"><span class="pill">PayPal is being set up</span></div>') +
+        : '') +
+      (links.paypalEmail
+        ? '<div style="' + (hasNets ? 'border-top:1px solid var(--line);padding-top:11px;' : '') + 'margin-bottom:10px">' +
+            '<div class="shint" style="font-size:12.5px;margin-bottom:6px">Or tip with PayPal' + (hasNets ? ' (a fee applies)' : '') + ':</div>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+              TIP_PRESETS.map((a) => '<button class="btn btn-sm" data-tip-pp="' + a + '">$' + a + '</button>').join('') +
+              '<span class="shint" style="font-size:13px">or</span>' +
+              '<input class="input" id="tipAmount" type="number" min="1" step="1" placeholder="$ other" style="width:92px">' +
+              '<button class="btn btn-sm" id="tipGo">PayPal tip</button>' +
+            '</div>' +
+          '</div>'
+        : (hasNets ? '' : '<div style="margin-bottom:8px"><span class="pill">Payments are being set up</span></div>')) +
       '<div style="border-top:1px solid var(--line);padding-top:10px">' +
         '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><span style="font-size:22px;font-weight:800;line-height:1;color:var(--brand)" id="tipTotal">' + esc(tipTotalStr) + '</span>' +
         '<span class="shint" style="font-size:12.5px">in tips from <span id="tipCount">' + tipCount + '</span> tip' + (tipCount === 1 ? '' : 's') + ' so far. Thank you.</span></div>' +
@@ -973,12 +990,37 @@
       showToggle.disabled = false;
     };
 
-    // Custom-amount tip: build the PayPal link with the entered amount on click.
+    // PayPal tips go through a fee-nudge popup that points to crypto first; the
+    // crypto tip form verifies the hash on-chain and records the tip.
+    function confirmPaypalTip(amount) {
+      amount = Math.floor(Number(amount));
+      if (!(amount >= 1)) { toast('Enter a tip amount of $1 or more'); return; }
+      const m = modal(
+        '<div class="mh"><h3>&#9888;&#65039; A note on PayPal fees</h3></div>' +
+        '<div class="mc">' +
+        '<p style="margin-top:0">PayPal takes a fee on every payment, about <strong>$0.30 plus roughly 4.4%</strong>. On a $' + amount + ' tip that is a real slice lost for both of us. ' +
+        (networks.length ? 'Tipping with <strong>USDT (crypto)</strong> has almost no fee, so far more of it actually reaches OpenBook.' : '') + '</p>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">' +
+        (networks.length ? '<button class="btn btn-primary" id="tipUseCrypto">Use crypto instead</button>' : '') +
+        '<a class="btn" id="tipPpGo" href="' + esc(tipPaypalUrl(amount)) + '" target="_blank" rel="noopener">Continue with PayPal</a>' +
+        '</div></div>'
+      );
+      const cr = m.q('#tipUseCrypto');
+      if (cr) cr.onclick = () => { m.close(); const tx = document.getElementById('tipTx'); if (tx) { tx.scrollIntoView({ behavior: 'smooth', block: 'center' }); tx.focus(); } };
+      const go = m.q('#tipPpGo'); if (go) go.onclick = () => m.close();
+    }
+    view.querySelectorAll('[data-tip-pp]').forEach((b) => (b.onclick = () => confirmPaypalTip(b.getAttribute('data-tip-pp'))));
     const tipGo = document.getElementById('tipGo');
-    if (tipGo) tipGo.onclick = () => {
-      const amt = Math.floor(Number((document.getElementById('tipAmount') || {}).value));
-      if (!(amt >= 1)) { toast('Enter a tip amount of $1 or more'); return; }
-      window.open(tipPaypalUrl(amt), '_blank', 'noopener');
+    if (tipGo) tipGo.onclick = () => confirmPaypalTip((document.getElementById('tipAmount') || {}).value);
+    const tipCryptoGo = document.getElementById('tipCryptoGo');
+    if (tipCryptoGo) tipCryptoGo.onclick = async () => {
+      const network = (document.getElementById('tipNet') || {}).value;
+      const tx = (((document.getElementById('tipTx') || {}).value) || '').trim();
+      const msg = document.getElementById('tipCryptoMsg');
+      if (!tx) { if (msg) msg.textContent = 'Paste your transaction hash first.'; return; }
+      tipCryptoGo.disabled = true; if (msg) msg.textContent = 'Verifying your transaction on-chain...';
+      try { await API.cryptoTip(network, tx); toast('Thank you for the tip!'); renderSupport(); }
+      catch (e) { if (msg) msg.textContent = e.message; tipCryptoGo.disabled = false; }
     };
 
     // Live-ish refresh: re-pull the wall + member count every ~45s while the page
