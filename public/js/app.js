@@ -1779,7 +1779,7 @@
 
   function profileActions(data) {
     const u = data.user;
-    const share = ' <button class="btn" data-share-profile="' + esc((u.username || u.id) + '') + '" title="Share this profile">&#128279; Share</button>';
+    const share = ' <button class="btn btn-icon" data-share-profile="' + esc((u.username || u.id) + '') + '" title="Share profile" aria-label="Share profile">&#128279;</button>';
     let main;
     switch (data.friendStatus) {
       case 'self': main = '<button class="btn btn-soft" id="editProfileBtn">Edit profile</button>'; break;
@@ -1838,15 +1838,18 @@
       '<div class="profile-cover"' + coverStyle + '>' + (isMe ? '<div class="cover-tools"><button class="btn btn-sm cover-btn" id="editCoverBtn">&#128247; Edit cover</button>' + (u.cover ? '<button class="btn btn-sm cover-btn" id="reposCoverBtn">&#8597; Reposition</button>' : '') + '</div>' : '') + '</div>' +
       '<div class="profile-head">' +
       '<div class="av-wrap">' + avatar(u, 130) + (isMe ? '<button class="cam" id="editAvatarBtn" title="Change photo">&#128247;</button>' + (u.avatar ? '<button class="cam cam-repos" id="reposAvatarBtn" title="Reposition photo">&#10021;</button>' : '') : '') + '</div>' +
-      '<div class="phead-main"><div class="pname"' + (_nameAccent ? ' style="color:' + esc(_nameAccent) + '"' : '') + '>' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
+      '<div class="phead-main">' +
+      '<div class="phead-row">' +
+      '<div class="phead-id"><div class="pname"' + (_nameAccent ? ' style="color:' + esc(_nameAccent) + '"' : '') + '>' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
       (u.username ? '<div class="pmeta" style="color:var(--text-soft);font-weight:600">@' + esc(u.username) + '</div>' : '') +
       '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + data.postsCount + ' posts</div>' +
       (data.nameHistory && data.nameHistory.length
         ? '<div class="pmeta" style="font-size:12px">Previously known as: ' + data.nameHistory.map((h) => esc(h.name)).join(', ') + '</div>'
         : '') +
-      bioHtml(u) +
       '</div>' +
       '<div class="pactions">' + profileActions(data) + '</div>' +
+      '</div>' +
+      bioHtml(u) +
       '</div>' +
       '</div>' +
       '<div id="profileAlbums"></div>' +
