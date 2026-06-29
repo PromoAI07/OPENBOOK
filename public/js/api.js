@@ -158,10 +158,16 @@ const API = {
   history(userId) { return this.get('/api/messages/' + userId); },
 
   // Marketplace
-  listings(q, category) {
+  listings(q, category, filters) {
     const params = [];
     if (q) params.push('q=' + encodeURIComponent(q));
     if (category) params.push('category=' + encodeURIComponent(category));
+    if (filters) {
+      if (filters.condition && filters.condition !== 'All') params.push('condition=' + encodeURIComponent(filters.condition));
+      if (filters.location) params.push('location=' + encodeURIComponent(filters.location));
+      if (filters.minPrice) params.push('minPrice=' + encodeURIComponent(filters.minPrice));
+      if (filters.maxPrice) params.push('maxPrice=' + encodeURIComponent(filters.maxPrice));
+    }
     return this.get('/api/marketplace' + (params.length ? '?' + params.join('&') : ''));
   },
   myListings() { return this.get('/api/marketplace/mine'); },

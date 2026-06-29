@@ -2650,7 +2650,9 @@
   }
 
   const MARKET_CATEGORIES = ['All', 'General', 'Electronics', 'Furniture', 'Clothing', 'Vehicles', 'Property', 'Hobbies', 'Free'];
-  const marketState = { q: '', category: 'All' };
+  const COND_LABELS = { new: 'New', like_new: 'Like new', good: 'Good', fair: 'Fair', parts: 'For parts' };
+  const DELIV_LABELS = { shipping: 'Shipping', pickup: 'Local pickup', both: 'Shipping or pickup' };
+  const marketState = { q: '', category: 'All', condition: 'All', location: '', minPrice: '', maxPrice: '' };
 
   async function renderMarketplace() {
     view.innerHTML =
@@ -2658,6 +2660,13 @@
       '<div class="section-title" style="flex:1;margin:0">Marketplace</div>' +
       '<button class="btn btn-primary btn-sm" id="sellBtn">&#10010; Sell something</button></div>' +
       '<input class="input" id="mkSearch" placeholder="Search marketplace" value="' + esc(marketState.q) + '" style="margin-top:10px">' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
+        '<select class="input" id="mkCond" style="max-width:150px"><option value="All">Any condition</option>' +
+          Object.keys(COND_LABELS).map((k) => '<option value="' + k + '"' + (marketState.condition === k ? ' selected' : '') + '>' + COND_LABELS[k] + '</option>').join('') + '</select>' +
+        '<input class="input" id="mkLoc" placeholder="Location" value="' + esc(marketState.location) + '" style="max-width:150px">' +
+        '<input class="input" id="mkMin" type="number" min="0" placeholder="Min $" value="' + esc(marketState.minPrice) + '" style="max-width:100px">' +
+        '<input class="input" id="mkMax" type="number" min="0" placeholder="Max $" value="' + esc(marketState.maxPrice) + '" style="max-width:100px">' +
+      '</div>' +
       '<div class="chips" id="mkChips"></div></div>' +
       '<div id="mkGrid" class="mk-grid"><div class="empty">Loading...</div></div>';
     const chips = document.getElementById('mkChips');
@@ -2675,6 +2684,14 @@
     const search = document.getElementById('mkSearch');
     let to;
     search.addEventListener('input', () => { clearTimeout(to); marketState.q = search.value.trim(); to = setTimeout(loadListings, 300); });
+    const cond = document.getElementById('mkCond');
+    if (cond) cond.onchange = () => { marketState.condition = cond.value; loadListings(); };
+    const locF = document.getElementById('mkLoc');
+    if (locF) locF.addEventListener('input', () => { clearTimeout(to); marketState.location = locF.value.trim(); to = setTimeout(loadListings, 350); });
+    const minF = document.getElementById('mkMin');
+    if (minF) minF.addEventListener('input', () => { clearTimeout(to); marketState.minPrice = minF.value; to = setTimeout(loadListings, 400); });
+    const maxF = document.getElementById('mkMax');
+    if (maxF) maxF.addEventListener('input', () => { clearTimeout(to); marketState.maxPrice = maxF.value; to = setTimeout(loadListings, 400); });
     loadListings();
     renderRightRail();
   }
@@ -2683,7 +2700,7 @@
     const grid = document.getElementById('mkGrid');
     if (!grid) return;
     try {
-      const r = await API.listings(marketState.q, marketState.category);
+      const r = await API.listings(marketState.q, marketState.category, { condition: marketState.condition, location: marketState.location, minPrice: marketState.minPrice, maxPrice: marketState.maxPrice });
       if (!r.listings.length) { grid.innerHTML = '<div class="card"><div class="empty">No items here yet. Be the first to list something.</div></div>'; return; }
       grid.innerHTML = '';
       r.listings.forEach((l) => grid.appendChild(listingCard(l)));
@@ -2697,7 +2714,7 @@
       (l.status === 'sold' ? '<div class="mk-sold">SOLD</div>' : '') + '</div>' +
       '<div class="mk-info"><div class="mk-price">' + money(l.price) + '</div>' +
       '<div class="mk-title">' + esc(l.title) + '</div>' +
-      '<div class="mk-loc">' + (l.location ? esc(l.location) : esc(l.category)) + '</div></div></div>'
+      '<div class="mk-loc">' + (l.location ? esc(l.location) : esc(l.category)) + (l.condition ? ' &#183; ' + esc(COND_LABELS[l.condition] || l.condition) : '') + '</div></div></div>'
     );
     card.onclick = () => openListing(l.id);
     return card;
@@ -2713,7 +2730,7 @@
       (l.image ? '<img src="' + esc(l.image) + '" style="width:100%;border-radius:10px;max-height:340px;object-fit:cover;margin-bottom:12px">' : '') +
       '<div class="mk-price" style="font-size:24px">' + money(l.price) + (l.status === 'sold' ? ' <span class="pill">Sold</span>' : '') + '</div>' +
       '<div style="font-size:18px;font-weight:700;margin:4px 0">' + esc(l.title) + '</div>' +
-      '<div class="pmeta" style="margin-bottom:8px">' + esc(l.category) + (l.location ? ' &#183; ' + esc(l.location) : '') + '</div>' +
+      '<div class="pmeta" style="margin-bottom:8px">' + esc(l.category) + (l.location ? ' &#183; ' + esc(l.location) : '') + (l.condition ? ' &#183; ' + esc(COND_LABELS[l.condition] || l.condition) : '') + (l.delivery ? ' &#183; ' + esc(DELIV_LABELS[l.delivery] || l.delivery) : '') + '</div>' +
       (l.description ? '<div style="white-space:pre-wrap;margin-bottom:12px">' + linkify(esc(l.description)) + '</div>' : '') +
       '<div class="contact" style="padding:0;margin-bottom:14px">' + avatar(l.seller, 36) + '<span class="nm">' + esc(l.seller.name) + '</span></div>' +
       (l.isMine
@@ -2738,6 +2755,10 @@
       '<div class="field"><label>Title</label><input class="input" id="slTitle" placeholder="What are you selling?"></div>' +
       '<div class="field"><label>Price (USD)</label><input class="input" id="slPrice" type="number" min="0" step="0.01" placeholder="0"></div>' +
       '<div class="field"><label>Category</label><select class="input" id="slCat"></select></div>' +
+      '<div class="field"><label>Condition</label><select class="input" id="slCond"><option value="">Not specified</option>' +
+        Object.keys(COND_LABELS).map((k) => '<option value="' + k + '">' + COND_LABELS[k] + '</option>').join('') + '</select></div>' +
+      '<div class="field"><label>Delivery</label><select class="input" id="slDeliv"><option value="">Not specified</option>' +
+        Object.keys(DELIV_LABELS).map((k) => '<option value="' + k + '">' + DELIV_LABELS[k] + '</option>').join('') + '</select></div>' +
       '<div class="field"><label>Location (optional)</label><input class="input" id="slLoc" placeholder="City or area"></div>' +
       '<div class="field"><label>Description</label><textarea class="input" id="slDesc" rows="3" placeholder="Describe your item"></textarea></div>' +
       '<div class="field"><input type="file" id="slImg" accept="image/*" class="input"></div>' +
@@ -2753,7 +2774,7 @@
       if (!title) { toast('Add a title'); return; }
       const btn = m.q('#slPost'); btn.disabled = true; btn.textContent = 'Posting...';
       try {
-        await API.createListing({ title, price: m.q('#slPrice').value || 0, category: sel.value, location: m.q('#slLoc').value.trim(), description: m.q('#slDesc').value.trim() }, img.files[0]);
+        await API.createListing({ title, price: m.q('#slPrice').value || 0, category: sel.value, condition: m.q('#slCond').value, delivery: m.q('#slDeliv').value, location: m.q('#slLoc').value.trim(), description: m.q('#slDesc').value.trim() }, img.files[0]);
         m.close(); toast('Listing posted'); if (currentView === 'marketplace') loadListings();
       } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Post listing'; }
     };

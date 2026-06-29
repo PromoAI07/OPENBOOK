@@ -20,6 +20,8 @@ async function decorate(listing, viewerId) {
     price: listing.price,
     category: listing.category,
     location: listing.location,
+    condition: listing.condition || '',
+    delivery: listing.delivery || '',
     image: listing.image,
     status: listing.status,
     created_at: listing.created_at,
@@ -32,6 +34,10 @@ async function decorate(listing, viewerId) {
 router.get('/', requireAuth, async (req, res) => {
   const q = (req.query.q || '').trim();
   const category = (req.query.category || '').trim();
+  const condition = (req.query.condition || '').trim();
+  const loc = (req.query.location || '').trim();
+  const minPrice = Number(req.query.minPrice);
+  const maxPrice = Number(req.query.maxPrice);
   const where = [];
   const params = [];
   if (q) {
@@ -42,6 +48,16 @@ router.get('/', requireAuth, async (req, res) => {
     where.push('category = ?');
     params.push(category);
   }
+  if (condition && condition !== 'All') {
+    where.push('condition = ?');
+    params.push(condition);
+  }
+  if (loc) {
+    where.push('location LIKE ?');
+    params.push('%' + loc + '%');
+  }
+  if (Number.isFinite(minPrice) && minPrice > 0) { where.push('price >= ?'); params.push(minPrice); }
+  if (Number.isFinite(maxPrice) && maxPrice > 0) { where.push('price <= ?'); params.push(maxPrice); }
   const sql =
     'SELECT * FROM listings' +
     (where.length ? ' WHERE ' + where.join(' AND ') : '') +
@@ -72,15 +88,19 @@ router.post('/', requireAuth, upload.single('image'), async (req, res) => {
   const price = Number(req.body.price);
   const category = (req.body.category || 'General').trim() || 'General';
   const location = (req.body.location || '').trim();
+  const CONDITIONS = ['new', 'like_new', 'good', 'fair', 'parts'];
+  const condition = CONDITIONS.includes(req.body.condition) ? req.body.condition : '';
+  const DELIVERY = ['shipping', 'pickup', 'both'];
+  const delivery = DELIVERY.includes(req.body.delivery) ? req.body.delivery : '';
   const image = req.file ? '/uploads/' + req.file.filename : '';
   if (!title) return res.status(400).json({ error: 'A title is required' });
   if (!Number.isFinite(price) || price < 0) return res.status(400).json({ error: 'Enter a valid price' });
 
   const info = await db
     .prepare(
-      'INSERT INTO listings (seller_id, title, description, price, category, location, image) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO listings (seller_id, title, description, price, category, location, condition, delivery, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     )
-    .run(req.user.id, title, description, price, category, location, image);
+    .run(req.user.id, title, description, price, category, location, condition, delivery, image);
   const l = await db.prepare('SELECT * FROM listings WHERE id = ?').get(info.lastInsertRowid);
   res.json({ listing: await decorate(l, req.user.id) });
 });

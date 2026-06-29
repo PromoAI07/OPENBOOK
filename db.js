@@ -956,6 +956,78 @@ db.init = async function init() {
   // taken down. Feed + single-view queries filter visibility = 'visible'.
   await addColumn('reels', "visibility TEXT NOT NULL DEFAULT 'visible'", 'visibility');
 
+  // --- Marketplace: richer listing fields (Facebook-Marketplace-like) ---
+  // condition: new | like_new | good | fair | parts. delivery: shipping | pickup |
+  // both. Both optional (empty = unspecified).
+  await addColumn('listings', "condition TEXT NOT NULL DEFAULT ''", 'condition');
+  await addColumn('listings', "delivery TEXT NOT NULL DEFAULT ''", 'delivery');
+
+  // --- Marketplace escrow (SPEC: protected transactions) ---
+  // An order is the escrow record for a purchase. Money handling is GATED by the
+  // ESCROW_LIVE env: when off, the workflow + evidence + dispute all work but no
+  // real funds move (a clearly-labeled preview). The custodial USDT rail plugs in
+  // when ESCROW_LIVE=1. status lifecycle:
+  //   awaiting_funds -> funds_held -> shipped -> completed
+  //                                       \-> disputed -> resolved_release | resolved_refund
+  //                  -> cancelled
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS orders (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      listing_id    INTEGER,
+      buyer_id      INTEGER NOT NULL,
+      seller_id     INTEGER NOT NULL,
+      title         TEXT    NOT NULL DEFAULT '',
+      amount        REAL    NOT NULL DEFAULT 0,
+      fee_pct       REAL    NOT NULL DEFAULT 0,
+      fee_amount    REAL    NOT NULL DEFAULT 0,
+      seller_amount REAL    NOT NULL DEFAULT 0,
+      currency      TEXT    NOT NULL DEFAULT 'USDT',
+      status        TEXT    NOT NULL DEFAULT 'awaiting_funds',
+      live          INTEGER NOT NULL DEFAULT 0,
+      escrow_network TEXT   NOT NULL DEFAULT '',
+      escrow_address TEXT   NOT NULL DEFAULT '',
+      tx_in         TEXT    NOT NULL DEFAULT '',
+      tx_out        TEXT    NOT NULL DEFAULT '',
+      dispute_reason TEXT   NOT NULL DEFAULT '',
+      dispute_by    INTEGER,
+      resolution    TEXT    NOT NULL DEFAULT '',
+      resolved_by   INTEGER,
+      created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE SET NULL,
+      FOREIGN KEY (buyer_id)   REFERENCES users(id)    ON DELETE CASCADE,
+      FOREIGN KEY (seller_id)  REFERENCES users(id)    ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_orders_buyer  ON orders(buyer_id);
+    CREATE INDEX IF NOT EXISTS idx_orders_seller ON orders(seller_id);
+    CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+
+    CREATE TABLE IF NOT EXISTS order_evidence (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id   INTEGER NOT NULL,
+      user_id    INTEGER NOT NULL,
+      role       TEXT    NOT NULL DEFAULT 'buyer',
+      kind       TEXT    NOT NULL DEFAULT 'other',
+      media_url  TEXT    NOT NULL DEFAULT '',
+      note       TEXT    NOT NULL DEFAULT '',
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_evidence_order ON order_evidence(order_id);
+
+    CREATE TABLE IF NOT EXISTS order_events (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id   INTEGER NOT NULL,
+      actor_id   INTEGER,
+      event      TEXT    NOT NULL,
+      detail     TEXT    NOT NULL DEFAULT '',
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events(order_id);
+  `);
+
   // Clear out sessions older than 30 days on startup.
   await db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");
 
