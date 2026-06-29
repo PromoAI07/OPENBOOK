@@ -283,8 +283,8 @@ router.post('/', requireAuth, trustRateLimit('post'), upload.single('image'), as
   }
   const type = isPoll ? 'poll' : 'text';
   const info = await db
-    .prepare('INSERT INTO posts (user_id, content, image, audience, bg, file_url, file_name, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(req.user.id, content, image, audience, image ? '' : bg, fileUrl, fileName, type);
+    .prepare('INSERT INTO posts (user_id, content, image, audience, bg, file_url, file_name, type, media_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(req.user.id, content, image, audience, image ? '' : bg, fileUrl, fileName, type, (req.file && req.file.mediaHash) || '');
   const postId = info.lastInsertRowid;
   if (isPoll) {
     const ins = db.prepare('INSERT INTO poll_options (post_id, text, position) VALUES (?, ?, ?)');

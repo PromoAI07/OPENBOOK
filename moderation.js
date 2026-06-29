@@ -71,11 +71,16 @@ async function currentVisibility(targetType, targetId) {
     const r = await db.prepare('SELECT visibility FROM comments WHERE id = ?').get(targetId);
     return r ? (r.visibility || 'visible') : null;
   }
+  if (targetType === 'reel') {
+    const r = await db.prepare('SELECT visibility FROM reels WHERE id = ?').get(targetId);
+    return r ? (r.visibility || 'visible') : null;
+  }
   return 'visible';
 }
 async function setContentVisibility(targetType, targetId, vis) {
   if (targetType === 'post') await db.prepare('UPDATE posts SET visibility = ? WHERE id = ?').run(vis, targetId);
   else if (targetType === 'comment') await db.prepare('UPDATE comments SET visibility = ? WHERE id = ?').run(vis, targetId);
+  else if (targetType === 'reel') await db.prepare('UPDATE reels SET visibility = ? WHERE id = ?').run(vis, targetId);
 }
 
 // Sum the weighted OPEN flags on a target and auto-hide it (pending review) when

@@ -13,7 +13,9 @@ const {
   VIOLATION_PENALTY, isAdmin, isCommunityMod,
   canModeratePost, canModerateComment, logModAction,
   flagWeight, evaluateAndAutoHide,
+  setContentVisibility, currentVisibility, systemUserId,
 } = require('../moderation');
+const illegal = require('../illegal');
 const jury = require('../jury');
 
 const router = express.Router();
@@ -55,11 +57,20 @@ router.post('/reports', requireAuth, async (req, res) => {
   // single account cannot inflate the weighted-flag total by reporting repeatedly.
   const existing = await db.prepare("SELECT id FROM reports WHERE reporter_id = ? AND target_type = ? AND target_id = ? AND status = 'open'").get(req.user.id, targetType, targetId);
   const weight = flagWeight(req.user);
+  // 'illegal' reports are non-negotiable and routed to platform admins, so they
+  // are flagged urgent and bypass the karma-weighted/jury path entirely.
+  const priority = reasonCode === 'illegal' ? 'urgent' : 'normal';
   if (existing) {
-    await db.prepare('UPDATE reports SET reason_code = ?, detail = ?, weight = ? WHERE id = ?').run(reasonCode, detail, weight, existing.id);
+    await db.prepare('UPDATE reports SET reason_code = ?, detail = ?, weight = ?, priority = ? WHERE id = ?').run(reasonCode, detail, weight, priority, existing.id);
   } else {
-    await db.prepare('INSERT INTO reports (reporter_id, target_type, target_id, reason_code, detail, weight) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(req.user.id, targetType, targetId, reasonCode, detail, weight);
+    await db.prepare('INSERT INTO reports (reporter_id, target_type, target_id, reason_code, detail, weight, priority) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(req.user.id, targetType, targetId, reasonCode, detail, weight, priority);
+  }
+  // Illegal content (SPEC 12): hide immediately pending platform-admin review,
+  // separate from the neutrality machinery. No jury, no standing change here.
+  if (reasonCode === 'illegal') {
+    await escalateIllegalReport(targetType, targetId);
+    return res.json({ ok: true, escalated: true });
   }
   // Karma-weighted auto-hide: sum trusted flags and hide (pending review) if they
   // cross the threshold. Logs the exact math to the public mod log; standing is
@@ -68,21 +79,44 @@ router.post('/reports', requireAuth, async (req, res) => {
   res.json({ ok: true, autoHidden: !!result.hidden });
 });
 
+// Immediately hide content reported as illegal and log it CONFIDENTIALLY
+// (is_public = 0): the public ledger must not advertise suspected illegal media.
+// Never convenes a jury and never touches standing (only a confirmed platform-
+// admin removal does). Idempotent: hides only if currently visible.
+async function escalateIllegalReport(targetType, targetId) {
+  if (targetType !== 'post' && targetType !== 'comment' && targetType !== 'reel') return;
+  const cur = await currentVisibility(targetType, targetId);
+  if (cur === 'visible') await setContentVisibility(targetType, targetId, 'auto_hidden');
+  try {
+    const sys = await systemUserId();
+    await db.prepare(
+      "INSERT INTO mod_actions (actor_id, action, target_type, target_id, reason, is_public) " +
+      "VALUES (?, 'illegal_report', ?, ?, 'reported as illegal; hidden pending platform-admin review', 0)"
+    ).run(sys, targetType, targetId);
+  } catch (e) { /* confidential log is best-effort */ }
+}
+
 // Open reports the current user may handle: admins see all, community mods see
 // reports for content in their communities.
 router.get('/reports', requireAuth, async (req, res) => {
   const admin = isAdmin(req.user);
-  const rows = await db.prepare("SELECT * FROM reports WHERE status = 'open' ORDER BY created_at DESC LIMIT 200").all();
+  const rows = await db.prepare(
+    "SELECT * FROM reports WHERE status = 'open' ORDER BY CASE WHEN priority = 'urgent' THEN 0 ELSE 1 END, created_at DESC LIMIT 200"
+  ).all();
   const out = [];
   for (const r of rows) {
     const t = await resolveTarget(r.target_type, r.target_id);
     if (!t) continue;
     if (!admin && !(t.communityId && await isCommunityMod(req.user.id, t.communityId))) continue;
+    // 'illegal' reports are a platform-admin matter only (community mods do not
+    // handle them), per SPEC section 6 + 12.
+    if (r.reason_code === 'illegal' && !admin) continue;
     out.push({
       id: r.id,
       targetType: r.target_type,
       targetId: r.target_id,
       reasonCode: r.reason_code,
+      priority: r.priority || 'normal',
       detail: r.detail,
       created_at: r.created_at,
       communityId: t.communityId,
@@ -103,6 +137,54 @@ router.post('/reports/:id/dismiss', requireAuth, async (req, res) => {
   if (!allowed) return res.status(403).json({ error: 'Not allowed' });
   await db.prepare("UPDATE reports SET status = 'dismissed' WHERE id = ?").run(r.id);
   res.json({ ok: true });
+});
+
+// ---- Illegal-content resolution (platform admins only, SPEC 12) ----
+// Confirm content as illegal: remove it everywhere, blocklist the exact media
+// bytes (so they can never be re-uploaded), apply ONE standing penalty + notify
+// the author, and resolve the reports. The PUBLIC log gets only a GENERIC entry
+// (no details), so a takedown is transparent without re-advertising the media.
+router.post('/illegal/confirm', requireAuth, async (req, res) => {
+  if (!isAdmin(req.user)) return res.status(403).json({ error: 'Only a platform admin can action illegal content' });
+  const targetType = req.body.targetType;
+  const targetId = Number(req.body.targetId);
+  if (!['post', 'comment', 'reel'].includes(targetType) || !targetId) {
+    return res.status(400).json({ error: 'Invalid target' });
+  }
+  const t = await resolveTarget(targetType, targetId);
+  if (!t) return res.status(404).json({ error: 'Content not found' });
+
+  await setContentVisibility(targetType, targetId, 'removed');
+
+  // Blocklist the exact media bytes so a re-upload is auto-blocked at upload time.
+  const hash = (t.post && t.post.media_hash) || (t.reel && t.reel.media_hash) || '';
+  const blocked = hash ? await illegal.blockHash(hash, req.user.id, 'illegal') : false;
+
+  // One standing penalty (the SPEC's only allowed driver of standing) + notify.
+  if (t.authorId && t.authorId !== req.user.id) {
+    await recordStandingEvent(t.authorId, -VIOLATION_PENALTY, 'illegal_content_removed');
+    await notify(t.authorId, req.user.id, 'mod_removed', targetType === 'post' ? targetId : (t.post ? t.post.id : null));
+  }
+  await db.prepare("UPDATE reports SET status = 'resolved' WHERE target_type = ? AND target_id = ? AND status = 'open'").run(targetType, targetId);
+  // GENERIC public entry: transparent that something was removed, no details.
+  await logModAction(req.user.id, 'remove_' + targetType, targetType, targetId, t.communityId, 'illegal content (legal removal)', 1);
+  res.json({ ok: true, blocked });
+});
+
+// Dismiss an illegal escalation: the admin reviewed it and it is NOT illegal.
+// Restore the content if the escalation auto-hid it, and dismiss the open illegal
+// reports. No standing change either way.
+router.post('/illegal/dismiss', requireAuth, async (req, res) => {
+  if (!isAdmin(req.user)) return res.status(403).json({ error: 'Only a platform admin can action illegal content' });
+  const targetType = req.body.targetType;
+  const targetId = Number(req.body.targetId);
+  if (!['post', 'comment', 'reel'].includes(targetType) || !targetId) {
+    return res.status(400).json({ error: 'Invalid target' });
+  }
+  const cur = await currentVisibility(targetType, targetId);
+  if (cur === 'auto_hidden') await setContentVisibility(targetType, targetId, 'visible');
+  await db.prepare("UPDATE reports SET status = 'dismissed' WHERE target_type = ? AND target_id = ? AND reason_code = 'illegal' AND status = 'open'").run(targetType, targetId);
+  res.json({ ok: true, restored: cur === 'auto_hidden' });
 });
 
 // ---- Remove / restore (posts and comments) ----

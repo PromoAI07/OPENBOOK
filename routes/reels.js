@@ -43,7 +43,7 @@ async function decorateReel(r, viewerId) {
 
 // Discovery feed: the newest reels from everyone.
 router.get('/', requireAuth, async (req, res) => {
-  const rows = await db.prepare('SELECT * FROM reels ORDER BY created_at DESC, id DESC LIMIT 60').all();
+  const rows = await db.prepare("SELECT * FROM reels WHERE visibility = 'visible' ORDER BY created_at DESC, id DESC LIMIT 60").all();
   res.json({ reels: await Promise.all(rows.map((r) => decorateReel(r, req.user.id))) });
 });
 
@@ -53,8 +53,8 @@ router.post('/', requireAuth, trustRateLimit('post'), videoUpload.single('video'
   const caption = (req.body.caption || '').trim();
   const video = '/uploads/' + req.file.filename;
   const info = await db
-    .prepare('INSERT INTO reels (user_id, video, caption) VALUES (?, ?, ?)')
-    .run(req.user.id, video, caption);
+    .prepare('INSERT INTO reels (user_id, video, caption, media_hash) VALUES (?, ?, ?, ?)')
+    .run(req.user.id, video, caption, (req.file && req.file.mediaHash) || '');
   const reel = await db.prepare('SELECT * FROM reels WHERE id = ?').get(info.lastInsertRowid);
   res.json({ reel: await decorateReel(reel, req.user.id) });
 });

@@ -948,6 +948,9 @@ db.init = async function init() {
   // blocklist the exact bytes and so an upload-time match can be recorded.
   await addColumn('posts', "media_hash TEXT NOT NULL DEFAULT ''", 'media_hash');
   await addColumn('reels', "media_hash TEXT NOT NULL DEFAULT ''", 'media_hash');
+  // Reels gain a visibility flag (like posts/comments) so an illegal video can be
+  // taken down. Feed + single-view queries filter visibility = 'visible'.
+  await addColumn('reels', "visibility TEXT NOT NULL DEFAULT 'visible'", 'visibility');
 
   // Clear out sessions older than 30 days on startup.
   await db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");

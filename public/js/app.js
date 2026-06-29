@@ -1011,16 +1011,34 @@
         if (!r.reports.length) { list.innerHTML = '<div class="empty" style="padding:8px">No open reports. All clear.</div>'; return; }
         list.innerHTML = '';
         r.reports.forEach((rep) => {
-          const row = el('<div class="card" style="margin:0 0 8px"><div style="font-size:13px"><b>' + esc(rep.reasonCode) + '</b> &#183; ' + esc(rep.targetType) + ' by ' + esc(rep.author ? rep.author.name : '?') + '</div>' +
+          const isIllegal = rep.reasonCode === 'illegal';
+          const badge = (rep.priority === 'urgent' || isIllegal)
+            ? '<span class="pill" style="background:#b3261e;color:#fff;font-weight:700">URGENT</span> ' : '';
+          // Illegal content is a platform-admin / legal matter: confirming it
+          // removes the content everywhere AND blocklists the media so it cannot
+          // be re-uploaded. "Not illegal" restores it. Other reports keep the
+          // normal remove / dismiss.
+          const actions = isIllegal
+            ? '<button class="btn btn-danger btn-sm" data-confirm-illegal>Confirm illegal (remove + block)</button>' +
+              '<button class="btn btn-sm" data-not-illegal>Not illegal</button>'
+            : (rep.removed ? '<span class="pill">already removed</span>' : '<button class="btn btn-danger btn-sm" data-rm>Remove</button>') +
+              '<button class="btn btn-sm" data-dismiss>Dismiss</button>';
+          const row = el('<div class="card" style="margin:0 0 8px"><div style="font-size:13px">' + badge + '<b>' + esc(rep.reasonCode) + '</b> &#183; ' + esc(rep.targetType) + ' by ' + esc(rep.author ? rep.author.name : '?') + '</div>' +
             '<div class="shint" style="font-size:13px;margin:4px 0">' + esc((rep.preview || '').slice(0, 140)) + '</div>' +
             (rep.detail ? '<div class="ctime">reporter: ' + esc(rep.detail) + '</div>' : '') +
-            '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">' +
-            (rep.removed ? '<span class="pill">already removed</span>' : '<button class="btn btn-danger btn-sm" data-rm>Remove</button>') +
-            '<button class="btn btn-sm" data-dismiss>Dismiss</button>' +
+            '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">' + actions +
             (rep.targetType === 'post' ? '<button class="btn btn-sm" data-open>Open post</button>' : '') + '</div></div>');
           const rm = row.querySelector('[data-rm]');
           if (rm) rm.onclick = async () => { try { await API.modRemove(rep.targetType, rep.targetId, 'report: ' + rep.reasonCode); toast('Removed'); load(); } catch (e) { toast(e.message); } };
-          row.querySelector('[data-dismiss]').onclick = async () => { try { await API.dismissReport(rep.id); toast('Dismissed'); load(); } catch (e) { toast(e.message); } };
+          const dm = row.querySelector('[data-dismiss]');
+          if (dm) dm.onclick = async () => { try { await API.dismissReport(rep.id); toast('Dismissed'); load(); } catch (e) { toast(e.message); } };
+          const ci = row.querySelector('[data-confirm-illegal]');
+          if (ci) ci.onclick = async () => {
+            if (!window.confirm('Confirm this content as ILLEGAL?\n\nIt will be removed everywhere and its media blocked from being re-uploaded. This is for genuinely illegal content only (e.g. CSAM, credible threats).')) return;
+            try { const r2 = await API.confirmIllegal(rep.targetType, rep.targetId); toast(r2.blocked ? 'Removed and media blocked' : 'Removed'); load(); } catch (e) { toast(e.message); }
+          };
+          const ni = row.querySelector('[data-not-illegal]');
+          if (ni) ni.onclick = async () => { try { await API.dismissIllegal(rep.targetType, rep.targetId); toast('Dismissed, content restored'); load(); } catch (e) { toast(e.message); } };
           const op = row.querySelector('[data-open]');
           if (op) op.onclick = () => { m.close(); go('post', rep.targetId); };
           list.appendChild(row);

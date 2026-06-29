@@ -32,6 +32,7 @@ const { effectiveTier, storageLimitBytes } = require('./entitlements');
 const storage = require('./media/storage');
 const processor = require('./media/processor');
 const cleanup = require('./media/cleanup');
+const illegal = require('./illegal');
 
 const UP_DIR = path.join(process.env.DATA_DIR || __dirname, 'uploads');
 if (!fs.existsSync(UP_DIR)) fs.mkdirSync(UP_DIR, { recursive: true });
@@ -154,6 +155,27 @@ async function assertQuota(user, addBytes, cleanupFn) {
 async function finalize(req, kind) {
   const f = req.file;
   if (!f) return;
+
+  // Illegal-content hash gate (SPEC 12). Hash the ORIGINAL uploaded bytes and
+  // block known-illegal media BEFORE anything is processed or stored. The hash is
+  // also stashed on req.file so the post/reel row records it, so a later
+  // confirmed-illegal removal can blocklist the exact bytes. A hashing failure
+  // fails OPEN (logs + continues) so it can never block a legitimate upload; a
+  // positive match fails CLOSED (the upload is rejected).
+  if (kind === 'image' || kind === 'video' || kind === 'file') {
+    let uploadHash = '';
+    try { uploadHash = await hashFile(f.path); }
+    catch (e) { logger.warn({ err: e }, 'illegal-hash check could not hash the upload; continuing'); }
+    if (uploadHash) {
+      f.mediaHash = uploadHash;
+      if (await illegal.isBlockedHash(uploadHash)) {
+        try { fs.unlinkSync(f.path); } catch (e) {}
+        await illegal.recordBlockedUpload(req.user && req.user.id, uploadHash);
+        throw Object.assign(new Error('This file cannot be uploaded.'), { status: 415, code: 'BLOCKED_MEDIA' });
+      }
+    }
+  }
+
   const remote = storage.isRemote();
   const userId = req.user && req.user.id;
   let key = null;

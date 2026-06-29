@@ -241,6 +241,8 @@ const API = {
   modReports() { return this.get('/api/moderation/reports'); },
   dismissReport(id) { return this.post('/api/moderation/reports/' + id + '/dismiss'); },
   modRemove(targetType, targetId, reason) { return this.post('/api/moderation/remove', { targetType, targetId, reason }); },
+  confirmIllegal(targetType, targetId) { return this.post('/api/moderation/illegal/confirm', { targetType, targetId }); },
+  dismissIllegal(targetType, targetId) { return this.post('/api/moderation/illegal/dismiss', { targetType, targetId }); },
   modRestore(targetType, targetId) { return this.post('/api/moderation/restore', { targetType, targetId }); },
   modLock(postId, locked) { return this.post('/api/moderation/lock', { postId, locked }); },
   modPin(postId, pinned) { return this.post('/api/moderation/pin', { postId, pinned }); },
