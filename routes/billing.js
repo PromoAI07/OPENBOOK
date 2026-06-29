@@ -273,8 +273,8 @@ api.post('/crypto/claim', requireAuth, async (req, res) => {
   const seen = await db.prepare('SELECT 1 FROM payment_events WHERE provider = ? AND external_id = ?').get('usdt-' + network, txHash);
   if (seen) return res.status(409).json({ error: 'That transaction has already been used.' });
 
-  let amount = PLANS[tier].usd; // BILLING_TEST_MODE trusts the tier price
-  if (process.env.BILLING_TEST_MODE !== '1') {
+  let amount = PLANS[tier].usd; // tier price; only trusted when TEST_MODE bypasses verification
+  if (!TEST_MODE) {
     const v = await verifyUsdt(network, txHash);
     if (!v.ok) return res.status(400).json({ error: v.error });
     amount = v.amount;
