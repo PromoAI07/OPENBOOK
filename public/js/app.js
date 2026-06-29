@@ -711,6 +711,7 @@
                 '<option value="3" selected>Premium (' + (plans[3] ? plans[3].usd : 30) + ' USDT, 3 months)</option>' +
               '</select>' +
               '<input class="input" id="cryptoTx" placeholder="Paste transaction hash" style="flex:1;min-width:180px">' +
+              '<button type="button" class="btn btn-sm" id="cryptoHelp" title="How to find your transaction hash" aria-label="How to find your transaction hash" style="flex:none;font-weight:800;min-width:38px">?</button>' +
               '<button class="btn btn-primary" id="cryptoClaim">Apply my tier</button>' +
             '</div>' +
             '<div id="cryptoMsg" class="shint" style="font-size:12px;margin-top:6px"></div>' +
@@ -780,6 +781,27 @@
         toast('Thank you! Your tier is now active.');
         renderSupport();
       } catch (e) { msg.textContent = e.message; claimBtn.disabled = false; }
+    };
+    const helpBtn = document.getElementById('cryptoHelp');
+    if (helpBtn) helpBtn.onclick = () => {
+      const m = modal(
+        '<div class="mh"><h3>How to find your transaction hash</h3></div>' +
+        '<div class="mc">' +
+        '<p style="margin-top:0">When you send USDT, your wallet or exchange gives the payment a unique <strong>transaction hash</strong> (also shown as <strong>TxID</strong> or <strong>Transaction ID</strong>). That is what we use to confirm your payment on the blockchain. Here is how to copy it:</p>' +
+        '<ol style="padding-left:20px;line-height:1.7;font-size:14px;margin:0 0 4px">' +
+          '<li>Open the wallet or exchange you sent the USDT from (Binance, Trust Wallet, MetaMask, OKX, and so on).</li>' +
+          '<li>Open your <strong>transaction history</strong> (it may be called History, Activity, or Transactions).</li>' +
+          '<li>Tap the USDT payment you just sent.</li>' +
+          '<li>Find the line labelled <strong>Transaction hash</strong>, <strong>TxID</strong>, <strong>Transaction ID</strong>, or <strong>Hash</strong>. It is a long string of letters and numbers (on Ethereum, BNB Chain, or Polygon it starts with &ldquo;0x&rdquo;).</li>' +
+          '<li>Tap the copy icon next to it, or open &ldquo;View on explorer&rdquo; and copy it from there.</li>' +
+          '<li>Come back here, paste it in the box, pick the <strong>same network</strong> you sent on and your tier, then press <strong>Apply my tier</strong>.</li>' +
+        '</ol>' +
+        '<p class="shint" style="font-size:12.5px;line-height:1.55">Tip: make sure you pick the same network you actually sent on (Tron, Ethereum, BNB Chain, Polygon, or Solana). Your tier is applied automatically once we confirm the payment on-chain, usually within a minute or two.</p>' +
+        '<button class="btn btn-primary btn-block" id="cryptoHelpOk">Got it</button>' +
+        '</div>'
+      );
+      const ok = m.q('#cryptoHelpOk');
+      if (ok) ok.onclick = () => m.close();
     };
 
     renderRightRail();
