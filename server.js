@@ -104,6 +104,39 @@ app.use(helmet({
   },
 }));
 
+// Cache-busting. Stamp the local /js and /css references in served HTML with a
+// version derived from the CONTENT of the JS/CSS bundle, so every deploy that
+// changes an asset changes its URL (e.g. /js/app.js?v=ab12cd). Browsers AND
+// Cloudflare then fetch the new file immediately, while unchanged files keep
+// their stamp and stay cached, so a deploy is visible to users without any manual
+// cache purge. Computed once at startup. Inline <script> bodies are untouched, so
+// the CSP script hashes still match.
+const ASSET_V = (function () {
+  if (process.env.ASSET_VERSION) return String(process.env.ASSET_VERSION);
+  try {
+    const crypto = require('crypto');
+    const h = crypto.createHash('sha256');
+    for (const sub of ['js', 'css']) {
+      const dir = path.join(__dirname, 'public', sub);
+      let files = [];
+      try { files = fs.readdirSync(dir).sort(); } catch (e) { continue; }
+      for (const f of files) { try { h.update(f); h.update(fs.readFileSync(path.join(dir, f))); } catch (e) {} }
+    }
+    return h.digest('hex').slice(0, 12);
+  } catch (e) { return 'dev'; }
+})();
+const _pageCache = new Map();
+function sendPage(res, file) {
+  let html = _pageCache.get(file);
+  if (html === undefined) {
+    try { html = fs.readFileSync(file, 'utf8').replace(/((?:src|href)=")(\/(?:js|css)\/[^"?]+)(")/g, '$1$2?v=' + ASSET_V + '$3'); }
+    catch (e) { html = null; }
+    _pageCache.set(file, html);
+  }
+  if (html == null) return res.status(404).end();
+  res.type('html').send(html);
+}
+
 // Parsers and session attachment run on every request.
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -150,7 +183,10 @@ app.get('/download/:key', (req, res) => {
   });
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+// Public landing page, with versioned asset URLs (served before the static
+// handler so '/' uses this, not the raw index.html).
+app.get('/', (req, res) => sendPage(res, path.join(__dirname, 'public', 'index.html')));
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 // Throttle auth attempts to slow brute force and signup abuse. Only the mutating
 // auth calls (POST signup/login/logout/resend) need throttling; the read-only
@@ -265,23 +301,23 @@ app.use('/api/webhooks', require('./routes/billing').webhooks);
 app.use('/api/billing', require('./routes/billing').api);
 
 // The authenticated single page app shell.
-app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
+app.get('/app', (req, res) => sendPage(res, path.join(__dirname, 'public', 'app.html')));
 
 // Password-reset page (the target of the emailed link; the token is in the URL).
-app.get('/reset', (req, res) => res.sendFile(path.join(__dirname, 'public', 'reset.html')));
+app.get('/reset', (req, res) => sendPage(res, path.join(__dirname, 'public', 'reset.html')));
 
 // Public "Our Mission" page (open to everyone, logged in or out).
-app.get('/mission', (req, res) => res.sendFile(path.join(__dirname, 'public', 'mission.html')));
+app.get('/mission', (req, res) => sendPage(res, path.join(__dirname, 'public', 'mission.html')));
 
 // Public Privacy Policy and Cookies pages (open to everyone, logged in or out).
-app.get('/privacy', (req, res) => res.sendFile(path.join(__dirname, 'public', 'privacy.html')));
-app.get('/cookies', (req, res) => res.sendFile(path.join(__dirname, 'public', 'cookies.html')));
+app.get('/privacy', (req, res) => sendPage(res, path.join(__dirname, 'public', 'privacy.html')));
+app.get('/cookies', (req, res) => sendPage(res, path.join(__dirname, 'public', 'cookies.html')));
 
 // Public community roadmap page (the transparent, voted feature roadmap).
-app.get('/roadmap', (req, res) => res.sendFile(path.join(__dirname, 'public', 'roadmap.html')));
+app.get('/roadmap', (req, res) => sendPage(res, path.join(__dirname, 'public', 'roadmap.html')));
 
 // Public, site-wide moderation log (every public mod action, scannable by anyone).
-app.get('/mod-log', (req, res) => res.sendFile(path.join(__dirname, 'public', 'mod-log.html')));
+app.get('/mod-log', (req, res) => sendPage(res, path.join(__dirname, 'public', 'mod-log.html')));
 
 // Separate owner-only analytics page. The PAGE ITSELF is gated here server-side:
 // a non-admin (or logged-out) visitor is bounced before the page even loads, and
@@ -291,7 +327,7 @@ app.get('/mod-log', (req, res) => res.sendFile(path.join(__dirname, 'public', 'm
 app.get('/admin', (req, res) => {
   if (!req.user) return res.redirect('/');
   if (!req.user.is_admin) return res.redirect('/app');
-  res.sendFile(path.join(__dirname, 'admin.html'));
+  sendPage(res, path.join(__dirname, 'admin.html'));
 });
 
 // Central error handler so upload errors and the like return clean JSON. The
