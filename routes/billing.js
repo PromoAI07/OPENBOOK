@@ -17,6 +17,14 @@ const { requireAuth } = require('../auth');
 const { extendTier } = require('../entitlements');
 const { logger } = require('../logger');
 
+// Test-only bypass of payment verification, used by offline smoke tests. HARD-OFF
+// in production even if the env var is set, so a misconfigured live server can
+// never grant paid tiers for free.
+const TEST_MODE = process.env.BILLING_TEST_MODE === '1' && process.env.NODE_ENV !== 'production';
+if (process.env.BILLING_TEST_MODE === '1' && process.env.NODE_ENV === 'production') {
+  logger.warn('BILLING_TEST_MODE is set but IGNORED in production; payment verification stays ON.');
+}
+
 // Charge model: bill several periods IN ADVANCE so PayPal's fixed per-transaction
 // fee (~$0.30 + 4.4%) is paid as rarely as possible.
 //   Supporter $1/mo  -> 1 year   in advance ($12, 365 days)
@@ -232,7 +240,7 @@ const webhooks = express.Router();
 webhooks.post('/paypal', async (req, res) => {
   try {
     const body = req.body || {};
-    if (process.env.BILLING_TEST_MODE !== '1') {
+    if (!TEST_MODE) {
       if (!(await verifyIpn(body))) { logger.warn('paypal ipn failed validation'); return res.status(200).send('IGNORED'); }
     }
     if (String(body.payment_status) !== 'Completed') return res.status(200).send('OK');

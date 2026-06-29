@@ -91,6 +91,12 @@ router.post('/', requireAuth, upload.single('icon'), async (req, res) => {
 router.get('/:id', requireAuth, async (req, res) => {
   const c = await db.prepare('SELECT * FROM communities WHERE id = ?').get(Number(req.params.id));
   if (!c) return res.status(404).json({ error: 'Community not found' });
+  // A private community reveals full metadata only to members. A non-member gets a
+  // minimal stub (name + size) so the UI can show a "request to join" screen,
+  // without leaking the description, rules, or icon.
+  if (c.privacy !== 'public' && !(await isMember(req.user.id, c.id))) {
+    return res.json({ community: { id: c.id, name: c.name, description: '', rules: '', icon: '', privacy: c.privacy, created_at: c.created_at, memberCount: await memberCount(c.id), isMember: false, role: null, locked: true } });
+  }
   res.json({ community: await decorateCommunity(c, req.user.id) });
 });
 
@@ -113,12 +119,19 @@ router.post('/:id/leave', requireAuth, async (req, res) => {
 
 // Members.
 router.get('/:id/members', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const c = await db.prepare('SELECT privacy FROM communities WHERE id = ?').get(id);
+  if (!c) return res.status(404).json({ error: 'Community not found' });
+  // A private community never exposes its member roster to non-members.
+  if (c.privacy !== 'public' && !(await isMember(req.user.id, id))) {
+    return res.json({ members: [], locked: true });
+  }
   const rows = await db
     .prepare(
       `SELECT u.*, m.role FROM community_members m JOIN users u ON u.id = m.user_id
        WHERE m.community_id = ? ORDER BY (m.role = 'mod') DESC, u.name`
     )
-    .all(Number(req.params.id));
+    .all(id);
   res.json({ members: rows.map((u) => Object.assign(publicUser(u), { role: u.role })) });
 });
 

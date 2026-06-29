@@ -56,6 +56,14 @@ const diskStorage = multer.diskStorage({
 });
 
 function imageFilter(req, file, cb) {
+  // Block SVG: it can carry <script> and would be stored and served inline as
+  // image/svg+xml, a stored-XSS vector. Avatars, covers, and photos never need
+  // SVG. Check BOTH the declared mimetype AND the extension, since the client
+  // controls the mimetype. (A raster file mislabeled .png is harmless: it gets
+  // re-encoded to WebP by sharp; only files SERVED as SVG are the risk.)
+  if (/svg/i.test(file.mimetype) || /\.svg$/i.test(file.originalname || '')) {
+    return cb(Object.assign(new Error('SVG images are not allowed.'), { status: 400 }));
+  }
   if (/^image\//.test(file.mimetype)) cb(null, true);
   else cb(Object.assign(new Error('Only image files are allowed'), { status: 400 }));
 }

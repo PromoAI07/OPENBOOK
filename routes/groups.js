@@ -85,6 +85,12 @@ router.post('/', requireAuth, upload.single('cover'), async (req, res) => {
 router.get('/:id', requireAuth, async (req, res) => {
   const g = await db.prepare('SELECT * FROM groups WHERE id = ?').get(Number(req.params.id));
   if (!g) return res.status(404).json({ error: 'Group not found' });
+  // A private group reveals full metadata only to members. A non-member gets a
+  // minimal stub (name + size) for the "request to join" screen, without leaking
+  // the description or cover.
+  if (g.privacy !== 'public' && !(await isMember(req.user.id, g.id))) {
+    return res.json({ group: { id: g.id, name: g.name, description: '', cover: '', privacy: g.privacy, created_at: g.created_at, memberCount: await memberCount(g.id), isMember: false, role: null, locked: true } });
+  }
   res.json({ group: await decorateGroup(g, req.user.id) });
 });
 
@@ -109,6 +115,12 @@ router.post('/:id/leave', requireAuth, async (req, res) => {
 // Members of a group (admins first).
 router.get('/:id/members', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
+  const g = await db.prepare('SELECT privacy FROM groups WHERE id = ?').get(id);
+  if (!g) return res.status(404).json({ error: 'Group not found' });
+  // A private group never exposes its member roster to non-members.
+  if (g.privacy !== 'public' && !(await isMember(req.user.id, id))) {
+    return res.json({ members: [], locked: true });
+  }
   const rows = await db
     .prepare(
       `SELECT u.*, m.role FROM group_members m JOIN users u ON u.id = m.user_id

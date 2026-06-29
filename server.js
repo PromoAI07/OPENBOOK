@@ -119,6 +119,27 @@ const authLimiter = rateLimit({
   message: { error: 'Too many attempts. Please wait a few minutes and try again.' },
 });
 
+// CSRF defense-in-depth: reject state-changing API calls whose Origin (or Referer
+// as a fallback) is a DIFFERENT site than this one. The web app is same-origin, so
+// its own fetch() calls always carry a matching Origin; the PayPal IPN is
+// server-to-server (no browser Origin) and is exempt. A request with NEITHER an
+// Origin nor a Referer is allowed (non-browser clients like curl / native apps),
+// since a cross-site CSRF attack runs in a browser, which always sends one of them
+// and cannot forge the victim's true Origin.
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  if (req.path.startsWith('/webhooks')) return next(); // server-to-server IPN, no browser Origin
+  const src = req.headers.origin || req.headers.referer || req.headers.referrer || '';
+  if (!src) return next(); // no Origin/Referer at all: not a browser, so not a CSRF vector
+  let ok = false;
+  try { ok = new URL(src).host === req.headers.host; } catch (e) { ok = false; }
+  if (!ok) {
+    logger.warn({ origin: req.headers.origin, referer: req.headers.referer, host: req.headers.host, path: req.path }, 'blocked cross-site request');
+    return res.status(403).json({ error: 'Cross-site request blocked.' });
+  }
+  next();
+});
+
 // Soft email gate: unverified accounts can read and browse everything, but
 // cannot create content until they verify. GETs, auth routes, profile edits,
 // and notification reads stay open; everything else under /api needs a verified
