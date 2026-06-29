@@ -239,8 +239,8 @@
     const um = /^\/u\/([^\/?#]+)/.exec(dpath);
     const ppm = /^\/p\/(\d+)/.exec(dpath);
     const reelMatch = /(?:^|#)reel=(\d+)/.exec(window.location.hash);
-    if (um) { window.history.replaceState({}, '', '/app'); go('profile', decodeURIComponent(um[1])); }
-    else if (ppm) { window.history.replaceState({}, '', '/app'); go('post', Number(ppm[1])); }
+    if (um) { go('profile', decodeURIComponent(um[1])); }
+    else if (ppm) { go('post', Number(ppm[1])); }
     else if (reelMatch) { pendingReel = Number(reelMatch[1]); go('reels'); }
     else go('feed');
   }
@@ -379,6 +379,10 @@
     else if (name === 'invite') renderInvite();
     else if (name === 'suggestions') renderSuggestions();
     else if (name === 'jury') renderJury();
+    // Keep the address bar in sync so a profile or post can be copied straight from
+    // the URL. profile/post set their own /u/<username> or /p/<id> once their data
+    // loads; every other view resets the URL to /app.
+    if (name !== 'profile' && name !== 'post') { try { window.history.replaceState({}, '', '/app'); } catch (e) {} }
     try { AN.page(name); } catch (e) {}
     window.scrollTo(0, 0);
   }
@@ -1817,6 +1821,9 @@
     catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
 
     const u = data.user;
+    // Reflect this profile's shareable link in the address bar so it can be copied
+    // straight from there: /u/<username> (or /u/<id> if no username is set).
+    try { window.history.replaceState({}, '', '/u/' + encodeURIComponent(u.username || u.id)); } catch (e) {}
     const isMe = data.friendStatus === 'self';
     const _themeObj = themeFor(u); // Premium background gradient (gated server-side via u.theme)
     // Name color is chosen SEPARATELY from the background gradient: it comes only
@@ -2910,6 +2917,8 @@
     let data;
     try { data = await API.getPost(id); } catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
     const p = data.post;
+    // Reflect this post's shareable link in the address bar (/p/<id>).
+    try { window.history.replaceState({}, '', '/p/' + p.id); } catch (e) {}
 
     // Work out whether the viewer can moderate this thread (admin, or a mod of
     // its community). postOwner/postMod are also read by the comment tree.
