@@ -492,6 +492,16 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 }
 .verify-banner span { flex: 1; }
 
+/* New-user welcome banner: shown on the home feed to accounts under 30 days old,
+   dismissible. Brand-tinted and theme-aware so it stays readable in dark mode. */
+.welcome-banner { position: relative; background: var(--brand-soft); border: 1px solid var(--brand); }
+.welcome-body { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding-right: 22px; }
+.welcome-text { flex: 1; min-width: 200px; font-size: 14px; line-height: 1.5; color: var(--text); }
+.welcome-emoji { font-size: 16px; }
+.welcome-cta { flex: none; white-space: nowrap; }
+.welcome-x { position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--text-soft); font-size: 20px; line-height: 1; cursor: pointer; padding: 2px 7px; border-radius: 6px; }
+.welcome-x:hover { background: var(--hover); color: var(--text); }
+
 /* ---------- Moderation ---------- */
 .modbanner {
   background: #fdecea;

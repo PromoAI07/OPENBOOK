@@ -516,8 +516,24 @@
 
   /* ============================ feed ============================ */
 
+  // A welcome banner for brand-new accounts (under 30 days old), shown at the top
+  // of the home feed and dismissible. Computed from the signup date we already
+  // have, so it needs no server changes and disappears on its own after 30 days.
+  function welcomeBannerHtml() {
+    try { if (localStorage.getItem('ob_welcome_dismissed') === '1') return ''; } catch (e) {}
+    const created = ME && ME.created_at ? new Date(String(ME.created_at).replace(' ', 'T') + 'Z').getTime() : 0;
+    if (!created || (Date.now() - created) / 86400000 > 30) return '';
+    return '<div class="card welcome-banner" id="welcomeBanner">' +
+      '<button class="welcome-x" id="welcomeClose" aria-label="Dismiss" title="Dismiss">&times;</button>' +
+      '<div class="welcome-body">' +
+        '<span class="welcome-text"><span class="welcome-emoji">&#127793;</span> <strong>OpenBook just launched, and you&#39;re one of the first.</strong> Help shape it: explore every corner, then tell us what&#39;s broken or what to build next in the Suggestions box.</span>' +
+        '<button class="btn btn-primary btn-sm welcome-cta" id="welcomeSuggest">Open Suggestions</button>' +
+      '</div></div>';
+  }
+
   async function renderFeed() {
     view.innerHTML =
+      welcomeBannerHtml() +
       '<div class="card" id="storiesCard"><div class="stories" id="storiesRow"><div class="empty" style="padding:10px">Loading stories...</div></div></div>' +
       composerHtml() +
       '<div class="card"><div class="mk-head"><div class="tabs">' +
@@ -529,6 +545,14 @@
       '<div id="announcements"></div>' +
       '<div id="feedPosts"><div class="card"><div class="empty">Loading your feed...</div></div></div>';
     wireComposer('feedPosts');
+    const wSuggest = document.getElementById('welcomeSuggest');
+    if (wSuggest) wSuggest.onclick = () => go('suggestions');
+    const wClose = document.getElementById('welcomeClose');
+    if (wClose) wClose.onclick = () => {
+      try { localStorage.setItem('ob_welcome_dismissed', '1'); } catch (e) {}
+      const b = document.getElementById('welcomeBanner');
+      if (b) b.remove();
+    };
     loadStories();
     loadAnnouncements();
     const hint = document.getElementById('feedHint');
