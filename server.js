@@ -340,6 +340,10 @@ app.get('/roadmap', (req, res) => sendPage(res, path.join(__dirname, 'public', '
 // Public, site-wide moderation log (every public mod action, scannable by anyone).
 app.get('/mod-log', (req, res) => sendPage(res, path.join(__dirname, 'public', 'mod-log.html')));
 
+// Public Rules page: the stance that open + transparent never means anything goes
+// (illegal activity is not allowed). Open to everyone, logged in or out.
+app.get('/rules', (req, res) => sendPage(res, path.join(__dirname, 'public', 'rules.html')));
+
 // Separate owner-only analytics page. The PAGE ITSELF is gated here server-side:
 // a non-admin (or logged-out) visitor is bounced before the page even loads, and
 // the analytics API it calls is independently admin-only. admin.html lives
