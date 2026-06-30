@@ -23,7 +23,20 @@ const { upload } = require('../upload');
 
 const router = express.Router();
 
+// Master on/off switch for the WHOLE escrow feature (UI + API). Off by default,
+// so escrow is hidden until the founder turns it on (ESCROW_ENABLED=1). Separate
+// from ESCROW_LIVE, which only governs real money once escrow is enabled.
+const ESCROW_ENABLED = process.env.ESCROW_ENABLED === '1';
 const ESCROW_LIVE = process.env.ESCROW_LIVE === '1';
+
+// When escrow is disabled, only GET /config stays reachable (so the UI knows to
+// hide everything); every other escrow endpoint is turned off.
+router.use((req, res, next) => {
+  if (ESCROW_ENABLED) return next();
+  if (req.method === 'GET' && req.path === '/config') return next();
+  return res.status(404).json({ error: 'Escrow is not available.' });
+});
+
 const ESCROW_FEE_PCT = Math.max(0, Math.min(50, Number(process.env.ESCROW_FEE_PCT || 2.5)));
 // Escrow only covers items at or under this amount. Bigger-ticket items (cars,
 // property) are sold face to face with no escrow, by design. Configurable.
@@ -87,7 +100,7 @@ async function decorateOrder(o, viewerId, opts) {
 
 // Public escrow config so the UI can explain the state of things.
 router.get('/config', (req, res) => {
-  res.json({ live: ESCROW_LIVE, feePct: ESCROW_FEE_PCT, maxAmount: ESCROW_MAX_AMOUNT });
+  res.json({ enabled: ESCROW_ENABLED, live: ESCROW_LIVE, feePct: ESCROW_FEE_PCT, maxAmount: ESCROW_MAX_AMOUNT });
 });
 
 // Buyer commits to buy a listing -> creates the escrow order. When the rail is

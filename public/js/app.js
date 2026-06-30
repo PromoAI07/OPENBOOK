@@ -2657,11 +2657,12 @@
   const marketState = { q: '', category: 'All', condition: 'All', location: '', minPrice: '', maxPrice: '' };
 
   async function renderMarketplace() {
+    await escrowCfg(); // so escrowOn() is accurate when the listing cards render
     view.innerHTML =
       '<div class="card"><div class="mk-head">' +
       '<div class="section-title" style="flex:1;margin:0">Marketplace</div>' +
-      '<button class="btn btn-sm" id="ordersBtn">&#128230; My orders</button>' +
-      (ME && ME.isAdmin ? '<button class="btn btn-sm" id="dispBtn">Disputes</button>' : '') +
+      (escrowOn() ? '<button class="btn btn-sm" id="ordersBtn">&#128230; My orders</button>' : '') +
+      (escrowOn() && ME && ME.isAdmin ? '<button class="btn btn-sm" id="dispBtn">Disputes</button>' : '') +
       '<button class="btn btn-primary btn-sm" id="sellBtn">&#10010; Sell something</button></div>' +
       '<input class="input" id="mkSearch" placeholder="Search marketplace" value="' + esc(marketState.q) + '" style="margin-top:10px">' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
@@ -2720,7 +2721,7 @@
       '<div class="mk-card">' +
       '<div class="mk-photo">' + (l.image ? '<img src="' + esc(l.image) + '" alt="">' : '<div class="mk-noimg">&#128247;</div>') +
       (l.status === 'sold' ? '<div class="mk-sold">SOLD</div>' : '') + '</div>' +
-      '<div class="mk-info"><div class="mk-price">' + money(l.price) + (l.escrow ? ' <span title="Escrow buyer protection" style="font-size:13px">&#128274;</span>' : '') + '</div>' +
+      '<div class="mk-info"><div class="mk-price">' + money(l.price) + (l.escrow && escrowOn() ? ' <span title="Escrow buyer protection" style="font-size:13px">&#128274;</span>' : '') + '</div>' +
       '<div class="mk-title">' + esc(l.title) + '</div>' +
       '<div class="mk-loc">' + (l.location ? esc(l.location) : esc(l.category)) + (l.condition ? ' &#183; ' + esc(COND_LABELS[l.condition] || l.condition) : '') + '</div></div></div>'
     );
@@ -2732,6 +2733,7 @@
     let data;
     try { data = await API.listing(id); } catch (e) { toast(e.message); return; }
     const l = data.listing;
+    await escrowCfg();
     const firstName = (l.seller.name || '').split(' ')[0];
     const m = modal(
       '<div class="mh"><h3>Item</h3></div><div class="mc">' +
@@ -2739,13 +2741,13 @@
       '<div class="mk-price" style="font-size:24px">' + money(l.price) + (l.status === 'sold' ? ' <span class="pill">Sold</span>' : '') + '</div>' +
       '<div style="font-size:18px;font-weight:700;margin:4px 0">' + esc(l.title) + '</div>' +
       '<div class="pmeta" style="margin-bottom:8px">' + esc(l.category) + (l.location ? ' &#183; ' + esc(l.location) : '') + (l.condition ? ' &#183; ' + esc(COND_LABELS[l.condition] || l.condition) : '') + (l.delivery ? ' &#183; ' + esc(DELIV_LABELS[l.delivery] || l.delivery) : '') + '</div>' +
-      (l.escrow ? '<div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--brand)">&#128274; Escrow buyer protection available</div>' : '') +
+      (escrowOn() && l.escrow ? '<div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--brand)">&#128274; Escrow buyer protection available</div>' : '') +
       (l.description ? '<div style="white-space:pre-wrap;margin-bottom:12px">' + linkify(esc(l.description)) + '</div>' : '') +
       '<div class="contact" style="padding:0;margin-bottom:14px">' + avatar(l.seller, 36) + '<span class="nm">' + esc(l.seller.name) + '</span></div>' +
       (l.isMine
         ? '<button class="btn btn-block" id="mkSold">' + (l.status === 'sold' ? 'Mark available' : 'Mark as sold') + '</button>' +
           '<button class="btn btn-danger btn-block" id="mkDel" style="margin-top:8px">Delete listing</button>'
-        : (l.escrow && l.status !== 'sold' && Number(l.price) > 0
+        : (escrowOn() && l.escrow && l.status !== 'sold' && Number(l.price) > 0
             ? '<button class="btn btn-primary btn-block" id="mkBuy">&#128274; Buy with escrow protection</button>' +
               '<button class="btn btn-block" id="mkMsg" style="margin-top:8px">Message ' + esc(firstName) + '</button>'
             : '<button class="btn btn-primary btn-block" id="mkMsg">Message ' + esc(firstName) + '</button>') +
@@ -2775,8 +2777,10 @@
         Object.keys(DELIV_LABELS).map((k) => '<option value="' + k + '">' + DELIV_LABELS[k] + '</option>').join('') + '</select></div>' +
       '<div class="field"><label>Location (optional)</label><input class="input" id="slLoc" placeholder="City or area"></div>' +
       '<div class="field"><label>Description</label><textarea class="input" id="slDesc" rows="3" placeholder="Describe your item"></textarea></div>' +
-      '<label style="display:flex;align-items:flex-start;gap:8px;margin:0 0 6px;font-size:13px;line-height:1.5;cursor:pointer"><input type="checkbox" id="slEscrow" checked style="margin-top:3px;flex:none"><span>Offer <strong>escrow buyer protection</strong>. OpenBook holds the payment until the buyer confirms they got the item, with a ' + cfg.feePct + '% fee on a completed sale. For items up to $' + (cfg.maxAmount || 1000).toLocaleString() + '; bigger items (cars, property) are sold face to face.</span></label>' +
-      '<div class="shint" id="slEscrowNote" style="font-size:12px;margin:0 0 12px;display:none">Over $' + (cfg.maxAmount || 1000).toLocaleString() + ', so this item is face to face only (no escrow).</div>' +
+      (cfg.enabled
+        ? '<label style="display:flex;align-items:flex-start;gap:8px;margin:0 0 6px;font-size:13px;line-height:1.5;cursor:pointer"><input type="checkbox" id="slEscrow" checked style="margin-top:3px;flex:none"><span>Offer <strong>escrow buyer protection</strong>. OpenBook holds the payment until the buyer confirms they got the item, with a ' + cfg.feePct + '% fee on a completed sale. For items up to $' + (cfg.maxAmount || 1000).toLocaleString() + '; bigger items (cars, property) are sold face to face.</span></label>' +
+          '<div class="shint" id="slEscrowNote" style="font-size:12px;margin:0 0 12px;display:none">Over $' + (cfg.maxAmount || 1000).toLocaleString() + ', so this item is face to face only (no escrow).</div>'
+        : '') +
       '<div class="field"><input type="file" id="slImg" accept="image/*" class="input"></div>' +
       '<div class="preview hidden" id="slPrev" style="margin-bottom:12px"></div>' +
       '<button class="btn btn-primary btn-block" id="slPost">Post listing</button></div>'
@@ -2808,9 +2812,11 @@
 
   var _escrowCfg = null;
   async function escrowCfg() {
-    if (!_escrowCfg) { try { _escrowCfg = await API.escrowConfig(); } catch (e) { _escrowCfg = { live: false, feePct: 5 }; } }
+    if (!_escrowCfg) { try { _escrowCfg = await API.escrowConfig(); } catch (e) { _escrowCfg = { enabled: false, live: false, feePct: 2.5, maxAmount: 1000 }; } }
     return _escrowCfg;
   }
+  // Master switch: the whole escrow UI is hidden unless the server enables it.
+  function escrowOn() { return !!(_escrowCfg && _escrowCfg.enabled); }
   var ORDER_STATUS = {
     awaiting_funds: { label: 'Awaiting payment', cls: 'pill' },
     funds_held: { label: 'Held in escrow', cls: 'pill pill-ok' },

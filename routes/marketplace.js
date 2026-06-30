@@ -99,9 +99,10 @@ router.post('/', requireAuth, upload.single('image'), async (req, res) => {
 
   // Escrow: only offered when the seller opts in AND the price is within the cap
   // (bigger items are face-to-face only). The buy route enforces this again.
+  const escrowEnabled = process.env.ESCROW_ENABLED === '1';
   const ESCROW_MAX = Math.max(0, Number(process.env.ESCROW_MAX_AMOUNT || 1000));
   const wantsEscrow = [true, 1, '1', 'true', 'on'].includes(req.body.escrow);
-  const escrow = (wantsEscrow && price > 0 && (ESCROW_MAX === 0 || price <= ESCROW_MAX)) ? 1 : 0;
+  const escrow = (escrowEnabled && wantsEscrow && price > 0 && (ESCROW_MAX === 0 || price <= ESCROW_MAX)) ? 1 : 0;
 
   const info = await db
     .prepare(
