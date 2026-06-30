@@ -29,6 +29,8 @@ const CHANGELOG = [
     body: 'UPDATE: Messages now has a search box, and the OpenBook account stays pinned to the top of your chats so you can always find it. We also labeled the up and down arrows as Vote so they are clear, gave the Get started panel a clear close button, made author avatars clickable to their profile, let you find people by their @username in search, and fixed scrolling in the OpenBook chat. Keep the feedback coming, it shapes what we build.' },
   { slug: '2026-06-30-terms-of-service',
     body: 'UPDATE: Added a plain-language Terms of Service page, linked in the footer next to the Privacy Policy. Like everything here it is short, readable, and lives in the open: you own what you post, here are the rules of the road, and money never buys influence.' },
+  { slug: '2026-06-30-vote-control-polish',
+    body: 'CHANGE: A small polish to the vote control. The Vote label now sits neatly under the up and down arrows instead of beside them, so the action row under each post stays clean on both desktop and mobile.' },
 ];
 
 async function publishChangelog() {

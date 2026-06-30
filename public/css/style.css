@@ -780,11 +780,11 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 .post-image img { width: 100%; max-height: 560px; object-fit: cover; }
 .post-stats { display: flex; align-items: center; gap: 6px; color: var(--text-soft); font-size: 13px; padding: 8px 0; }
 .post-stats .heart { color: var(--like); }
-.post-actions { display: flex; border-top: 1px solid var(--line); padding-top: 4px; }
+.post-actions { display: flex; align-items: center; border-top: 1px solid var(--line); padding-top: 4px; }
 .post-action {
   flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   background: transparent; border: none; color: var(--text-soft);
-  font-weight: 600; padding: 8px; border-radius: 8px;
+  font-weight: 600; padding: 8px; border-radius: 8px; white-space: nowrap; min-width: 0;
 }
 .post-action:hover { background: var(--hover); }
 .post-action.liked { color: var(--like); }
@@ -1204,10 +1204,12 @@ html[data-theme="dark"] .profile-head .pname { color: var(--text); }
 .link:hover { text-decoration: underline; }
 
 .votebox { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 34px; flex: none; }
-.votebox.inline { flex-direction: row; min-width: 0; gap: 4px; padding: 0 4px; }
-/* Small caption so the up/down arrows read clearly as a voting control. */
+.votebox .vrow { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.votebox.inline { min-width: 0; padding: 0 4px; }
+.votebox.inline .vrow { flex-direction: row; gap: 4px; }
+/* Small caption UNDER the arrows so the control reads clearly as a vote, without
+   taking horizontal space on the action line. */
 .vlabel { font-size: 9.5px; line-height: 1; color: var(--text-soft); font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
-.votebox.inline .vlabel { margin-right: 1px; }
 .vote { background: none; border: none; color: var(--text-soft); font-size: 14px; line-height: 1; padding: 2px 4px; border-radius: 6px; }
 .vote:hover { background: var(--hover); }
 .vote.up.on { color: var(--brand); }

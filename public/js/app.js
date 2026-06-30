@@ -3787,11 +3787,11 @@
   /* ============================ communities + voting ============================ */
 
   function voteControl(targetType, targetId, score, myVote, inline) {
-    const box = el('<div class="votebox' + (inline ? ' inline' : '') + '"><button class="vote up" title="Upvote">&#9650;</button><span class="vscore"></span><button class="vote down" title="Downvote">&#9660;</button></div>');
-    // A small "Vote" caption, so the up/down arrows are obviously a voting control. It
-    // sits before the arrows on an inline row and below them on the vertical control.
-    const lbl = el('<span class="vlabel">Vote</span>');
-    if (inline) box.insertBefore(lbl, box.firstChild); else box.appendChild(lbl);
+    // The arrows + score sit in a row (.vrow), with a small "Vote" caption centered
+    // UNDERNEATH, so the control reads clearly without eating horizontal space on the
+    // action line. Same stacked shape inline (feed posts, comments) and vertical
+    // (community / post detail), only the arrow direction differs (see the CSS).
+    const box = el('<div class="votebox' + (inline ? ' inline' : '') + '"><div class="vrow"><button class="vote up" title="Upvote">&#9650;</button><span class="vscore"></span><button class="vote down" title="Downvote">&#9660;</button></div><span class="vlabel">Vote</span></div>');
     const up = box.querySelector('.up');
     const down = box.querySelector('.down');
     const sc = box.querySelector('.vscore');
