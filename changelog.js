@@ -37,6 +37,10 @@ const CHANGELOG = [
     body: 'FIX: Comments got some love. You can now edit your own comments (an edited mark then shows), clicking a comment no longer jumps you to the author profile by accident (only their name does), and we now remember an unsent post or comment for you, so if you navigate away by mistake and come back, what you were typing is still there.' },
   { slug: '2026-06-30-block-mute',
     body: 'UPDATE: You are in control of who can reach you. Open the More menu on anyone profile to Block them (a full two-way cutoff: no messages, mentions, follows, comments, or seeing each other anywhere, and any friendship is removed) or Mute them (quietly hide their posts from your feed without blocking). In Settings you can also choose who can @mention you: everyone, friends only, or no one, and manage your blocked and muted lists. Blocking and muting are private and never affect anyone karma, standing, or reach.' },
+  { slug: '2026-07-01-block-hardening',
+    body: 'FIX: We made blocking complete and instant. When you block someone you now disappear from each other everywhere, not just the main feed: community and group feeds and their member lists, search results, and even notifications from before the block. A block also can never touch anyone karma now, so you can no longer vote on or react to a blocked person comment. We also added a limit so a flood of brand-new accounts cannot spam your mentions. Blocking still only changes who can reach you, never anyone standing or reach.' },
+  { slug: '2026-07-01-saves-reposts-search',
+    body: 'UPDATE: Five new things to make OpenBook nicer to use. Save any post to a private bookmarks list that only you can see. Repost to share a post with your own followers, with an optional comment. Search across people, communities, and posts from the top bar. Link previews turn a bare link into a titled card. And content warnings let you blur a sensitive post behind a short label, so hard topics can exist without being forced on anyone. None of these touch karma, standing, or reach.' },
 ];
 
 async function publishChangelog() {

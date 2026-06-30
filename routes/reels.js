@@ -41,10 +41,15 @@ async function decorateReel(r, viewerId) {
   };
 }
 
-// Discovery feed: the newest reels from everyone.
+// Discovery feed: the newest reels from everyone. Reels are public discovery, but a
+// block is still absolute: drop reels by anyone the viewer blocked (either direction)
+// or muted, like the home feed. Filter on the raw rows (before decorating) so the page
+// is not short and we do not waste queries decorating reels we will discard.
 router.get('/', requireAuth, async (req, res) => {
   const rows = await db.prepare("SELECT * FROM reels WHERE visibility = 'visible' ORDER BY created_at DESC, id DESC LIMIT 60").all();
-  res.json({ reels: await Promise.all(rows.map((r) => decorateReel(r, req.user.id))) });
+  const hidden = await require('../relations').feedHiddenIds(req.user.id);
+  const visible = rows.filter((r) => r.user_id === req.user.id || !hidden.has(r.user_id));
+  res.json({ reels: await Promise.all(visible.map((r) => decorateReel(r, req.user.id))) });
 });
 
 // Post a reel (a video plus an optional caption).
@@ -89,19 +94,27 @@ router.post('/:id/view', requireAuth, async (req, res) => {
   res.json({ views: r ? r.views : 0 });
 });
 
-// Comments on a reel.
+// Comments on a reel. A comment by anyone the viewer blocked (either direction) or muted
+// is tombstoned (blank content, no identity), the same as post comments, so a block is
+// never bypassed by reading an existing comment on a shared reel.
 router.get('/:id/comments', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   const rows = await db
     .prepare('SELECT * FROM reel_comments WHERE reel_id = ? ORDER BY created_at ASC, id ASC')
     .all(id);
+  const hidden = await require('../relations').feedHiddenIds(req.user.id);
   res.json({
-    comments: await Promise.all(rows.map(async (c) => ({
-      id: c.id,
-      content: c.content,
-      created_at: c.created_at,
-      author: publicUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(c.user_id)),
-    }))),
+    comments: await Promise.all(rows.map(async (c) => {
+      if (c.user_id !== req.user.id && hidden.has(c.user_id)) {
+        return { id: c.id, content: '', created_at: c.created_at, hidden: true, author: { id: 0, name: '', username: '' } };
+      }
+      return {
+        id: c.id,
+        content: c.content,
+        created_at: c.created_at,
+        author: publicUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(c.user_id)),
+      };
+    })),
   });
 });
 

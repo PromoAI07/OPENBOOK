@@ -44,6 +44,12 @@ router.post('/', requireAuth, async (req, res) => {
   if (!(await canInteractPost(req.user.id, post))) {
     return res.status(403).json({ error: 'You cannot react here' });
   }
+  // canInteractPost only checks the POST author. For a comment under a third party's
+  // post, also refuse if the viewer is blocked from the COMMENT author, so neither party
+  // can react to the other across a block.
+  if (authorId !== req.user.id && await require('../relations').isBlocked(req.user.id, authorId)) {
+    return res.status(403).json({ error: 'You cannot react here' });
+  }
 
   const existing = await db
     .prepare('SELECT type FROM reactions WHERE user_id = ? AND target_type = ? AND target_id = ?')

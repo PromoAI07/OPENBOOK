@@ -566,6 +566,7 @@
     else if (name === 'support') renderSupport();
     else if (name === 'invite') renderInvite();
     else if (name === 'suggestions') renderSuggestions();
+    else if (name === 'saved') renderSaved();
     else if (name === 'jury') renderJury();
     // History: give each view its own browser entry so Back/Forward move between
     // the views you visited. profile and post create their own entry inside their
@@ -599,6 +600,7 @@
       '<div class="side-link" id="getStartedLink"><span class="ic">&#128640;</span><span>Get started</span></div>' +
       '<div class="side-link" data-go="friends"><span class="ic">&#128101;</span><span>Friends</span><span class="badge side-badge hidden" id="friendsBadge">0</span></div>' +
       '<div class="side-link" data-go="groups"><span class="ic">&#127760;</span><span>Groups</span></div>' +
+      '<div class="side-link" data-go="saved"><span class="ic">&#128278;</span><span>Saved</span></div>' +
       '<div class="side-link" data-go="suggestions"><span class="ic">&#128161;</span><span>Suggestions</span></div>' +
       '<div class="side-link" data-go="jury"><span class="ic">&#9878;&#65039;</span><span>Jury duty</span><span class="badge side-badge hidden" id="juryBadge">0</span></div>' +
       '<div class="side-link" data-go="invite"><span class="ic">&#127881;</span><span>Invite friends</span></div>' +
@@ -1655,6 +1657,8 @@
       '</div>' +
       '<div class="cbg-strip hidden" id="composerBgStrip">' + swatches + '</div>' +
       '<div class="cpoll hidden" id="composerPoll"></div>' +
+      '<div class="ccw hidden" id="composerCwRow"><span class="ccw-ic">&#9888;&#65039;</span>' +
+        '<input class="input ccw-input" id="composerCwText" maxlength="80" placeholder="Sensitive content label (e.g. Graphic, Spoiler, War)"></div>' +
       '<div class="cfile-chip hidden" id="composerFileChip"></div>' +
       '<div class="preview hidden" id="composerPreview"></div>' +
       '<div class="actions">' +
@@ -1667,12 +1671,14 @@
           '<button type="button" data-add="composerFileBtn">&#128206; File</button>' +
           '<button type="button" data-add="composerPollBtn">&#128202; Poll</button>' +
           '<button type="button" data-add="composerBgBtn">&#127912; Background</button>' +
+          '<button type="button" data-add="composerCwBtn">&#9888;&#65039; Sensitive</button>' +
         '</div>' +
       '</div>' +
       '<button class="icon-action composer-spread" id="composerPhotoBtn" title="Photo">&#128247;</button>' +
       '<button class="icon-action composer-spread" id="composerFileBtn" title="Attach a file">&#128206;</button>' +
       '<button class="icon-action composer-spread" id="composerPollBtn" title="Create a poll">&#128202;</button>' +
       '<button class="icon-action composer-spread" id="composerBgBtn" title="Background color">&#127912;</button>' +
+      '<button class="icon-action composer-spread" id="composerCwBtn" title="Mark sensitive (content warning)">&#9888;&#65039;</button>' +
       '<span class="spacer"></span>' +
       '<select class="composer-audience" id="composerAudience" title="Who can see this post">' +
         '<option value="public">&#127758; Public</option>' +
@@ -1699,6 +1705,15 @@
     let selectedDoc = null;  // generic file attachment
     let bgValue = '';
     let pollOn = false;
+    let cwOn = false;
+    const cwRow = document.getElementById('composerCwRow');
+    const cwBtn = document.getElementById('composerCwBtn');
+    if (cwBtn) cwBtn.onclick = () => {
+      cwOn = !cwOn;
+      cwBtn.classList.toggle('on', cwOn);
+      if (cwRow) cwRow.classList.toggle('hidden', !cwOn);
+      if (cwOn) { const i = document.getElementById('composerCwText'); if (i) i.focus(); }
+    };
 
     // Mobile "Add" menu: its items just trigger the same (CSS-hidden on mobile) icon
     // buttons, so all the existing handlers below keep working unchanged.
@@ -1811,7 +1826,8 @@
         if (selectedDoc) { btn.textContent = 'Uploading file...'; const up = await API.uploadPostFile(selectedDoc); fileUrl = up.url; fileName = up.name; btn.textContent = 'Posting...'; }
         const audSel = document.getElementById('composerAudience');
         const audience = audSel ? audSel.value : 'public';
-        const r = await API.createPost(content, selectedFile, audience, { bg: selectedFile ? '' : bgValue, fileUrl: fileUrl, fileName: fileName, pollOptions: pollOptions });
+        const cwText = cwOn ? (document.getElementById('composerCwText').value.trim() || 'Sensitive content') : '';
+        const r = await API.createPost(content, selectedFile, audience, { bg: selectedFile ? '' : bgValue, fileUrl: fileUrl, fileName: fileName, pollOptions: pollOptions, cw: cwOn ? '1' : '', cwText: cwText });
         const container = document.getElementById(targetId);
         const empty = container.querySelector('.empty');
         if (empty) container.innerHTML = '';
@@ -1825,6 +1841,8 @@
         selectedDoc = null; docInput.value = ''; fileChip.classList.add('hidden'); fileChip.innerHTML = '';
         pollOn = false; pollBox.classList.add('hidden'); pollBox.innerHTML = '';
         bgStrip.classList.add('hidden');
+        cwOn = false; if (cwBtn) cwBtn.classList.remove('on');
+        if (cwRow) { cwRow.classList.add('hidden'); const ci = document.getElementById('composerCwText'); if (ci) ci.value = ''; }
       } catch (e) {
         toast(e.message);
       }
@@ -1954,12 +1972,40 @@
     return node;
   }
 
+  // Posts the viewer chose to reveal past their content warning this session. Keyed by
+  // post id (not the DOM node) so a post stays revealed even when the feed rebuilds its
+  // nodes (e.g. after a sort change), not just across an in-place re-render.
+  const cwRevealed = new Set();
+
   function renderPostInner(node, p) {
     const mineP = p.author.id === ME.id;
     const editedMark = p.edited
       ? ' &#183; <span class="edited-link" data-history="' + p.id + '" title="Edited ' + timeAgo(p.edited_at) + '">edited</span>'
       : '';
+    // Repost attribution: shown when this feed item appears because someone in your
+    // network reposted it. The original author + content stay the post itself.
+    const repostHdr = p.repostedBy
+      ? '<div class="repost-hdr"><span class="avatar-link" data-profile="' + p.repostedBy.id + '">&#128257; <b>' + esc(p.repostedBy.name) + '</b> reposted</span></div>' +
+        (p.repostComment ? '<div class="repost-comment">' + richText(p.repostComment) + '</div>' : '')
+      : '';
+    // Content warning: blur the body + media behind a click-through until revealed.
+    const cwHidden = p.cw && !cwRevealed.has(p.id);
+    const bodyHtml = cwHidden
+      ? '<div class="cw-cover" data-cw-reveal="' + p.id + '"><div class="cw-ic">&#9888;&#65039;</div>' +
+        '<div class="cw-label">' + esc(p.cwText || 'Sensitive content') + '</div>' +
+        '<div class="cw-sub">Marked sensitive by the author</div>' +
+        '<button type="button" class="btn btn-soft btn-sm">View content</button></div>'
+      : (
+        (p.content ? (p.bg
+          ? '<div class="post-bg ' + esc(p.bg) + '">' + esc(p.content) + '</div>'
+          : '<div class="post-body">' + richText(p.content) + '</div>') : '') +
+        (p.linkPreview ? linkPreviewHtml(p.linkPreview) : '') +
+        (p.image ? '<div class="post-image"><img src="' + esc(p.image) + '" alt=""></div>' : '') +
+        (p.poll ? pollHtml(p) : '') +
+        (p.file_url ? fileChipHtml(p) : '')
+      );
     node.innerHTML =
+      repostHdr +
       '<div class="post-head">' +
       '<span class="avatar-link" data-profile="' + p.author.id + '">' + avatar(p.author, 44) + '</span>' +
       '<div class="meta"><div class="name" data-profile="' + p.author.id + '">' + esc(p.author.name) + verifTick(p.author) + '</div>' +
@@ -1967,18 +2013,14 @@
       (mineP ? '<button class="menu-btn" data-edit="' + p.id + '" title="Edit post">&#9998;</button>' +
         '<button class="menu-btn" data-del="' + p.id + '" title="Delete post">&#128465;</button>' : '') +
       '</div>' +
-      (p.content ? (p.bg
-        ? '<div class="post-bg ' + esc(p.bg) + '">' + esc(p.content) + '</div>'
-        : '<div class="post-body">' + richText(p.content) + '</div>') : '') +
-      (p.image ? '<div class="post-image"><img src="' + esc(p.image) + '" alt=""></div>' : '') +
-      (p.poll ? pollHtml(p) : '') +
-      (p.file_url ? fileChipHtml(p) : '') +
+      bodyHtml +
       '<div class="post-stats"></div>' +
       '<div class="post-actions">' +
       '<span data-vote></span>' +
       '<span data-react></span>' +
       '<button class="post-action" data-comment="' + p.id + '">&#128172; Comment</button>' +
-      '<button class="post-action" data-share-post="' + p.id + '" title="Share this post">&#128279; Share</button>' +
+      '<button class="post-action" data-share="' + p.id + '" title="Share / repost">&#128257; Share' + (p.shareCount ? ' &#183; ' + p.shareCount : '') + '</button>' +
+      '<button class="post-action' + (p.saved ? ' on' : '') + '" data-save="' + p.id + '" title="Save post">&#128278; ' + (p.saved ? 'Saved' : 'Save') + '</button>' +
       (mineP ? '' : '<button class="post-action" data-report="post" data-report-id="' + p.id + '">&#9873; Report</button>') +
       '</div>' +
       '<div class="comments hidden" data-comments="' + p.id + '"></div>';
@@ -2014,6 +2056,12 @@
     if (hist) hist.onclick = () => openEditHistory(p.id);
     const rx = node.querySelector('[data-react]');
     if (rx) rx.appendChild(reactionControl('post', p.id, p.reactions, (s) => { p.reactions = s; renderStats(node); }));
+    const sv = node.querySelector('[data-save]');
+    if (sv) sv.onclick = () => toggleSave(p, node);
+    const sh = node.querySelector('[data-share]');
+    if (sh) sh.onclick = () => shareModal(p, node);
+    const cwr = node.querySelector('[data-cw-reveal]');
+    if (cwr) cwr.onclick = () => { cwRevealed.add(p.id); renderPostInner(node, p); };
     node.querySelector('[data-comment]').onclick = () => toggleComments(p.id, node);
   }
 
@@ -2028,6 +2076,79 @@
     }
   }
 
+  // --- Link preview card (text only by design; no remote image) ---
+  function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return u; } }
+  function linkPreviewHtml(lp) {
+    return '<a class="link-preview" href="' + esc(lp.url) + '" target="_blank" rel="noopener nofollow">' +
+      '<div class="lp-site">' + esc(lp.siteName || hostOf(lp.url)) + '</div>' +
+      '<div class="lp-title">' + esc(lp.title || lp.url) + '</div>' +
+      (lp.description ? '<div class="lp-desc">' + esc(lp.description) + '</div>' : '') +
+      '</a>';
+  }
+
+  // --- Saved / bookmark toggle ---
+  async function toggleSave(p, node) {
+    try {
+      if (p.saved) { await API.unsavePost(p.id); p.saved = false; toast('Removed from saved'); }
+      else { await API.savePost(p.id); p.saved = true; toast('Saved'); }
+      node._post = p;
+      renderPostInner(node, p);
+    } catch (e) { toast(e.message); }
+  }
+
+  // --- Share / repost ---
+  function shareModal(p, node) {
+    const refresh = () => { if (node) { node._post = p; renderPostInner(node, p); } };
+    const m = modal(
+      '<div class="mh"><h3>Share this post</h3></div><div class="mc">' +
+      (p.reposted
+        ? '<div class="shint" style="font-size:13px;margin-bottom:10px">You reposted this to your feed, so your friends and followers can see it.</div>' +
+          '<button class="btn btn-block" id="shUndo">Remove repost</button>'
+        : '<div class="field"><label>Add a comment (optional)</label>' +
+          '<textarea class="input" id="shComment" rows="2" placeholder="Say something about this..."></textarea></div>' +
+          '<button class="btn btn-primary btn-block" id="shRepost">&#128257; Repost to your feed</button>') +
+      '<button class="btn btn-soft btn-block" id="shCopy" style="margin-top:8px">&#128279; Copy link</button>' +
+      '</div>'
+    );
+    const copy = m.q('#shCopy');
+    if (copy) copy.onclick = () => { shareLink(postShareUrl(p.id), 'OpenBook post'); m.close(); };
+    const rp = m.q('#shRepost');
+    if (rp) rp.onclick = async () => {
+      rp.disabled = true;
+      try {
+        const r = await API.repost(p.id, (m.q('#shComment').value || '').trim());
+        p.reposted = true; p.shareCount = r.shareCount; refresh();
+        m.close(); toast('Reposted to your feed');
+      } catch (e) { toast(e.message); rp.disabled = false; }
+    };
+    const un = m.q('#shUndo');
+    if (un) un.onclick = async () => {
+      un.disabled = true;
+      try {
+        const r = await API.unrepost(p.id);
+        p.reposted = false; p.shareCount = r.shareCount; refresh();
+        m.close(); toast('Repost removed');
+      } catch (e) { toast(e.message); un.disabled = false; }
+    };
+  }
+
+  // --- Saved posts view ---
+  async function renderSaved() {
+    view.innerHTML =
+      '<div class="card"><div class="section-title">&#128278; Saved posts</div>' +
+      '<div class="shint" style="font-size:13px">Only you can see what you have saved.</div></div>' +
+      '<div id="savedList"><div class="card"><div class="empty">Loading...</div></div></div>';
+    try {
+      const r = await API.savedPosts();
+      const list = document.getElementById('savedList');
+      if (!r.posts.length) {
+        list.innerHTML = '<div class="card"><div class="empty">Nothing saved yet. Tap Save on any post to keep it here.</div></div>';
+      } else {
+        renderPosts(list, r.posts, '');
+      }
+    } catch (e) { toast(e.message); }
+  }
+
   function editPostModal(p, onSaved) {
     const isComm = !!p.community_id;
     const note = (p.editCount || 0) === 0
@@ -2037,12 +2158,19 @@
       '<div class="mh"><h3>Edit post</h3></div><div class="mc">' +
       (isComm ? '<div class="field"><label>Title</label><input class="input" id="epTitle" value="' + esc(p.title || '') + '"></div>' : '') +
       '<div class="field"><label>Text</label><textarea class="input" id="epContent" rows="5">' + esc(p.content || '') + '</textarea></div>' +
+      '<div class="field"><label class="ep-cw-lbl"><input type="checkbox" id="epCw"' + (p.cw ? ' checked' : '') + '> <span class="ccw-ic">&#9888;&#65039;</span> Mark as sensitive (content warning)</label>' +
+        '<input class="input ccw-input' + (p.cw ? '' : ' hidden') + '" id="epCwText" maxlength="80" placeholder="Sensitive content label (e.g. Graphic, Spoiler, War)" value="' + esc(p.cwText || '') + '" style="margin-top:6px"></div>' +
       '<div class="pmeta" style="margin-bottom:10px">' + note + '</div>' +
       '<button class="btn btn-primary btn-block" id="epSave">Save changes</button></div>'
     );
+    const epCw = m.q('#epCw'), epCwText = m.q('#epCwText');
+    if (epCw) epCw.onchange = () => { epCwText.classList.toggle('hidden', !epCw.checked); if (epCw.checked) epCwText.focus(); };
     m.q('#epSave').onclick = async () => {
       const fields = { content: m.q('#epContent').value.trim() };
       if (isComm) fields.title = m.q('#epTitle').value.trim();
+      const cwOn = !!(epCw && epCw.checked);
+      fields.cw = cwOn ? '1' : '0';
+      fields.cwText = cwOn ? epCwText.value.trim() : '';
       const btn = m.q('#epSave'); btn.disabled = true; btn.textContent = 'Saving...';
       try { const r = await API.editPost(p.id, fields); m.close(); toast('Post updated'); if (onSaved) onSaved(r.post); }
       catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Save changes'; }
@@ -2405,13 +2533,43 @@
   /* ============================ search ============================ */
 
   async function renderSearch(q) {
-    view.innerHTML = '<div class="card"><div class="section-title">Results for "' + esc(q) + '"</div><div id="searchList" class="people-grid"><div class="empty">Searching...</div></div></div>';
+    view.innerHTML =
+      '<div class="card"><div class="section-title">Results for "' + esc(q) + '"</div>' +
+      '<div class="shint" style="font-size:13px" id="searchStatus">Searching...</div></div>' +
+      '<div id="searchPeople"></div><div id="searchCommunities"></div><div id="searchPosts"></div>';
     try {
-      const r = await API.searchUsers(q);
-      const box = document.getElementById('searchList');
-      if (!r.users.length) box.innerHTML = '<div class="empty">No people found.</div>';
-      else { box.innerHTML = ''; r.users.forEach((u) => box.appendChild(personCard(u, 'view'))); }
-    } catch (e) {}
+      const r = await API.searchAll(q);
+      const status = document.getElementById('searchStatus');
+      const nPeople = (r.people || []).length, nComm = (r.communities || []).length, nPosts = (r.posts || []).length;
+      if (!nPeople && !nComm && !nPosts) {
+        if (status) status.textContent = 'No people, communities, or posts found.';
+        renderRightRail();
+        return;
+      }
+      if (status) status.remove();
+      if (nPeople) {
+        const c = document.getElementById('searchPeople');
+        c.innerHTML = '<div class="card"><div class="section-title">People</div><div class="people-grid" id="spGrid"></div></div>';
+        const g = document.getElementById('spGrid');
+        r.people.forEach((u) => g.appendChild(personCard(u, 'view')));
+      }
+      if (nComm) {
+        const c = document.getElementById('searchCommunities');
+        c.innerHTML = '<div class="card"><div class="section-title">Communities</div><div id="scList" class="search-comm-list"></div></div>';
+        const cl = document.getElementById('scList');
+        r.communities.forEach((cm) => {
+          const row = el('<button type="button" class="search-comm"><span class="sc-name">o/' + esc(cm.name) + '</span>' +
+            (cm.description ? '<span class="sc-desc">' + esc(cm.description) + '</span>' : '') + '</button>');
+          row.onclick = () => go('community', cm.id);
+          cl.appendChild(row);
+        });
+      }
+      if (nPosts) {
+        const c = document.getElementById('searchPosts');
+        c.innerHTML = '<div class="card"><div class="section-title">Posts</div></div><div id="spostList"></div>';
+        renderPosts(document.getElementById('spostList'), r.posts, '');
+      }
+    } catch (e) { toast(e.message); }
     renderRightRail();
   }
 
@@ -3363,6 +3521,7 @@
       case 'friend_request': return ' sent you a friend request';
       case 'friend_accept': return ' accepted your friend request';
       case 'follow': return ' started following you';
+      case 'repost': return ' reposted your post';
       case 'escrow_update': return ' updated a protected order';
       case 'mod_removed': return ' (a moderator) removed your content';
       case 'mod_restored': return ' (a moderator) restored your content';

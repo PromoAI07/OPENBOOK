@@ -128,10 +128,20 @@ const API = {
     if (opts.bg) f.append('bg', opts.bg);
     if (opts.fileUrl) { f.append('fileUrl', opts.fileUrl); f.append('fileName', opts.fileName || 'file'); }
     if (opts.pollOptions && opts.pollOptions.length) f.append('pollOptions', JSON.stringify(opts.pollOptions));
+    if (opts.cw) { f.append('cw', '1'); f.append('cwText', opts.cwText || ''); }
     return this.postForm('/api/posts', f);
   },
   uploadPostFile(file) { const f = new FormData(); f.append('file', file); return this.postForm('/api/posts/upload-file', f); },
   pollVote(postId, optionId) { return this.post('/api/posts/' + postId + '/poll/vote', { optionId }); },
+  // Saved posts (private bookmarks)
+  savePost(id) { return this.post('/api/saves/' + id); },
+  unsavePost(id) { return this.del('/api/saves/' + id); },
+  savedPosts() { return this.get('/api/saves'); },
+  // Reposts (the Share button)
+  repost(id, comment) { return this.post('/api/shares/' + id, { comment: comment || '' }); },
+  unrepost(id) { return this.del('/api/shares/' + id); },
+  // Combined search (people + communities + posts)
+  searchAll(q) { return this.get('/api/search?q=' + encodeURIComponent(q || '')); },
   deletePost(id) { return this.del('/api/posts/' + id); },
   editPost(id, fields) { return this.put('/api/posts/' + id, fields); },
   postHistory(id) { return this.get('/api/posts/' + id + '/history'); },

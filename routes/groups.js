@@ -127,7 +127,13 @@ router.get('/:id/members', requireAuth, async (req, res) => {
        WHERE m.group_id = ? ORDER BY (m.role = 'admin') DESC, u.name`
     )
     .all(id);
-  res.json({ members: rows.map((u) => Object.assign(publicUser(u), { role: u.role })) });
+  // A block hides the two parties from each other in the roster too (block-only: a muted
+  // member still appears, since mute is only a feed preference).
+  const blocked = await require('../relations').blockedIds(req.user.id);
+  const members = rows
+    .filter((u) => u.id === req.user.id || !blocked.has(u.id))
+    .map((u) => Object.assign(publicUser(u), { role: u.role }));
+  res.json({ members });
 });
 
 // Posts in a group (public groups are readable by anyone; private require membership).
@@ -141,7 +147,11 @@ router.get('/:id/posts', requireAuth, async (req, res) => {
   const rows = await db
     .prepare('SELECT * FROM posts WHERE group_id = ? ORDER BY created_at DESC, id DESC LIMIT 100')
     .all(id);
-  res.json({ posts: await decoratePosts(rows, req.user.id), locked: false });
+  // Honor the block cutoff (and mute) in the group feed, like the home feed does.
+  const hidden = await require('../relations').feedHiddenIds(req.user.id);
+  const posts = (await decoratePosts(rows, req.user.id))
+    .filter((p) => p.author.id === req.user.id || !hidden.has(p.author.id));
+  res.json({ posts, locked: false });
 });
 
 // Post into a group (members only).

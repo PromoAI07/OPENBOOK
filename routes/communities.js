@@ -132,7 +132,13 @@ router.get('/:id/members', requireAuth, async (req, res) => {
        WHERE m.community_id = ? ORDER BY (m.role = 'mod') DESC, u.name`
     )
     .all(id);
-  res.json({ members: rows.map((u) => Object.assign(publicUser(u), { role: u.role })) });
+  // A block hides the two parties from each other in the roster too (block-only: a muted
+  // member is a feed preference, not a cutoff, so they still appear).
+  const blocked = await require('../relations').blockedIds(req.user.id);
+  const members = rows
+    .filter((u) => u.id === req.user.id || !blocked.has(u.id))
+    .map((u) => Object.assign(publicUser(u), { role: u.role }));
+  res.json({ members });
 });
 
 // Posts in a community, sorted Hot (default), New, Top (day/week/all), or
@@ -164,9 +170,13 @@ router.get('/:id/posts', requireAuth, async (req, res) => {
     }
     return reachCache[aid];
   }
+  // Hide posts by anyone the viewer blocked (either direction) or muted, exactly like
+  // the home feed (routes/posts.js): the community feed must honor the block cutoff too.
+  const hidden = await require('../relations').feedHiddenIds(req.user.id);
   const SHADOW_FLOOR = 0.05;
   const visiblePosts = [];
   for (const p of decorated) {
+    if (p.author.id !== req.user.id && hidden.has(p.author.id)) continue;
     if (p.author.id === req.user.id || (await reachOf(p)) > SHADOW_FLOOR) visiblePosts.push(p);
   }
 

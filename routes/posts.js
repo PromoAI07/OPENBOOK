@@ -154,20 +154,77 @@ router.get('/feed/home', requireAuth, async (req, res) => {
     return true;
   });
   const decorated = await decoratePosts(candidates, uid);
+  const seenIds = new Set(decorated.map((p) => p.id));
+
+  // Reposts (the Share button) from your network: own-feed reposts (community_id =
+  // 0) by you, your friends, or people you follow. The reposted ORIGINAL is shown
+  // with attribution and surfaced at the repost time, so a friend resharing an
+  // older post brings it back into your feed (Facebook-style). A post you would
+  // already see directly is not duplicated, and only the newest repost is kept.
+  const repostRows = await db
+    .prepare(
+      `SELECT s.user_id AS reposter_id, s.comment AS repost_comment, s.created_at AS repost_at, p.*
+       FROM shares s JOIN posts p ON p.id = s.post_id
+       WHERE s.community_id = 0 AND p.visibility = 'visible' AND p.group_id IS NULL AND p.announcement = 0
+         AND (
+           s.user_id = ?
+           OR s.user_id IN (
+             SELECT CASE WHEN requester_id = ? THEN addressee_id ELSE requester_id END
+             FROM friendships WHERE status = 'accepted' AND (requester_id = ? OR addressee_id = ?)
+           )
+           OR s.user_id IN (SELECT followee_id FROM follows WHERE follower_id = ?)
+         )
+       ORDER BY s.created_at DESC LIMIT 40`
+    )
+    .all(uid, uid, uid, uid, uid);
+
+  const repostRaw = [];
+  const repostMeta = new Map(); // original post id -> { reposterId, comment, repostAt, originalCreatedAt }
+  for (const row of repostRows) {
+    if (seenIds.has(row.id) || repostMeta.has(row.id)) continue; // skip dupes; keep newest repost
+    // Per-viewer backstop: never inject a repost of a post THIS viewer cannot currently
+    // see (e.g. a private-community post reposted by a member to non-members). The share
+    // route already refuses non-public originals; this also covers any older share row.
+    if (!(await canViewPost(uid, row))) continue;
+    repostMeta.set(row.id, { reposterId: row.reposter_id, comment: row.repost_comment, repostAt: row.repost_at, originalCreatedAt: row.created_at });
+    // Rank/show by repost time (fresh), but keep the original author + content.
+    repostRaw.push(Object.assign({}, row, { created_at: row.repost_at }));
+  }
+  const repostDecorated = await decoratePosts(repostRaw, uid);
+  const reposterIds = [...new Set(repostDecorated.map((p) => repostMeta.get(p.id).reposterId))];
+  const reposters = new Map();
+  if (reposterIds.length) {
+    const ph = reposterIds.map(() => '?').join(',');
+    for (const u of await db.prepare(`SELECT * FROM users WHERE id IN (${ph})`).all(...reposterIds)) reposters.set(u.id, publicUser(u));
+  }
+  repostDecorated.forEach((p) => {
+    const meta = repostMeta.get(p.id);
+    if (!meta) return;
+    p.repostedBy = reposters.get(meta.reposterId) || null;
+    p.repostComment = meta.comment || '';
+    p.repostedAt = meta.repostAt;
+    p.originalCreatedAt = meta.originalCreatedAt;
+  });
+
+  const all = decorated.concat(repostDecorated);
 
   // Author reach multiplier (the graduated shadowban). Looked up here and folded
   // into the ranking only, never attached to the post, so reach stays invisible
   // to other users. Phase 4 adds the appeal flow on top of this.
-  const reachOf = await buildReachOf(decorated);
+  const reachOf = await buildReachOf(all);
 
   // Fully floored authors (reach at the shadowban floor) are excluded outright so
   // they cannot resurface by toggling the sort; the viewer still sees their OWN
   // posts (no obvious tell). Quarantined authors stay but are downranked in
   // rankPosts. SHADOW_FLOOR mirrors trust.js reachFromStanding's floor (0.05).
   const SHADOW_FLOOR = 0.05;
-  // Hide posts from anyone the viewer blocked (or who blocked them) or muted.
+  // Hide posts from anyone the viewer blocked (or who blocked them) or muted, and
+  // hide a repost whose reposter the viewer muted/blocked.
   const hidden = await require('../relations').feedHiddenIds(uid);
-  const visible = decorated.filter((p) => p.author.id === uid || (reachOf(p) > SHADOW_FLOOR && !hidden.has(p.author.id)));
+  const visible = all.filter((p) => {
+    if (p.repostedBy && p.repostedBy.id && hidden.has(p.repostedBy.id)) return false;
+    return p.author.id === uid || (reachOf(p) > SHADOW_FLOOR && !hidden.has(p.author.id));
+  });
 
   const sort = ['hot', 'new', 'top'].indexOf(req.query.sort) >= 0 ? req.query.sort : 'hot';
   const window = req.query.t || 'all';
@@ -292,15 +349,24 @@ router.post('/', requireAuth, trustRateLimit('post'), upload.single('image'), as
   if (!content && !image && !fileUrl && !isPoll) {
     return res.status(400).json({ error: 'Write something, or add a photo, file, or poll' });
   }
+  // Content warning: the author can mark their own post sensitive (it renders
+  // blurred behind a click-through). Only meaningful with a short label.
+  const cw = (req.body.cw === '1' || req.body.cw === 'true' || req.body.cw === true) ? 1 : 0;
+  const cwText = cw ? (String(req.body.cwText || '').trim().slice(0, 80) || 'Sensitive content') : '';
+  // Link preview: the first URL in the text gets a fetched title/description card.
+  const linkpreview = require('../linkpreview');
+  const previewUrl = linkpreview.firstUrl(content);
   const type = isPoll ? 'poll' : 'text';
   const info = await db
-    .prepare('INSERT INTO posts (user_id, content, image, audience, bg, file_url, file_name, type, media_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(req.user.id, content, image, audience, image ? '' : bg, fileUrl, fileName, type, (req.file && req.file.mediaHash) || '');
+    .prepare('INSERT INTO posts (user_id, content, image, audience, bg, file_url, file_name, type, media_hash, cw, cw_text, preview_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(req.user.id, content, image, audience, image ? '' : bg, fileUrl, fileName, type, (req.file && req.file.mediaHash) || '', cw, cwText, previewUrl);
   const postId = info.lastInsertRowid;
   if (isPoll) {
     const ins = db.prepare('INSERT INTO poll_options (post_id, text, position) VALUES (?, ?, ?)');
     for (let i = 0; i < pollOptions.length; i++) await ins.run(postId, pollOptions[i].slice(0, 120), i);
   }
+  // Fetch the link preview once, in the background (it never blocks the post).
+  if (previewUrl) linkpreview.ensurePreview(previewUrl).catch(() => {});
   const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(postId);
   // Notify anyone @mentioned (and @friends / @everyone). Fire-and-forget so the post
   // returns immediately; the fan-out is deduped, capped, and visibility-gated by the
@@ -369,12 +435,25 @@ router.put('/:id', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'A post cannot be empty' });
   }
 
+  // Content warning: editable on edit too. Only change it when the client sends the
+  // field (so an older client that omits it does not silently clear a warning).
+  const cw = (req.body.cw !== undefined)
+    ? ((req.body.cw === '1' || req.body.cw === 'true' || req.body.cw === true) ? 1 : 0)
+    : (post.cw || 0);
+  const cwSource = (req.body.cwText !== undefined) ? req.body.cwText : (post.cw_text || '');
+  const cwText = cw ? (String(cwSource).trim().slice(0, 80) || 'Sensitive content') : '';
+  // Link preview: the link may have changed, so recompute which URL the card is for
+  // and refresh it in the background (mirrors the create path).
+  const linkpreview = require('../linkpreview');
+  const previewUrl = linkpreview.firstUrl(content);
+
   if ((post.edit_count || 0) === 0) {
-    await db.prepare('UPDATE posts SET content = ?, title = ?, edit_count = 1 WHERE id = ?').run(content, title, post.id);
+    await db.prepare('UPDATE posts SET content = ?, title = ?, cw = ?, cw_text = ?, preview_url = ?, edit_count = 1 WHERE id = ?').run(content, title, cw, cwText, previewUrl, post.id);
   } else {
     await db.prepare('INSERT INTO post_edits (post_id, title, content) VALUES (?, ?, ?)').run(post.id, post.title, post.content);
-    await db.prepare("UPDATE posts SET content = ?, title = ?, edit_count = edit_count + 1, edited_at = datetime('now') WHERE id = ?").run(content, title, post.id);
+    await db.prepare("UPDATE posts SET content = ?, title = ?, cw = ?, cw_text = ?, preview_url = ?, edit_count = edit_count + 1, edited_at = datetime('now') WHERE id = ?").run(content, title, cw, cwText, previewUrl, post.id);
   }
+  if (previewUrl) linkpreview.ensurePreview(previewUrl).catch(() => {});
 
   const updated = await db.prepare('SELECT * FROM posts WHERE id = ?').get(post.id);
   res.json({ post: await decoratePost(updated, req.user.id) });

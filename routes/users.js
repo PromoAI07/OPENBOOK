@@ -143,7 +143,11 @@ router.get('/', requireAuth, async (req, res) => {
       .prepare("SELECT * FROM users WHERE id != ? AND email != ? ORDER BY created_at DESC LIMIT 30")
       .all(req.user.id, GHOST);
   }
-  res.json({ users: rows.map(publicUser) });
+  // A block makes the two parties undiscoverable to each other, so drop blocked users
+  // (either direction) from search results. Block-only: muting someone hides their
+  // posts from your feed but should not make them unsearchable.
+  const blocked = await require('../relations').blockedIds(req.user.id);
+  res.json({ users: rows.filter((u) => !blocked.has(u.id)).map(publicUser) });
 });
 
 // The official OpenBook account, for the "Follow OpenBook" discovery card. Returns

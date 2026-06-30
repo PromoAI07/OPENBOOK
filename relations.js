@@ -35,17 +35,15 @@ async function iMuted(viewer, target) {
 
 async function block(blocker, blocked) {
   if (!blocker || !blocked || blocker === blocked) return false;
-  await db.prepare('INSERT OR IGNORE INTO blocks (blocker_id, blocked_id) VALUES (?, ?)').run(blocker, blocked);
-  // A block also severs any friendship + follows both ways: you cannot be blocked AND
-  // still friends/following.
-  try {
-    await db.prepare(
-      'DELETE FROM friendships WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)'
-    ).run(blocker, blocked, blocked, blocker);
-    await db.prepare(
-      'DELETE FROM follows WHERE (follower_id = ? AND followee_id = ?) OR (follower_id = ? AND followee_id = ?)'
-    ).run(blocker, blocked, blocked, blocker);
-  } catch (e) { /* best effort */ }
+  // A block writes the block row AND severs any friendship + follows both ways (you
+  // cannot be blocked and still friends/following). Run all three as ONE atomic write
+  // transaction so a concurrent friend-accept or follow cannot interleave between the
+  // statements and leave a half-applied block (block row written but a follow re-created).
+  await db.batch([
+    { sql: 'INSERT OR IGNORE INTO blocks (blocker_id, blocked_id) VALUES (?, ?)', args: [blocker, blocked] },
+    { sql: 'DELETE FROM friendships WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)', args: [blocker, blocked, blocked, blocker] },
+    { sql: 'DELETE FROM follows WHERE (follower_id = ? AND followee_id = ?) OR (follower_id = ? AND followee_id = ?)', args: [blocker, blocked, blocked, blocker] },
+  ], 'write');
   return true;
 }
 async function unblock(blocker, blocked) {
@@ -60,6 +58,22 @@ async function mute(muter, muted) {
 async function unmute(muter, muted) {
   await db.prepare('DELETE FROM mutes WHERE muter_id = ? AND muted_id = ?').run(muter, muted);
   return true;
+}
+
+// Author ids blocked in EITHER direction (no mutes). Use this where a BLOCK must hide
+// someone but a MUTE must not: rosters, people search, and notifications. Mute is a
+// one-way feed hide, so a muted person stays discoverable and can still notify; only a
+// block makes the pair invisible to each other.
+async function blockedIds(viewerId) {
+  const set = new Set();
+  try {
+    const rows = await db.prepare(
+      'SELECT blocked_id AS id FROM blocks WHERE blocker_id = ? ' +
+      'UNION SELECT blocker_id AS id FROM blocks WHERE blocked_id = ?'
+    ).all(viewerId, viewerId);
+    rows.forEach((r) => set.add(r.id));
+  } catch (e) {}
+  return set;
 }
 
 // Author ids to hide from a viewer's feeds: blocked (either direction) + muted by viewer.
@@ -99,4 +113,4 @@ async function listMuted(viewerId) {
   return (await db.prepare('SELECT muted_id AS id FROM mutes WHERE muter_id = ? ORDER BY created_at DESC').all(viewerId)).map((r) => r.id);
 }
 
-module.exports = { isBlocked, iBlocked, iMuted, block, unblock, mute, unmute, feedHiddenIds, canSeeSocialGraph, listBlocked, listMuted };
+module.exports = { isBlocked, iBlocked, iMuted, block, unblock, mute, unmute, blockedIds, feedHiddenIds, canSeeSocialGraph, listBlocked, listMuted };

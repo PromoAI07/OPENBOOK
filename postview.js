@@ -71,7 +71,8 @@ async function pollData(postId, viewerId) {
 // (decoratePost) and batch (decoratePosts) paths funnel through here so they
 // always return a byte-identical shape; ranking.js and the frontend depend on
 // these exact fields. Async only because poll posts load their poll data here.
-async function buildPostView(post, author, commentCount, reactions, tally, community, myVote, viewerId) {
+async function buildPostView(post, author, commentCount, reactions, tally, community, myVote, viewerId, extra) {
+  extra = extra || {};
   return {
     id: post.id,
     title: post.title || '',
@@ -109,6 +110,20 @@ async function buildPostView(post, author, commentCount, reactions, tally, commu
     edited: (post.edit_count || 0) >= 2, // the first edit is free / silent
     edited_at: post.edited_at || null,
     editCount: post.edit_count || 0,
+    // Content warning (sensitive-content blur), author-set on their own post.
+    cw: !!post.cw,
+    cwText: post.cw_text || '',
+    // Saved/bookmarked + reposted by the viewer, and the total repost count.
+    saved: !!extra.saved,
+    reposted: !!extra.reposted,
+    shareCount: extra.shareCount || 0,
+    // Link preview card for the first URL in the post (text only). null if none.
+    linkPreview: extra.linkPreview || null,
+    // Repost context: set by the feed when this item appears because someone in
+    // your network reposted it (null for a normal post).
+    repostedBy: extra.repostedBy || null,
+    repostComment: extra.repostComment || '',
+    repostedAt: extra.repostedAt || null,
   };
 }
 
@@ -126,7 +141,13 @@ async function decoratePost(post, viewerId) {
   }
 
   const myVote = await myPostVote(post.id, viewerId);
-  return buildPostView(post, author, commentCount, reactions, tally, community, myVote, viewerId);
+  const savedRow = await db.prepare('SELECT 1 FROM saves WHERE user_id = ? AND post_id = ?').get(viewerId, post.id);
+  const repostedRow = await db.prepare("SELECT 1 FROM shares WHERE user_id = ? AND post_id = ? AND community_id = 0").get(viewerId, post.id);
+  const sc = await db.prepare('SELECT COUNT(*) c FROM shares WHERE post_id = ?').get(post.id);
+  const linkPreview = post.preview_url ? await require('./linkpreview').getPreview(post.preview_url) : null;
+  return buildPostView(post, author, commentCount, reactions, tally, community, myVote, viewerId, {
+    saved: !!savedRow, reposted: !!repostedRow, shareCount: sc.c, linkPreview,
+  });
 }
 
 // Batch version of decoratePost: resolves every per-post field with a handful of
@@ -221,6 +242,41 @@ async function decoratePosts(posts, viewerId) {
     }
   }
 
+  // Saved-by-viewer: one SELECT for this user across all posts in the set.
+  const savedSet = new Set();
+  for (const r of await db
+    .prepare(`SELECT post_id FROM saves WHERE user_id = ? AND post_id IN (${inPosts})`)
+    .all(viewerId, ...ids)) {
+    savedSet.add(r.post_id);
+  }
+
+  // Reposted-by-viewer (own-feed reposts) + total repost counts per post.
+  const repostedSet = new Set();
+  for (const r of await db
+    .prepare(`SELECT post_id FROM shares WHERE user_id = ? AND community_id = 0 AND post_id IN (${inPosts})`)
+    .all(viewerId, ...ids)) {
+    repostedSet.add(r.post_id);
+  }
+  const shareCounts = new Map();
+  for (const r of await db
+    .prepare(`SELECT post_id, COUNT(*) c FROM shares WHERE post_id IN (${inPosts}) GROUP BY post_id`)
+    .all(...ids)) {
+    shareCounts.set(r.post_id, r.c);
+  }
+
+  // Link previews: one SELECT over the distinct preview URLs in this set (cached
+  // metadata only; the post route does the actual fetching).
+  const previewUrls = [...new Set(posts.map((p) => p.preview_url).filter(Boolean))];
+  const previews = new Map();
+  if (previewUrls.length) {
+    const ph = previewUrls.map(() => '?').join(',');
+    for (const r of await db
+      .prepare(`SELECT url, title, description, site_name, image FROM link_previews WHERE status = 'ok' AND url IN (${ph})`)
+      .all(...previewUrls)) {
+      previews.set(r.url, { url: r.url, title: r.title, description: r.description, siteName: r.site_name, image: r.image });
+    }
+  }
+
   return Promise.all(posts.map((post) => {
     const agg = reactionAgg.get(post.id);
     const reactions = {
@@ -231,7 +287,12 @@ async function decoratePosts(posts, viewerId) {
     const tally = tallies.get(post.id) || { score: 0, up: 0, down: 0, effUp: 0, effDown: 0 };
     const community = post.community_id ? communities.get(post.community_id) || null : null;
     const myVote = myVotes.has(post.id) ? myVotes.get(post.id) : 0;
-    return buildPostView(post, authors.get(post.user_id), commentCounts.get(post.id) || 0, reactions, tally, community, myVote, viewerId);
+    return buildPostView(post, authors.get(post.user_id), commentCounts.get(post.id) || 0, reactions, tally, community, myVote, viewerId, {
+      saved: savedSet.has(post.id),
+      reposted: repostedSet.has(post.id),
+      shareCount: shareCounts.get(post.id) || 0,
+      linkPreview: post.preview_url ? (previews.get(post.preview_url) || null) : null,
+    });
   }));
 }
 

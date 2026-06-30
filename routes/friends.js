@@ -103,6 +103,12 @@ router.post('/accept/:id', requireAuth, async (req, res) => {
     )
     .get(requester, req.user.id);
   if (!f) return res.status(404).json({ error: 'No pending request from this user' });
+  // If a block landed between the request and this accept, refuse: accepting would
+  // re-create a friendship + mutual follow that the block is meant to sever. Combined
+  // with the atomic block() this closes the accept-vs-block race.
+  if (await require('../relations').isBlocked(req.user.id, requester)) {
+    return res.status(403).json({ error: 'You cannot accept this request' });
+  }
 
   await db.prepare("UPDATE friendships SET status = 'accepted' WHERE id = ?").run(f.id);
   // Now that they are friends, make the follow mutual (silent). INSERT OR IGNORE leaves

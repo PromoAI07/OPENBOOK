@@ -93,7 +93,12 @@ const db = {
       },
     };
   },
-  // Direct libSQL client access if ever needed (batch, etc.).
+  // Run several parameterized statements as ONE atomic transaction. Each statement is
+  // { sql, args }. Used for multi-row invariants that must be all-or-nothing (e.g. a
+  // block writing the block row and severing friendship + follows together). mode is
+  // 'write' (default), 'read', or 'deferred'.
+  async batch(statements, mode = 'write') { return client.batch(statements, mode); },
+  // Direct libSQL client access if ever needed.
   client,
 };
 
@@ -212,6 +217,7 @@ db.init = async function init() {
     CREATE INDEX IF NOT EXISTS idx_comments_post   ON comments(post_id);
     CREATE INDEX IF NOT EXISTS idx_likes_post      ON likes(post_id);
     CREATE INDEX IF NOT EXISTS idx_notif_user      ON notifications(user_id);
+    CREATE INDEX IF NOT EXISTS idx_notif_user_type ON notifications(user_id, type, created_at);
     CREATE INDEX IF NOT EXISTS idx_messages_pair   ON messages(sender_id, recipient_id);
     CREATE INDEX IF NOT EXISTS idx_stories_user    ON stories(user_id);
   `);
@@ -1134,6 +1140,67 @@ db.init = async function init() {
   `);
   // Drop any challenges that expired while the server was down (housekeeping).
   await db.exec("DELETE FROM webauthn_challenges WHERE expires_at < datetime('now');");
+
+  // --- Saved posts (private bookmarks) ---
+  // A member's own keep-for-later list. Never shown to anyone else; saving never
+  // touches the author, ranking, or reputation.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS saves (
+      user_id    INTEGER NOT NULL,
+      post_id    INTEGER NOT NULL,
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, post_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_saves_user ON saves(user_id);
+  `);
+
+  // --- Reposts / shares (the Share button) ---
+  // A repost points at an existing post (with attribution); it never copies or
+  // edits it, and never touches the original author's karma/standing/reach.
+  // community_id = 0 means "reposted to your own feed"; a real id is a crosspost
+  // into that community (planned). UNIQUE stops duplicate reposts to one place.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS shares (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER NOT NULL,
+      post_id      INTEGER NOT NULL,
+      community_id INTEGER NOT NULL DEFAULT 0,
+      comment      TEXT    NOT NULL DEFAULT '',
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (user_id, post_id, community_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_shares_user ON shares(user_id);
+    CREATE INDEX IF NOT EXISTS idx_shares_post ON shares(post_id);
+  `);
+
+  // --- Content warnings ---
+  // A member can mark their OWN post sensitive (war, graphic news, spoilers). It
+  // is blurred behind a click-through with the label, so hard topics can exist
+  // without being forced on anyone. cw = 0/1, cw_text = the short label.
+  await addColumn('posts', 'cw INTEGER NOT NULL DEFAULT 0', 'cw');
+  await addColumn('posts', "cw_text TEXT NOT NULL DEFAULT ''", 'cw_text');
+
+  // --- Link previews ---
+  // The first link in a post gets a fetched title/description/site card. Text
+  // only on purpose: no remote images, so no CSP opening and no storage cost.
+  // preview_url pins which URL the card is for; metadata is cached by URL so each
+  // link is fetched at most once (and refreshed after a while). See linkpreview.js.
+  await addColumn('posts', "preview_url TEXT NOT NULL DEFAULT ''", 'preview_url');
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS link_previews (
+      url         TEXT PRIMARY KEY,
+      status      TEXT NOT NULL DEFAULT 'ok',
+      title       TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      site_name   TEXT NOT NULL DEFAULT '',
+      image       TEXT NOT NULL DEFAULT '',
+      fetched_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
 
   // Clear out sessions older than 30 days on startup.
   await db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");

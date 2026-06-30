@@ -9,11 +9,15 @@
 // who can actually view it (the author's accepted friends); followers are NOT fanned out
 // and an @named stranger is skipped, so a hidden post's existence is never advertised.
 //
-// ABUSE: recipients are deduped, the author is never self-notified, a single post is
-// capped (MAX_NOTIFY), and a rolling per-actor hourly budget bounds fan-out across many
-// posts. Best-effort and fire-and-forget: a hiccup never breaks creating the post.
-// NOTE: a proper block/mute system is still the right fix for targeted @-harassment; it
-// does not exist yet (tracked as a follow-up). These limits only bound the volume.
+// ABUSE: recipients are deduped, the author is never self-notified, a block (either
+// direction) is honored, each recipient's "who can @mention me" preference is honored,
+// and three volume limits apply: a single post is capped (MAX_NOTIFY), a rolling
+// per-actor hourly budget bounds one account's fan-out across many posts, and a durable
+// per-RECIPIENT hourly cap bounds how many mention bells one person can receive (so many
+// throwaway accounts each @mentioning the same victim once cannot flood them). The
+// recipient cap is derived from the notifications table, so it survives restarts and is
+// shared across instances (unlike the in-memory per-actor budget).
+// Best-effort and fire-and-forget: a hiccup never breaks creating the post.
 
 const db = require('./db');
 const { notify } = require('./notify');
@@ -29,6 +33,12 @@ const MAX_NOTIFY = Number(process.env.MENTION_NOTIFY_MAX) > 0 ? Number(process.e
 // Rolling per-actor hourly budget so one account cannot mention-blast across many posts.
 // In-memory (single instance), like the login throttle; move to Redis before scaling out.
 const HOURLY_MAX = Number(process.env.MENTION_HOURLY_MAX) > 0 ? Number(process.env.MENTION_HOURLY_MAX) : 300;
+
+// Durable per-RECIPIENT hourly cap: the most mention notifications one person can receive
+// in a rolling hour, ACROSS all authors. Bounds a Sybil flood (many fresh accounts each
+// @mentioning the same victim once), which the per-actor budget cannot catch. Derived
+// from the notifications table so it is shared across instances and survives restarts.
+const RECIPIENT_HOURLY_MAX = Number(process.env.MENTION_RECIPIENT_HOURLY_MAX) > 0 ? Number(process.env.MENTION_RECIPIENT_HOURLY_MAX) : 25;
 const HOUR_MS = 60 * 60 * 1000;
 const actorBudget = new Map(); // actorId -> { start, count }
 function budgetRemaining(actorId) {
@@ -119,6 +129,19 @@ async function processMentions(authorId, text, postId, opts) {
         const pref = u.mention_pref || 'all';
         if (pref === 'none' || (pref === 'friends' && !friendIds.has(u.id))) recipients.delete(u.id);
       });
+    }
+
+    // Durable per-recipient hourly cap: drop anyone who has already received their inbound
+    // mention ceiling in the last hour (counted across ALL authors from the notifications
+    // table), so a ring of throwaway accounts cannot flood one victim with one @ each.
+    if (recipients.size) {
+      const rids = [...recipients];
+      const ph = rids.map(() => '?').join(',');
+      const counts = await db.prepare(
+        "SELECT user_id AS uid, COUNT(*) AS c FROM notifications WHERE type = 'mention' " +
+        "AND created_at >= datetime('now','-1 hour') AND user_id IN (" + ph + ') GROUP BY user_id'
+      ).all(...rids);
+      counts.forEach((r) => { if (r.c >= RECIPIENT_HOURLY_MAX) recipients.delete(r.uid); });
     }
 
     if (!recipients.size) return 0;

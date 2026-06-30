@@ -30,9 +30,16 @@ async function notify(userId, actorId, type, postId = null) {
     ).run(userId, actorId, type, postId);
 
     if (ioRef) {
+      // Count unread the same way the bell list reads it: exclude any actor now blocked
+      // (either direction) so the live badge matches the filtered tray rather than
+      // counting residual pre-block notifications.
       const row = await db
-        .prepare('SELECT COUNT(*) c FROM notifications WHERE user_id = ? AND is_read = 0')
-        .get(userId);
+        .prepare(
+          'SELECT COUNT(*) c FROM notifications WHERE user_id = ? AND is_read = 0 ' +
+          'AND actor_id NOT IN (SELECT blocked_id FROM blocks WHERE blocker_id = ? ' +
+          'UNION SELECT blocker_id FROM blocks WHERE blocked_id = ?)'
+        )
+        .get(userId, userId, userId);
       ioRef.to('user:' + userId).emit('notification:new', { count: row.c });
     }
   } catch (e) { /* best-effort; never break the triggering action */ }

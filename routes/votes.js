@@ -50,6 +50,12 @@ router.post('/', requireAuth, async (req, res) => {
   if (!(await canInteractPost(req.user.id, post))) {
     return res.status(403).json({ error: 'You cannot vote here' });
   }
+  // canInteractPost only checks the POST author. For a comment under a third party's
+  // post, also refuse if the viewer is blocked from the COMMENT author, so a block can
+  // never let one party move the other's karma (the core credible-neutrality rule).
+  if (authorId !== req.user.id && await require('../relations').isBlocked(req.user.id, authorId)) {
+    return res.status(403).json({ error: 'You cannot vote here' });
+  }
 
   const existing = await db
     .prepare('SELECT value FROM votes WHERE user_id = ? AND target_type = ? AND target_id = ?')
