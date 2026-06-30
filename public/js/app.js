@@ -267,6 +267,9 @@
     if (params.get('verified') === '1') { ME.emailVerified = true; toast('Email verified. You can post now.'); }
     else if (params.get('verified') === '0') { toast('That verification link was invalid or expired.'); }
     if (params.has('verified')) window.history.replaceState({}, '', '/app');
+    if (params.get('google') === 'connected') toast('Your Google account is now connected.');
+    else if (params.get('google') === 'inuse') toast('That Google account is already linked to another OpenBook account.');
+    if (params.has('google')) window.history.replaceState({}, '', '/app');
 
     renderVerifyBanner();
     renderInstallBanner(); // iOS Safari, or if the install event already fired
@@ -2615,6 +2618,14 @@
             '<div class="shint" style="font-size:12px">A Premium perk: pick a gradient for your profile background. Chosen separately from your name color.</div></div>')
         : '') +
       '<button class="btn btn-primary btn-block" id="epSave">Save changes</button>' +
+      ((CONFIG && CONFIG.googleEnabled) ?
+        ('<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +
+         '<div class="shint" style="font-size:12px;margin-bottom:8px">Sign-in methods</div>' +
+         (ME.googleLinked
+           ? '<div class="shint" style="font-size:13px">&#10003; Your Google account is connected, so you can log in with Google.</div>'
+           : '<a class="btn btn-soft btn-block" href="/api/auth/google?mode=connect">Connect your Google account</a>') +
+         '</div>')
+        : '') +
       '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +
       '<div class="shint" style="font-size:12px;margin-bottom:6px">Your data</div>' +
       '<p class="shint" style="font-size:12px;line-height:1.5;margin:0 0 8px">Download everything OpenBook holds about you. Your data is yours, and it is never sold.</p>' +

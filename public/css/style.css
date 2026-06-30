@@ -254,6 +254,13 @@ textarea.input { resize: vertical; min-height: 60px; }
 .auth-card .sub { color: var(--text-soft); margin: 0 0 18px; }
 .auth-switch { text-align: center; margin-top: 14px; color: var(--text-soft); }
 .auth-switch button { background: none; border: none; color: var(--brand); font-weight: 600; cursor: pointer; }
+/* Sign in with Google */
+.google-auth { margin-top: 12px; }
+.auth-or { display: flex; align-items: center; gap: 10px; color: var(--text-soft); font-size: 12.5px; margin: 4px 0 12px; }
+.auth-or::before, .auth-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.btn-google { display: inline-flex; align-items: center; justify-content: center; gap: 10px; background: #ffffff; color: #3c4043; border: 1px solid #dadce0; font-weight: 600; }
+.btn-google:hover { background: #f6f7f9; border-color: #cfd2d6; }
+.btn-google .g-ic { flex: none; }
 .divider { height: 1px; background: var(--line); margin: 16px 0; }
 
 .alert {

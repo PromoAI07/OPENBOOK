@@ -24,6 +24,43 @@ const router = express.Router();
 // while keeping signups frictionless until they choose to require verification.
 const REQUIRE_EMAIL_VERIFICATION = process.env.REQUIRE_EMAIL_VERIFICATION === '1';
 
+// Sign in with Google (OAuth 2.0 authorization-code flow). Dormant until BOTH
+// GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set, so nothing changes for the live
+// site until the owner adds the credentials. No third-party JS and no extra package:
+// the whole flow is server redirects, and the id_token is read straight from Google's
+// token endpoint (server to server over TLS), so it is trustworthy without a JWKS
+// fetch as long as we check aud + iss + email_verified.
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const GOOGLE_ENABLED = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
+
+function decodeJwtPayload(jwt) {
+  try {
+    const part = String(jwt).split('.')[1];
+    const json = Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    return JSON.parse(json);
+  } catch (e) { return null; }
+}
+
+// A modest IP rate limit on the OAuth routes so the account-creation branch cannot
+// be scripted faster than the throttled, proof-of-work-gated POST /signup path. A
+// real user does one round trip (start + callback), so this never affects them.
+const oauthLimiter = require('express-rate-limit')({
+  windowMs: 10 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts. Please wait a few minutes and try again.' },
+});
+
+// Does this account have any content yet (posts or comments)? Used so a Google
+// sign-in never silently absorbs a content-bearing, never-verified local account.
+async function accountHasContent(userId) {
+  try {
+    const r = await db.prepare(
+      'SELECT (SELECT COUNT(*) FROM posts WHERE user_id = ?) + (SELECT COUNT(*) FROM comments WHERE user_id = ?) AS c'
+    ).get(userId, userId);
+    return !!(r && r.c > 0);
+  } catch (e) { return true; } // on error, assume content (the safe, non-merging side)
+}
+
 // Pin the public base URL used in emailed links, so a spoofed Host header can
 // never point a verification/reset link at an attacker's domain. Falls back to
 // the request's own protocol+host when APP_BASE_URL is not set (fine for dev).
@@ -75,7 +112,12 @@ router.get('/challenge', (req, res) => res.json(makeChallenge()));
 // The self-facing user object includes the owner's own email + verification flag
 // (publicUser hides email from everyone else).
 function selfUser(u) {
-  return Object.assign(publicUser(u), { email: u.email, emailVerified: !!u.email_verified, isAdmin: !!u.is_admin });
+  return Object.assign(publicUser(u), {
+    email: u.email,
+    emailVerified: !!u.email_verified,
+    isAdmin: !!u.is_admin,
+    googleLinked: !!u.google_id, // whether a Google account is connected
+  });
 }
 
 router.post('/signup', async (req, res, next) => {
@@ -279,4 +321,125 @@ router.get('/me', async (req, res) => {
   res.json({ user: selfUser(fresh), trust: trustSnapshot(fresh) });
 });
 
+// ---- Sign in with Google (OAuth 2.0 authorization-code flow) ---------------
+function googleRedirectUri(req) { return baseUrl(req) + '/api/auth/google/callback'; }
+
+// Start the flow. ?mode=connect (while logged in) links Google to the CURRENT
+// account; otherwise it logs in, or creates a new account if the Google email has none.
+router.get('/google', oauthLimiter, (req, res) => {
+  if (!GOOGLE_ENABLED) return res.redirect('/?autherror=google_unavailable');
+  const state = crypto.randomBytes(16).toString('hex');
+  const connectUid = (req.query.mode === 'connect' && req.user) ? req.user.id : 0;
+  // Short-lived httpOnly cookie carrying the CSRF state + the connect intent.
+  res.cookie('g_oauth', JSON.stringify({ s: state, c: connectUid }), {
+    httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 10 * 60 * 1000,
+  });
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: googleRedirectUri(req),
+    response_type: 'code',
+    scope: 'openid email profile',
+    state: state,
+    access_type: 'online',
+    prompt: 'select_account',
+  });
+  res.redirect('https://accounts.google.com/o/oauth2/v2/auth?' + params.toString());
+});
+
+router.get('/google/callback', oauthLimiter, async (req, res) => {
+  if (!GOOGLE_ENABLED) return res.redirect('/');
+  let saved = {};
+  try { saved = JSON.parse((req.cookies && req.cookies.g_oauth) || '{}'); } catch (e) {}
+  res.clearCookie('g_oauth');
+  const code = String(req.query.code || '');
+  const state = String(req.query.state || '');
+  // Verify the CSRF state matches the one we set before redirecting to Google.
+  if (!code || !state || !saved.s || state !== saved.s) return res.redirect('/?autherror=google_failed');
+  try {
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: googleRedirectUri(req),
+        grant_type: 'authorization_code',
+      }),
+    });
+    if (!tokenRes.ok) return res.redirect('/?autherror=google_failed');
+    const tok = await tokenRes.json().catch(() => ({}));
+    const payload = tok && tok.id_token ? decodeJwtPayload(tok.id_token) : null;
+    const issOk = payload && (payload.iss === 'accounts.google.com' || payload.iss === 'https://accounts.google.com');
+    if (!payload || payload.aud !== GOOGLE_CLIENT_ID || !issOk) return res.redirect('/?autherror=google_failed');
+    // Reject an expired token (defence in depth; the code is single-use anyway).
+    if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) return res.redirect('/?autherror=google_failed');
+    // Only trust a Google-verified email (so linking by email cannot be spoofed).
+    if (!payload.email || payload.email_verified !== true) return res.redirect('/?autherror=google_email');
+    const googleId = String(payload.sub);
+    const email = String(payload.email).toLowerCase();
+    const name = String(payload.name || email.split('@')[0]).slice(0, 60);
+
+    // CONNECT: link Google to the account that started the flow (must still be its session).
+    const connectUid = Number(saved.c) || 0;
+    if (connectUid) {
+      if (!req.user || req.user.id !== connectUid) return res.redirect('/?autherror=connect_failed');
+      const other = await db.prepare('SELECT id FROM users WHERE google_id = ?').get(googleId);
+      if (other && other.id !== req.user.id) return res.redirect('/app?google=inuse');
+      await db.prepare('UPDATE users SET google_id = ? WHERE id = ?').run(googleId, req.user.id);
+      return res.redirect('/app?google=connected');
+    }
+
+    // LOGIN or SIGNUP.
+    // 1) Already linked to a Google account -> log in.
+    let user = await db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId);
+    // 2) An account exists with this email. Auto-link + log in ONLY when it is safe:
+    //    the existing account already proved it owns this email (verified), OR it has
+    //    no content yet (a brand-new/empty account, so nothing could be absorbed from a
+    //    possibly-mistyped/squatted unverified address). A content-bearing account that
+    //    never verified its email is never silently merged into the Google identity.
+    if (!user) {
+      const byEmail = await db.prepare('SELECT * FROM users WHERE lower(email) = ?').get(email);
+      if (byEmail) {
+        const safeToLink = !!byEmail.email_verified || !(await accountHasContent(byEmail.id));
+        if (!safeToLink) return res.redirect('/?autherror=email_exists');
+        await db.prepare('UPDATE users SET google_id = ?, email_verified = 1 WHERE id = ?').run(googleId, byEmail.id);
+        user = byEmail;
+      }
+    }
+    // 3) No account -> create one (auto-verified by Google), respecting the signup cap.
+    if (!user) {
+      if (await signupsFull()) return res.redirect('/?autherror=signups_full');
+      const hash = 'google$' + crypto.randomBytes(24).toString('hex'); // not a bcrypt hash: password login is impossible
+      try {
+        const info = await db.prepare(
+          'INSERT INTO users (name, email, password_hash, email_verified, google_id) VALUES (?, ?, ?, 1, ?)'
+        ).run(name, email, hash, googleId);
+        const newId = info.lastInsertRowid;
+        // Mirror the normal signup side-effects (best-effort, never block sign-in).
+        try { await recordStandingEvent(newId, 0, 'account_created'); } catch (e) {}
+        try { await recordDevice(newId, req.ip, ''); } catch (e) {}
+        try { await ensureCode(newId); } catch (e) {}
+        try {
+          const cnt = await db.prepare("SELECT COUNT(*) c FROM users WHERE is_founder = 0 AND email NOT IN ('ghost@deleted.openbook.local','system@openbook.local')").get();
+          if (cnt && cnt.c <= 5000) await db.prepare('UPDATE users SET is_pioneer = 1 WHERE id = ?').run(newId);
+        } catch (e) {}
+        try { await require('../welcome').sendWelcome(newId); } catch (e) {}
+        user = await db.prepare('SELECT * FROM users WHERE id = ?').get(newId);
+      } catch (e) {
+        // Lost a race (a concurrent sign-in created this google_id/email first): the
+        // row now exists, so link/log in instead of failing.
+        user = await db.prepare('SELECT * FROM users WHERE google_id = ? OR lower(email) = ?').get(googleId, email);
+        if (!user) throw e; // a genuine failure: let the outer catch redirect safely
+      }
+    }
+    await createSession(user.id, res);
+    return res.redirect('/app');
+  } catch (e) {
+    try { require('../logger').logger.warn({ err: e }, 'google oauth callback failed'); } catch (_) {}
+    return res.redirect('/?autherror=google_failed');
+  }
+});
+
+router.GOOGLE_ENABLED = GOOGLE_ENABLED;
 module.exports = router;

@@ -516,6 +516,10 @@ db.init = async function init() {
   // unique via a partial index (empty/null handles do not collide).
   await addColumn('users', 'username TEXT', 'username');
   await db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username COLLATE NOCASE) WHERE username IS NOT NULL AND username != ''");
+  // Google account link (the Google subject id "sub"). Nullable; one Google account
+  // maps to at most one OpenBook account. Enables "Sign in with Google" + connecting.
+  await addColumn('users', 'google_id TEXT', 'google_id');
+  await db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google ON users(google_id) WHERE google_id IS NOT NULL AND google_id != ''");
   await addColumn('posts', 'locked INTEGER NOT NULL DEFAULT 0', 'locked');   // comments locked
   await addColumn('posts', 'pinned INTEGER NOT NULL DEFAULT 0', 'pinned');   // pinned in its community
   // Site-wide announcement pin: the founder/admin flags a post as an official,

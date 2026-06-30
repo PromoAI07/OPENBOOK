@@ -300,10 +300,13 @@ app.get('/api/config', (req, res) => {
     unverifiedGraceHours = uc.graceHours();
     unverifiedDeletes = uc.enforcementOn() && process.env.UNVERIFIED_CLEANUP !== '0';
   } catch (e) { /* leave defaults */ }
+  let googleEnabled = false;
+  try { googleEnabled = !!require('./routes/auth').GOOGLE_ENABLED; } catch (e) {}
   res.json({
     turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '',
     unverifiedDeletes: unverifiedDeletes,
     unverifiedGraceHours: unverifiedGraceHours,
+    googleEnabled: googleEnabled,
   });
 });
 

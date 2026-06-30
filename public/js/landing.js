@@ -8,6 +8,25 @@
   // a belt-and-suspenders fallback for a cached page or a just-became-valid session.)
   API.me().then(() => { window.location.replace('/app'); }).catch(() => {});
 
+  // Surface a Google sign-in error handed back in the URL (?autherror=...).
+  (function showAuthError() {
+    try {
+      const err = new URLSearchParams(location.search).get('autherror');
+      if (!err) return;
+      const map = {
+        google_failed: 'Google sign-in did not complete. Please try again.',
+        google_unavailable: 'Google sign-in is not available right now.',
+        google_email: 'Your Google account email is not verified, so we could not sign you in.',
+        signups_full: 'OpenBook is at capacity for now, so new sign-ups are paused.',
+        email_exists: 'An account with this email already exists. Log in with your password, then connect Google from Settings.',
+        connect_failed: 'Could not connect your Google account. Please log in and try again from Settings.',
+      };
+      const box = document.getElementById('loginAlert');
+      if (box) box.innerHTML = '<div class="alert">' + (map[err] || 'Sign-in failed. Please try again.') + '</div>';
+      history.replaceState({}, '', location.pathname);
+    } catch (e) {}
+  })();
+
   const loginView = document.getElementById('loginView');
   const signupView = document.getElementById('signupView');
 
@@ -94,6 +113,14 @@
   }
   (function initCaptcha() {
     API.config().then((cfg) => {
+      // Sign in with Google: reveal the buttons only when configured server-side
+      // (GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET set). Hidden otherwise.
+      if (cfg && cfg.googleEnabled) {
+        ['googleAuthLogin', 'googleAuthSignup'].forEach((id) => {
+          const node = document.getElementById(id);
+          if (node) node.classList.remove('hidden');
+        });
+      }
       const key = cfg && cfg.turnstileSiteKey;
       if (!key) return; // dormant: no CAPTCHA configured
       captcha.siteKey = key;
