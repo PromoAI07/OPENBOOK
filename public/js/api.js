@@ -64,7 +64,7 @@ const API = {
   listSuggestions(status) { return this.get('/api/suggestions' + (status ? '?status=' + encodeURIComponent(status) : '')); },
   createSuggestion(title, body, category) { return this.post('/api/suggestions', { title, body, category }); },
   voteSuggestion(id, value) { return this.post('/api/suggestions/' + id + '/vote', { value }); },
-  suggestionStatus(id, status) { return this.post('/api/suggestions/' + id + '/status', { status }); },
+  suggestionStatus(id, status, note) { return this.post('/api/suggestions/' + id + '/status', { status, note }); },
   deleteSuggestion(id) { return this.del('/api/suggestions/' + id); },
 
   // Users

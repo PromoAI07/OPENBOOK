@@ -409,6 +409,7 @@
     rail.innerHTML =
       '<div class="card" style="padding:8px">' +
       '<div class="side-link" data-go="profile">' + avatar(ME, 32) + '<span>' + esc(ME.name) + '</span></div>' +
+      (ME.isAdmin ? '<a class="side-link" href="/admin" style="text-decoration:none"><span class="ic">&#128202;</span><span>Owner dashboard</span></a>' : '') +
       '<div class="side-link" data-go="friends"><span class="ic">&#128101;</span><span>Friends</span><span class="badge side-badge hidden" id="friendsBadge">0</span></div>' +
       '<div class="side-link" data-go="groups"><span class="ic">&#127760;</span><span>Groups</span></div>' +
       '<div class="side-link" data-go="reels"><span class="ic">&#127909;</span><span>Reels</span></div>' +
@@ -1156,6 +1157,23 @@
       catch (e) { const inp = view.querySelector('#inviteLink'); inp.select(); document.execCommand('copy'); copyBtn.textContent = 'Copied!'; setTimeout(() => (copyBtn.textContent = 'Copy'), 1500); }
     };
     renderRightRail();
+  }
+
+  // The single source of truth for suggestion / roadmap statuses, with the
+  // friendly labels the founder asked for. The raw values match the backend
+  // (routes/suggestions.js STATUSES) and the public roadmap columns
+  // (public/roadmap.html COLS), so setting a status anywhere shows the same
+  // wording on the in-app board, the Owner dashboard, and the public roadmap.
+  const SUG_STATUSES = [
+    { v: 'open', l: 'Considering' },
+    { v: 'planned', l: 'Planned' },
+    { v: 'in_progress', l: 'Building now' },
+    { v: 'shipped', l: 'Shipped' },
+    { v: 'declined', l: 'Not planned' },
+  ];
+  function sugStatusLabel(v) {
+    for (let i = 0; i < SUG_STATUSES.length; i++) if (SUG_STATUSES[i].v === v) return SUG_STATUSES[i].l;
+    return v;
   }
 
   async function renderAdmin() {
@@ -2513,53 +2531,81 @@
         return;
       }
       list.innerHTML = '';
-      r.suggestions.forEach((s) => list.appendChild(suggestionItem(s, r.isAdmin)));
+      r.suggestions.forEach((s) => list.appendChild(suggestionItem(s, r.isAdmin, loadSuggestions)));
     } catch (e) {
       list.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>';
     }
   }
 
-  function suggestionItem(s, isAdmin) {
+  // One suggestion card, shared by the public board and the Owner dashboard
+  // inbox. `reload` is called after a status / note / delete change so the list
+  // it lives in re-sorts and re-renders (the board passes loadSuggestions, the
+  // inbox passes loadAdminSuggestions); if a node has no reload it updates in
+  // place. The admin status buttons + the public-note editor both write through
+  // the same /api/suggestions/:id/status endpoint the public roadmap reads, so
+  // every surface stays in sync.
+  function suggestionItem(s, isAdmin, reload) {
     const node = el('<div class="card sug" data-sug="' + s.id + '"></div>');
-    const statusBadge = s.status !== 'open' ? '<span class="sug-status sug-status-' + esc(s.status) + '">' + esc(s.status) + '</span>' : '';
-    node.innerHTML =
-      '<div class="sug-row">' +
-        '<div class="votebox"><button class="vote up" title="Upvote">&#9650;</button><span class="vscore">' + s.score + '</span><button class="vote down" title="Downvote">&#9660;</button></div>' +
-        '<div class="sug-main">' +
-          '<div class="sug-title">' + esc(s.title) + '</div>' +
-          (s.body ? '<div class="sug-body">' + esc(s.body) + '</div>' : '') +
-          '<div class="sug-meta"><span class="sug-cat">' + esc(s.category) + '</span>' + statusBadge +
-            '<span>by ' + esc(s.author.name) + verifTick(s.author) + '</span></div>' +
-          '<div class="sug-admin"></div>' +
-        '</div>' +
-      '</div>';
-    const up = node.querySelector('.vote.up');
-    const down = node.querySelector('.vote.down');
-    const sc = node.querySelector('.vscore');
-    function paint() {
-      sc.textContent = s.score;
-      up.classList.toggle('on', s.myVote === 1);
-      down.classList.toggle('on', s.myVote === -1);
-      sc.classList.toggle('pos', s.score > 0);
-      sc.classList.toggle('neg', s.score < 0);
+    function render() {
+      const statusBadge = '<span class="sug-status sug-status-' + esc(s.status) + '">' + esc(sugStatusLabel(s.status)) + '</span>';
+      node.innerHTML =
+        '<div class="sug-row">' +
+          '<div class="votebox"><button class="vote up" title="Upvote">&#9650;</button><span class="vscore">' + s.score + '</span><button class="vote down" title="Downvote">&#9660;</button></div>' +
+          '<div class="sug-main">' +
+            '<div class="sug-title">' + esc(s.title) + '</div>' +
+            (s.body ? '<div class="sug-body">' + esc(s.body) + '</div>' : '') +
+            '<div class="sug-meta"><span class="sug-cat">' + esc(s.category) + '</span>' + statusBadge +
+              '<span>by ' + esc(s.author.name) + verifTick(s.author) + '</span></div>' +
+            (s.statusNote ? '<div class="sug-note">&#9998; ' + esc(s.statusNote) + '</div>' : '') +
+            '<div class="sug-admin"></div>' +
+          '</div>' +
+        '</div>';
+      wire();
     }
-    paint();
-    async function cast(v) { try { const r = await API.voteSuggestion(s.id, v); s.score = r.suggestion.score; s.myVote = r.suggestion.myVote; paint(); } catch (e) { toast(e.message); } }
-    up.onclick = () => cast(s.myVote === 1 ? 0 : 1);
-    down.onclick = () => cast(s.myVote === -1 ? 0 : -1);
-    const adminEl = node.querySelector('.sug-admin');
-    if (isAdmin) {
-      ['planned', 'shipped', 'declined', 'open'].forEach((st) => {
-        const b = el('<button class="btn btn-sm">' + st + '</button>');
-        b.onclick = async () => { try { await API.suggestionStatus(s.id, st); await loadSuggestions(); } catch (e) { toast(e.message); } };
-        adminEl.appendChild(b);
-      });
+    function wire() {
+      const up = node.querySelector('.vote.up');
+      const down = node.querySelector('.vote.down');
+      const sc = node.querySelector('.vscore');
+      function paint() {
+        sc.textContent = s.score;
+        up.classList.toggle('on', s.myVote === 1);
+        down.classList.toggle('on', s.myVote === -1);
+        sc.classList.toggle('pos', s.score > 0);
+        sc.classList.toggle('neg', s.score < 0);
+      }
+      paint();
+      async function cast(v) { try { const r = await API.voteSuggestion(s.id, v); s.score = r.suggestion.score; s.myVote = r.suggestion.myVote; paint(); } catch (e) { toast(e.message); } }
+      up.onclick = () => cast(s.myVote === 1 ? 0 : 1);
+      down.onclick = () => cast(s.myVote === -1 ? 0 : -1);
+      const adminEl = node.querySelector('.sug-admin');
+      // After any change, re-fetch the surrounding list if we can, else repaint
+      // this single card from the server's fresh copy.
+      async function apply(promise) {
+        try { const r = await promise; if (r && r.suggestion) Object.assign(s, r.suggestion); if (reload) reload(); else render(); }
+        catch (e) { toast(e.message); }
+      }
+      if (isAdmin) {
+        SUG_STATUSES.forEach((st) => {
+          const active = s.status === st.v;
+          const b = el('<button class="btn btn-sm' + (active ? ' btn-primary' : '') + '">' + st.l + '</button>');
+          b.onclick = () => { if (!active) apply(API.suggestionStatus(s.id, st.v)); };
+          adminEl.appendChild(b);
+        });
+        const noteBtn = el('<button class="btn btn-sm">&#9998; Note</button>');
+        noteBtn.onclick = () => {
+          const note = window.prompt('Public note shown under this item on the roadmap (explains the status). Leave blank to clear it:', s.statusNote || '');
+          if (note === null) return;
+          apply(API.suggestionStatus(s.id, s.status, note.trim()));
+        };
+        adminEl.appendChild(noteBtn);
+      }
+      if (s.mine || isAdmin) {
+        const d = el('<button class="btn btn-sm btn-danger">Delete</button>');
+        d.onclick = async () => { if (!window.confirm('Delete this suggestion?')) return; try { await API.deleteSuggestion(s.id); if (reload) reload(); else node.remove(); } catch (e) { toast(e.message); } };
+        adminEl.appendChild(d);
+      }
     }
-    if (s.mine || isAdmin) {
-      const d = el('<button class="btn btn-sm btn-danger">Delete</button>');
-      d.onclick = async () => { if (!window.confirm('Delete this suggestion?')) return; try { await API.deleteSuggestion(s.id); node.remove(); } catch (e) { toast(e.message); } };
-      adminEl.appendChild(d);
-    }
+    render();
     return node;
   }
 

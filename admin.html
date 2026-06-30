@@ -21,6 +21,7 @@
       <a class="btn" href="/app">Back to OpenBook</a>
     </div>
     <div id="view"><div class="card"><div class="empty" style="padding:40px">Loading...</div></div></div>
+    <div id="sugView"></div>
     <div class="shint" style="font-size:12px;margin-top:16px">Private to the platform owner. Aggregate usage only, no personal data.</div>
   </div>
 
@@ -68,6 +69,93 @@
       }).catch(function () {
         view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Access denied. This page is for the platform owner only. <a href="/app">Back to OpenBook</a></div></div>';
       });
+
+      // ---- Suggestions inbox -------------------------------------------------
+      // The owner's triage view of the community suggestion board. Setting a
+      // status here writes through the same /api/suggestions/:id/status endpoint
+      // the in-app board and the public /roadmap read, so all three stay in sync.
+      // Friendly labels match the public roadmap columns exactly.
+      var SUG = [
+        { v: 'open', l: 'Considering' },
+        { v: 'planned', l: 'Planned' },
+        { v: 'in_progress', l: 'Building now' },
+        { v: 'shipped', l: 'Shipped' },
+        { v: 'declined', l: 'Not planned' }
+      ];
+      var SUG_ORDER = { open: 0, planned: 1, in_progress: 2, shipped: 3, declined: 4 };
+      function sugLabel(v) { for (var i = 0; i < SUG.length; i++) if (SUG[i].v === v) return SUG[i].l; return v; }
+      var sugView = document.getElementById('sugView');
+
+      function sugCard(s) {
+        var btns = SUG.map(function (st) {
+          return '<button class="btn btn-sm' + (s.status === st.v ? ' btn-primary' : '') +
+            '" data-set="' + s.id + '" data-status="' + st.v + '">' + st.l + '</button>';
+        }).join('');
+        return '<div class="card sug"><div class="sug-row">' +
+          '<div class="votebox"><span class="vscore' + (s.score > 0 ? ' pos' : (s.score < 0 ? ' neg' : '')) + '">&#9650; ' + esc(s.score) + '</span></div>' +
+          '<div class="sug-main">' +
+            '<div class="sug-title">' + esc(s.title) + '</div>' +
+            (s.body ? '<div class="sug-body">' + esc(s.body) + '</div>' : '') +
+            '<div class="sug-meta"><span class="sug-cat">' + esc(s.category) + '</span>' +
+              '<span class="sug-status sug-status-' + esc(s.status) + '">' + esc(sugLabel(s.status)) + '</span>' +
+              '<span>by ' + esc(s.author ? s.author.name : '?') + '</span></div>' +
+            (s.statusNote ? '<div class="sug-note">&#9998; ' + esc(s.statusNote) + '</div>' : '') +
+            '<div class="sug-admin">' + btns +
+              '<button class="btn btn-sm" data-note="' + s.id + '">&#9998; Note</button>' +
+              '<button class="btn btn-sm btn-danger" data-del="' + s.id + '">Delete</button>' +
+            '</div>' +
+          '</div></div></div>';
+      }
+
+      function wireSug(list) {
+        var byId = {}; list.forEach(function (s) { byId[s.id] = s; });
+        sugView.querySelectorAll('[data-set]').forEach(function (b) {
+          b.onclick = function () {
+            var id = Number(b.getAttribute('data-set')), st = b.getAttribute('data-status');
+            if (byId[id] && byId[id].status === st) return;
+            b.disabled = true;
+            API.suggestionStatus(id, st).then(loadSug).catch(function (e) { alert(e.message); b.disabled = false; });
+          };
+        });
+        sugView.querySelectorAll('[data-note]').forEach(function (b) {
+          b.onclick = function () {
+            var id = Number(b.getAttribute('data-note')), s = byId[id];
+            var note = window.prompt('Public note shown under this item on the roadmap (explains the status). Leave blank to clear it:', (s && s.statusNote) || '');
+            if (note === null) return;
+            API.suggestionStatus(id, s.status, note.trim()).then(loadSug).catch(function (e) { alert(e.message); });
+          };
+        });
+        sugView.querySelectorAll('[data-del]').forEach(function (b) {
+          b.onclick = function () {
+            var id = Number(b.getAttribute('data-del'));
+            if (!window.confirm('Delete this suggestion?')) return;
+            API.deleteSuggestion(id).then(loadSug).catch(function (e) { alert(e.message); });
+          };
+        });
+      }
+
+      function loadSug() {
+        API.listSuggestions().then(function (r) {
+          var counts = { open: 0, planned: 0, in_progress: 0, shipped: 0, declined: 0 };
+          r.suggestions.forEach(function (s) { if (counts[s.status] != null) counts[s.status]++; });
+          var chips = SUG.map(function (st) { return '<span class="adm-sug-chip"><b>' + counts[st.v] + '</b> ' + st.l + '</span>'; }).join('');
+          var head = '<div class="section-title" style="margin-top:8px">&#128161; Suggestions inbox</div>' +
+            '<div class="shint" style="font-size:13px;line-height:1.5">Every idea the community submits. Set a status and it updates the in-app board and the public roadmap at the same time. Add a note to explain a decision in the open.</div>' +
+            '<div class="adm-sug-summary">' + chips + '</div>';
+          if (!r.suggestions.length) {
+            sugView.innerHTML = '<div class="card">' + head + '<div class="empty" style="padding:20px">No suggestions yet. When members suggest a fix, update, or change, it lands here for you to triage.</div></div>';
+            return;
+          }
+          var sorted = r.suggestions.slice().sort(function (a, b) {
+            return (SUG_ORDER[a.status] - SUG_ORDER[b.status]) || (b.score - a.score) || (b.id - a.id);
+          });
+          sugView.innerHTML = '<div class="card">' + head + '</div>' + sorted.map(sugCard).join('');
+          wireSug(sorted);
+        }).catch(function () {
+          sugView.innerHTML = '<div class="card"><div class="empty" style="padding:20px">Could not load suggestions right now.</div></div>';
+        });
+      }
+      loadSug();
     })();
   </script>
 </body>
