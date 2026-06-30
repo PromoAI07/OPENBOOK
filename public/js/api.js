@@ -38,6 +38,14 @@ const API = {
   logout() { return this.post('/api/auth/logout'); },
   me() { return this.get('/api/auth/me'); },
   resendVerification() { return this.post('/api/auth/resend-verification'); },
+  // Passkeys (WebAuthn). The server issues challenges and verifies signatures; the
+  // browser ceremony (navigator.credentials.*) lives in webauthn.js.
+  passkeyList() { return this.get('/api/auth/webauthn/credentials'); },
+  passkeyRegisterOptions() { return this.post('/api/auth/webauthn/register/options'); },
+  passkeyRegisterVerify(credential, label) { return this.post('/api/auth/webauthn/register/verify', { credential, label }); },
+  passkeyDelete(id) { return this.del('/api/auth/webauthn/credentials/' + id); },
+  passkeyAuthOptions() { return this.post('/api/auth/webauthn/auth/options'); },
+  passkeyAuthVerify(credential, fp) { return this.post('/api/auth/webauthn/auth/verify', { credential, fp }); },
   forgotPassword(email) { return this.post('/api/auth/forgot-password', { email }); },
   resetPassword(token, password) { return this.post('/api/auth/reset-password', { token, password }); },
   support() { return this.get('/api/support'); },

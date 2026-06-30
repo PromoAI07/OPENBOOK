@@ -2591,6 +2591,8 @@
   }
 
   function openEditProfile() {
+    const googleOn = !!(CONFIG && CONFIG.googleEnabled);
+    const passkeyOn = !!(CONFIG && CONFIG.webauthnEnabled) && window.OBPasskey && OBPasskey.supported();
     const m = modal(
       '<div class="mh"><h3>Edit profile</h3></div><div class="mc">' +
       '<div class="field"><label>Name</label><input class="input" id="epName" value="' + esc(ME.name) + '">' +
@@ -2618,12 +2620,19 @@
             '<div class="shint" style="font-size:12px">A Premium perk: pick a gradient for your profile background. Chosen separately from your name color.</div></div>')
         : '') +
       '<button class="btn btn-primary btn-block" id="epSave">Save changes</button>' +
-      ((CONFIG && CONFIG.googleEnabled) ?
+      ((googleOn || passkeyOn) ?
         ('<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +
          '<div class="shint" style="font-size:12px;margin-bottom:8px">Sign-in methods</div>' +
-         (ME.googleLinked
-           ? '<div class="shint" style="font-size:13px">&#10003; Your Google account is connected, so you can log in with Google.</div>'
-           : '<a class="btn btn-soft btn-block" href="/api/auth/google?mode=connect">Connect your Google account</a>') +
+         (passkeyOn
+           ? ('<div class="shint" style="font-size:12px;line-height:1.5;margin:0 0 8px">Passkeys let you sign in with your fingerprint, face, or device PIN. Your biometric never leaves your device, OpenBook only stores a public key.</div>' +
+              '<div id="epPasskeyList" class="passkey-list"></div>' +
+              '<button class="btn btn-soft btn-block" id="epAddPasskey"' + (googleOn ? ' style="margin-bottom:10px"' : '') + '>Add a passkey</button>')
+           : '') +
+         (googleOn
+           ? (ME.googleLinked
+               ? '<div class="shint" style="font-size:13px">&#10003; Your Google account is connected, so you can log in with Google.</div>'
+               : '<a class="btn btn-soft btn-block" href="/api/auth/google?mode=connect">Connect your Google account</a>')
+           : '') +
          '</div>')
         : '') +
       '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +
@@ -2685,6 +2694,52 @@
         renderProfile(ME.id);
       } catch (e) { toast(e.message); }
     };
+    // Passkeys: list the user's enrolled passkeys, add a new one, or remove one.
+    if (passkeyOn) {
+      const listEl = m.q('#epPasskeyList');
+      const addBtn = m.q('#epAddPasskey');
+      const renderPasskeys = (rows) => {
+        if (!listEl) return;
+        if (!rows || !rows.length) {
+          listEl.innerHTML = '<div class="shint" style="font-size:12px;margin-bottom:8px">No passkeys yet. Add one to sign in with your fingerprint or face next time.</div>';
+          return;
+        }
+        listEl.innerHTML = rows.map((p) => (
+          '<div class="passkey-row">' +
+            '<div class="passkey-meta"><span class="passkey-name">' + esc(p.name || 'Passkey') + '</span>' +
+            '<span class="shint" style="font-size:11px">Added ' + esc(timeAgo(p.created_at)) + (p.last_used_at ? (' · last used ' + esc(timeAgo(p.last_used_at))) : '') + '</span></div>' +
+            '<button class="btn btn-sm passkey-del" data-id="' + p.id + '">Remove</button>' +
+          '</div>'
+        )).join('');
+        listEl.querySelectorAll('.passkey-del').forEach((b) => {
+          b.onclick = async () => {
+            if (!confirm('Remove this passkey? You will not be able to use it to sign in anymore.')) return;
+            b.disabled = true;
+            try { await API.passkeyDelete(b.getAttribute('data-id')); await loadPasskeys(); toast('Passkey removed'); }
+            catch (e) { b.disabled = false; toast(e.message); }
+          };
+        });
+      };
+      const loadPasskeys = async () => {
+        try { const r = await API.passkeyList(); renderPasskeys(r.passkeys || []); }
+        catch (e) { if (listEl) listEl.innerHTML = ''; }
+      };
+      if (addBtn) addBtn.onclick = async () => {
+        const orig = addBtn.textContent;
+        addBtn.disabled = true; addBtn.textContent = 'Follow your device prompt...';
+        try {
+          await OBPasskey.enroll('');
+          toast('Passkey added');
+          await loadPasskeys();
+        } catch (err) {
+          // A user dismissing the native prompt is a normal cancel, not an error.
+          if (!(err && (err.name === 'NotAllowedError' || err.name === 'AbortError'))) {
+            toast((err && err.message) || 'Could not add a passkey. Please try again.');
+          }
+        } finally { addBtn.disabled = false; addBtn.textContent = orig; }
+      };
+      loadPasskeys();
+    }
     // Your data: instant JSON download, or a background ZIP (data + media).
     m.q('#epExportJson').onclick = () => { window.location.href = '/api/users/me/export.json'; };
     m.q('#epExportZip').onclick = async () => {

@@ -111,16 +111,43 @@
   function captchaReset(which) {
     try { if (captcha.siteKey && window.turnstile && captcha[which] != null) turnstile.reset(captcha[which]); } catch (e) {}
   }
+  // Reveal whichever alternative sign-in buttons are available, and wire the passkey
+  // one. Called once with the server config.
+  function show(id) { const n = document.getElementById(id); if (n) n.classList.remove('hidden'); }
+  function setupAltAuth(cfg) {
+    const googleOn = !!(cfg && cfg.googleEnabled);
+    const passkeyOn = !!(cfg && cfg.webauthnEnabled) && window.OBPasskey && OBPasskey.supported();
+    if (googleOn) { show('googleLoginLink'); show('googleAuthSignup'); }
+    if (passkeyOn) { show('passkeyLoginBtn'); wirePasskeyLogin(); }
+    if (googleOn || passkeyOn) show('altAuthLogin');
+  }
+  let _passkeyWired = false;
+  function wirePasskeyLogin() {
+    if (_passkeyWired) return; _passkeyWired = true;
+    const btn = document.getElementById('passkeyLoginBtn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      const orig = btn.innerHTML;
+      btn.disabled = true; btn.textContent = 'Waiting for your passkey...';
+      try {
+        await OBPasskey.login(deviceFingerprint());
+        window.location.replace('/app');
+      } catch (err) {
+        btn.disabled = false; btn.innerHTML = orig;
+        // A user dismissing the native prompt is a normal cancel, not an error to shout about.
+        if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) return;
+        showAlert(document.getElementById('loginAlert'), (err && err.message) || 'Passkey sign-in failed. Please try again.');
+      }
+    });
+  }
+
   (function initCaptcha() {
     API.config().then((cfg) => {
-      // Sign in with Google: reveal the buttons only when configured server-side
-      // (GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET set). Hidden otherwise.
-      if (cfg && cfg.googleEnabled) {
-        ['googleAuthLogin', 'googleAuthSignup'].forEach((id) => {
-          const node = document.getElementById(id);
-          if (node) node.classList.remove('hidden');
-        });
-      }
+      // Alternative sign-in options under the login form: a passkey button (shown
+      // when the browser supports passkeys) and/or a Google button (shown when the
+      // server has Google configured). One "or" divider covers whichever appear. The
+      // signup view shows only Google (creating a brand-new account).
+      setupAltAuth(cfg);
       const key = cfg && cfg.turnstileSiteKey;
       if (!key) return; // dormant: no CAPTCHA configured
       captcha.siteKey = key;

@@ -301,12 +301,15 @@ app.get('/api/config', (req, res) => {
     unverifiedDeletes = uc.enforcementOn() && process.env.UNVERIFIED_CLEANUP !== '0';
   } catch (e) { /* leave defaults */ }
   let googleEnabled = false;
+  let webauthnEnabled = false;
   try { googleEnabled = !!require('./routes/auth').GOOGLE_ENABLED; } catch (e) {}
+  try { webauthnEnabled = !!require('./routes/auth').WEBAUTHN_ENABLED; } catch (e) {}
   res.json({
     turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '',
     unverifiedDeletes: unverifiedDeletes,
     unverifiedGraceHours: unverifiedGraceHours,
     googleEnabled: googleEnabled,
+    webauthnEnabled: webauthnEnabled,
   });
 });
 

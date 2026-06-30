@@ -1058,6 +1058,50 @@ db.init = async function init() {
     CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events(order_id);
   `);
 
+  // --- Passkeys / biometric sign-in (WebAuthn) ---
+  // A passkey lets a member log in with their device biometric (Face ID, Touch ID,
+  // fingerprint, Windows Hello) or device PIN instead of a password. The biometric
+  // NEVER leaves the device: the authenticator keeps the private key and only signs a
+  // server-issued challenge, so we store ONLY a public key here. Pure identity, exactly
+  // like a password row: it never touches karma, standing, reach, or votes.
+  //   webauthn_credentials: one row per enrolled passkey. cred_id (the credential id)
+  //     and public_key are base64url text; counter is the authenticator's signature
+  //     counter (clone-detection signal; many passkeys keep it at 0).
+  //   webauthn_challenges: a one-time, short-lived challenge issued by the "options"
+  //     step and consumed by the "verify" step. The row id rides in a httpOnly cookie
+  //     while the secret challenge value stays here, so the client can neither read nor
+  //     forge it. user_id is set for enrolment (the logged-in user) and NULL for the
+  //     passwordless login flow (the authenticator names the account).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS webauthn_credentials (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER NOT NULL,
+      cred_id      TEXT    NOT NULL UNIQUE,
+      public_key   TEXT    NOT NULL,
+      counter      INTEGER NOT NULL DEFAULT 0,
+      transports   TEXT    NOT NULL DEFAULT '',
+      device_type  TEXT    NOT NULL DEFAULT '',
+      backed_up    INTEGER NOT NULL DEFAULT 0,
+      name         TEXT    NOT NULL DEFAULT 'Passkey',
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      last_used_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_webauthn_creds_user ON webauthn_credentials(user_id);
+
+    CREATE TABLE IF NOT EXISTS webauthn_challenges (
+      id         TEXT PRIMARY KEY,
+      user_id    INTEGER,
+      type       TEXT NOT NULL,
+      challenge  TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_webauthn_chal_exp ON webauthn_challenges(expires_at);
+  `);
+  // Drop any challenges that expired while the server was down (housekeeping).
+  await db.exec("DELETE FROM webauthn_challenges WHERE expires_at < datetime('now');");
+
   // Clear out sessions older than 30 days on startup.
   await db.exec("DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');");
 

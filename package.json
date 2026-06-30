@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",
+    "@simplewebauthn/server": "^13.3.2",
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
     "cookie": "^0.6.0",

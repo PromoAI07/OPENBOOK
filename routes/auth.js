@@ -441,5 +441,242 @@ router.get('/google/callback', oauthLimiter, async (req, res) => {
   }
 });
 
+// ---- Passkeys / biometric sign-in (WebAuthn) -------------------------------
+// A passkey lets a member log in with their device biometric (Face ID, Touch ID,
+// fingerprint, Windows Hello) or device PIN instead of a password. The biometric
+// NEVER leaves the device: the phone/computer keeps the private key and only signs a
+// server-issued challenge, so OpenBook stores only a PUBLIC key. This is pure
+// identity, exactly like a password: it never affects karma, standing, reach, or
+// votes (credible neutrality). No external setup or API key is needed, so it is
+// always on; the browser feature-detects support and hides the buttons if absent.
+const WEBAUTHN_ENABLED = process.env.WEBAUTHN_DISABLED !== '1';
+
+// @simplewebauthn/server is ESM-only; load it lazily from this CommonJS module and
+// cache the module object after the first import.
+let _webauthnLib = null;
+async function webauthnLib() {
+  if (!_webauthnLib) _webauthnLib = await import('@simplewebauthn/server');
+  return _webauthnLib;
+}
+function safeJsonArray(s) { try { const a = JSON.parse(s); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+function defaultPasskeyName(deviceType) { return deviceType === 'multiDevice' ? 'Passkey (synced)' : 'Passkey (this device)'; }
+
+// One generic message for EVERY passkey-login failure (unknown credential, bad
+// signature, missing user verification, clone signal) so the response never reveals
+// whether a given credential is registered on OpenBook (no membership oracle).
+const PASSKEY_LOGIN_FAIL = 'We could not sign you in with that passkey. If you have not added one yet, log in with your password and add a passkey from Settings.';
+
+// A passkey ceremony is only ever produced by a real browser on our own page. The
+// site-wide CSRF guard allows requests with NO Origin/Referer (it assumes a non-browser
+// client), so we additionally require one of those headers to be present on the passkey
+// routes: a headless replay of a captured assertion + cookie carries neither.
+function sameOriginBrowser(req) { return !!(req.headers.origin || req.headers.referer); }
+
+// The Relying Party identity. rpID is the bare domain (no scheme/port) and origin is
+// the full site URL the browser reports. In production both come from APP_BASE_URL
+// (pinned); we FAIL CLOSED rather than fall back to an attacker-controllable Host header,
+// so a misconfigured prod box disables passkeys instead of letting the RP be spoofed. In
+// dev (non-production) we fall back to the request host (localhost).
+function rpInfo(req) {
+  const env = (process.env.APP_BASE_URL || '').replace(/\/+$/, '');
+  const base = env || (process.env.NODE_ENV === 'production' ? '' : (req.protocol + '://' + req.get('host')));
+  if (!base) throw new Error('APP_BASE_URL must be set in production for passkeys');
+  try { const u = new URL(base); return { origin: u.origin, rpID: u.hostname, rpName: 'OpenBook' }; }
+  catch (e) { return { origin: base, rpID: 'localhost', rpName: 'OpenBook' }; }
+}
+
+// One-time, short-lived challenge store. The challenge id travels in a httpOnly
+// cookie between the "options" and "verify" calls; the secret challenge VALUE stays
+// in the database so the client cannot read or forge it, and it is consumed exactly
+// once (deleted on read).
+async function putChallenge(type, userId, challenge, res) {
+  const id = crypto.randomBytes(16).toString('hex');
+  await db.prepare(
+    "INSERT INTO webauthn_challenges (id, user_id, type, challenge, expires_at) VALUES (?, ?, ?, ?, datetime('now', '+5 minutes'))"
+  ).run(id, userId || null, type, challenge);
+  // Opportunistic sweep: the table only grows on a write, and every write also prunes
+  // the expired rows, so dead challenges never accumulate between restarts. Best-effort,
+  // fire-and-forget, so it never adds latency to or blocks the ceremony.
+  Promise.resolve(db.exec("DELETE FROM webauthn_challenges WHERE expires_at < datetime('now')")).catch(() => {});
+  res.cookie('wa_chl', id, {
+    httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 5 * 60 * 1000,
+  });
+}
+async function takeChallenge(type, req, res) {
+  const id = (req.cookies && req.cookies.wa_chl) || '';
+  res.clearCookie('wa_chl');
+  if (!id) return null;
+  const row = await db.prepare(
+    "SELECT * FROM webauthn_challenges WHERE id = ? AND type = ? AND expires_at >= datetime('now')"
+  ).get(id, type);
+  // One-time use: delete the row whether or not it was still valid.
+  try { await db.prepare('DELETE FROM webauthn_challenges WHERE id = ?').run(id); } catch (e) {}
+  return row || null;
+}
+
+// List the current user's enrolled passkeys (for the Settings panel).
+router.get('/webauthn/credentials', requireAuth, async (req, res) => {
+  const rows = await db.prepare(
+    'SELECT id, name, device_type, created_at, last_used_at FROM webauthn_credentials WHERE user_id = ? ORDER BY id DESC'
+  ).all(req.user.id);
+  res.json({ enabled: WEBAUTHN_ENABLED, passkeys: rows });
+});
+
+// Step 1 of enrolling a passkey: issue creation options (requires being logged in).
+router.post('/webauthn/register/options', requireAuth, async (req, res) => {
+  if (!WEBAUTHN_ENABLED) return res.status(404).json({ error: 'Passkeys are not available.' });
+  if (!sameOriginBrowser(req)) return res.status(400).json({ error: 'Bad request.' });
+  try {
+    const { generateRegistrationOptions } = await webauthnLib();
+    const { rpID, rpName } = rpInfo(req);
+    const u = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    const existing = await db.prepare('SELECT cred_id, transports FROM webauthn_credentials WHERE user_id = ?').all(req.user.id);
+    const options = await generateRegistrationOptions({
+      rpName, rpID,
+      userName: u.email || ('user' + u.id),
+      userDisplayName: u.name || u.email || ('User ' + u.id),
+      userID: new TextEncoder().encode(String(u.id)),
+      attestationType: 'none',
+      // Stop the same authenticator from enrolling twice on one account.
+      excludeCredentials: existing.map((c) => ({ id: c.cred_id, transports: safeJsonArray(c.transports) })),
+      // residentKey 'required' makes the passkey discoverable, so passwordless login can
+      // find it later. userVerification 'required' means enrolling (and later logging in)
+      // always takes a real biometric or device PIN, so the "biometric login" promise
+      // actually holds and a passkey login is never weaker than the password it replaces.
+      authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+    });
+    await putChallenge('reg', req.user.id, options.challenge, res);
+    res.json(options);
+  } catch (e) {
+    try { require('../logger').logger.warn({ err: e }, 'webauthn register options failed'); } catch (_) {}
+    res.status(500).json({ error: 'Could not start passkey setup. Please try again.' });
+  }
+});
+
+// Step 2 of enrolling: verify the new credential and store its public key.
+router.post('/webauthn/register/verify', requireAuth, async (req, res) => {
+  if (!WEBAUTHN_ENABLED) return res.status(404).json({ error: 'Passkeys are not available.' });
+  if (!sameOriginBrowser(req)) return res.status(400).json({ error: 'Bad request.' });
+  const { verifyRegistrationResponse } = await webauthnLib();
+  const { origin, rpID } = rpInfo(req);
+  const chal = await takeChallenge('reg', req, res);
+  // The challenge must exist, be unexpired, AND belong to THIS user (a register
+  // challenge is bound to the account that asked for it).
+  if (!chal || Number(chal.user_id) !== Number(req.user.id)) {
+    return res.status(400).json({ error: 'Your passkey session expired. Please try again.' });
+  }
+  let verification;
+  try {
+    verification = await verifyRegistrationResponse({
+      response: (req.body && req.body.credential) || {},
+      expectedChallenge: chal.challenge,
+      expectedOrigin: origin,
+      expectedRPID: rpID,
+      requireUserVerification: true,
+    });
+  } catch (e) { return res.status(400).json({ error: 'We could not verify that passkey. Please try again.' }); }
+  if (!verification.verified || !verification.registrationInfo) {
+    return res.status(400).json({ error: 'We could not verify that passkey. Please try again.' });
+  }
+  const info = verification.registrationInfo;
+  const cred = info.credential; // { id (base64url), publicKey (Uint8Array), counter, transports? }
+  const publicKey = Buffer.from(cred.publicKey).toString('base64url');
+  const respTransports = (req.body.credential && req.body.credential.response && req.body.credential.response.transports) || [];
+  const transports = JSON.stringify(cred.transports || respTransports || []);
+  const deviceType = info.credentialDeviceType || '';
+  const backedUp = info.credentialBackedUp ? 1 : 0;
+  const label = ((req.body && req.body.label) || '').toString().trim().slice(0, 40) || defaultPasskeyName(deviceType);
+  try {
+    await db.prepare(
+      'INSERT INTO webauthn_credentials (user_id, cred_id, public_key, counter, transports, device_type, backed_up, name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(req.user.id, cred.id, publicKey, cred.counter || 0, transports, deviceType, backedUp, label);
+  } catch (e) {
+    // The UNIQUE(cred_id) index rejects re-using a credential already on file. Keep the
+    // message generic so this is not an oracle for "is this credential on OpenBook".
+    return res.status(409).json({ error: 'We could not add that passkey. Please try again with a different device.' });
+  }
+  res.json({ ok: true, name: label });
+});
+
+// Remove one of the current user's passkeys.
+router.delete('/webauthn/credentials/:id', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Bad request' });
+  const r = await db.prepare('DELETE FROM webauthn_credentials WHERE id = ? AND user_id = ?').run(id, req.user.id);
+  res.json({ ok: true, removed: r.changes });
+});
+
+// Step 1 of passwordless login: issue authentication options. No account is named;
+// the device offers whichever OpenBook passkeys it holds (discoverable credentials).
+router.post('/webauthn/auth/options', async (req, res) => {
+  if (!WEBAUTHN_ENABLED) return res.status(404).json({ error: 'Passkeys are not available.' });
+  if (!sameOriginBrowser(req)) return res.status(400).json({ error: 'Bad request.' });
+  try {
+    const { generateAuthenticationOptions } = await webauthnLib();
+    const { rpID } = rpInfo(req);
+    // userVerification 'required': the passwordless login must take a biometric / device
+    // PIN, so possession of an unlocked device alone is not enough to sign in.
+    const options = await generateAuthenticationOptions({ rpID, userVerification: 'required', allowCredentials: [] });
+    await putChallenge('auth', 0, options.challenge, res);
+    res.json(options);
+  } catch (e) {
+    try { require('../logger').logger.warn({ err: e }, 'webauthn auth options failed'); } catch (_) {}
+    res.status(500).json({ error: 'Could not start passkey sign-in. Please try again.' });
+  }
+});
+
+// Step 2 of passwordless login: verify the assertion against the stored public key,
+// then open a session for that credential's owner.
+router.post('/webauthn/auth/verify', async (req, res) => {
+  if (!WEBAUTHN_ENABLED) return res.status(404).json({ error: 'Passkeys are not available.' });
+  if (!sameOriginBrowser(req)) return res.status(400).json({ error: 'Bad request.' });
+  const { verifyAuthenticationResponse } = await webauthnLib();
+  const { origin, rpID } = rpInfo(req);
+  const chal = await takeChallenge('auth', req, res);
+  if (!chal) return res.status(400).json({ error: 'Your sign-in session expired. Please try again.' });
+  const response = (req.body && req.body.credential) || {};
+  const credIdB64 = response.id;
+  if (!credIdB64) return res.status(400).json({ error: PASSKEY_LOGIN_FAIL });
+  const stored = await db.prepare('SELECT * FROM webauthn_credentials WHERE cred_id = ?').get(credIdB64);
+  // Same generic failure for an unknown credential as for a bad signature, so the
+  // response is not a "is this passkey registered on OpenBook" oracle.
+  if (!stored) return res.status(400).json({ error: PASSKEY_LOGIN_FAIL });
+  let verification;
+  try {
+    verification = await verifyAuthenticationResponse({
+      response,
+      expectedChallenge: chal.challenge,
+      expectedOrigin: origin,
+      expectedRPID: rpID,
+      requireUserVerification: true, // the login must take a biometric / device PIN
+      credential: {
+        id: stored.cred_id,
+        publicKey: new Uint8Array(Buffer.from(stored.public_key, 'base64url')),
+        counter: stored.counter || 0,
+        transports: safeJsonArray(stored.transports),
+      },
+    });
+  } catch (e) { return res.status(400).json({ error: PASSKEY_LOGIN_FAIL }); }
+  if (!verification.verified) return res.status(400).json({ error: PASSKEY_LOGIN_FAIL });
+  const newCounter = (verification.authenticationInfo && verification.authenticationInfo.newCounter) || 0;
+  if (newCounter > 0 && newCounter <= (stored.counter || 0)) {
+    try { require('../logger').logger.warn({ cred: stored.id, user: stored.user_id }, 'webauthn counter did not advance'); } catch (_) {}
+    // For a single-device authenticator (e.g. a hardware security key) that actually
+    // uses a counter, a non-advancing counter is the one available clone signal, so
+    // reject it. Synced / multi-device passkeys legitimately report 0 and never get here.
+    if (!stored.backed_up && stored.device_type !== 'multiDevice') {
+      return res.status(400).json({ error: PASSKEY_LOGIN_FAIL });
+    }
+  }
+  await db.prepare("UPDATE webauthn_credentials SET counter = ?, last_used_at = datetime('now') WHERE id = ?")
+    .run(Math.max(newCounter, stored.counter || 0), stored.id);
+  const u = await db.prepare('SELECT * FROM users WHERE id = ?').get(stored.user_id);
+  if (!u) return res.status(400).json({ error: 'Account not found.' });
+  await createSession(u.id, res);
+  try { await recordDevice(u.id, req.ip, (req.body.fp || req.body.fingerprint || '').toString()); } catch (e) {}
+  res.json({ user: selfUser(u) });
+});
+
 router.GOOGLE_ENABLED = GOOGLE_ENABLED;
+router.WEBAUTHN_ENABLED = WEBAUTHN_ENABLED;
 module.exports = router;

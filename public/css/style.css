@@ -261,6 +261,20 @@ textarea.input { resize: vertical; min-height: 60px; }
 .btn-google { display: inline-flex; align-items: center; justify-content: center; gap: 10px; background: #ffffff; color: #3c4043; border: 1px solid #dadce0; font-weight: 600; }
 .btn-google:hover { background: #f6f7f9; border-color: #cfd2d6; }
 .btn-google .g-ic { flex: none; }
+/* Alternative sign-in (passkey + Google) under the login form */
+.alt-auth { margin-top: 12px; }
+.alt-auth .btn-google, .alt-auth .btn-passkey { margin-bottom: 10px; }
+.alt-auth .btn-google:last-child, .alt-auth .btn-passkey:last-child { margin-bottom: 0; }
+/* Sign in with a passkey (biometric) */
+.btn-passkey { display: inline-flex; align-items: center; justify-content: center; gap: 10px; background: var(--card); color: var(--text); border: 1px solid var(--line); font-weight: 600; }
+.btn-passkey:hover { border-color: var(--brand); color: var(--brand); }
+.btn-passkey .pk-ic { flex: none; }
+/* Passkey manager (Settings) */
+.passkey-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.passkey-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.passkey-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.passkey-name { font-weight: 600; font-size: 13.5px; }
+.passkey-del { flex: none; color: #e5484d; }
 .divider { height: 1px; background: var(--line); margin: 16px 0; }
 
 .alert {
