@@ -800,7 +800,15 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 .comments { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
 .comment { display: flex; gap: 8px; margin-bottom: 10px; }
 .comment .bubble { background: var(--hover); border-radius: 16px; padding: 8px 12px; }
-.comment .bubble .name { font-weight: 700; font-size: 13px; }
+/* The name is an inline link (only the name text navigates, not the whole bubble). */
+.comment .bubble .name { font-weight: 700; font-size: 13px; cursor: pointer; }
+.comment .bubble .name:hover { text-decoration: underline; }
+.comment .bubble .ctext, .cbubble .ctext { white-space: pre-wrap; word-wrap: break-word; }
+/* Inline comment editor (Edit button). */
+.cedit { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.cedit-area { width: 100%; resize: vertical; min-height: 40px; font: inherit; }
+.cedit-actions { display: flex; gap: 6px; }
+.cedited { color: var(--text-soft); }
 .comment-form { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
 .comment-form input {
   flex: 1; border: none; background: var(--hover); border-radius: 18px;

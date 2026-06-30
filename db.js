@@ -364,6 +364,9 @@ db.init = async function init() {
   await addColumn('posts', "audience TEXT NOT NULL DEFAULT 'friends'", 'audience');
   await addColumn('comments', 'parent_id INTEGER', 'parent_id');
   await addColumn('comments', "visibility TEXT NOT NULL DEFAULT 'visible'", 'visibility');
+  // A comment can be edited by its author; this flag shows an "edited" mark afterwards.
+  await addColumn('comments', 'edited INTEGER NOT NULL DEFAULT 0', 'edited');
+  await addColumn('comments', 'edited_at TEXT', 'edited_at');
   await db.exec('CREATE INDEX IF NOT EXISTS idx_posts_community ON posts(community_id)');
   await db.exec('CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id)');
 

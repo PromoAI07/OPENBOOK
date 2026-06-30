@@ -57,6 +57,8 @@ async function decorateComment(c, viewerId) {
     parent_id: c.parent_id || null,
     content,
     removed,
+    edited: !!c.edited,
+    edited_at: c.edited_at || null,
     created_at: c.created_at,
     author: publicUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(c.user_id)),
     score: tally.score,

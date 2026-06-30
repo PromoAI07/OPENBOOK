@@ -265,6 +265,16 @@
 
   function scrollBottom(elm) { if (elm) elm.scrollTop = elm.scrollHeight; }
 
+  // Draft persistence: remember unsent post / comment text in localStorage, so leaving a
+  // page (or an accidental click then Back) never loses what you were typing. Cleared on
+  // a successful submit. Keys: 'post' for the composer, 'comment_<postId>' for a comment.
+  const Draft = {
+    k: function (key) { return 'ob_draft_' + key; },
+    get: function (key) { try { return localStorage.getItem(this.k(key)) || ''; } catch (e) { return ''; } },
+    set: function (key, val) { try { if (val && val.trim()) localStorage.setItem(this.k(key), val); else localStorage.removeItem(this.k(key)); } catch (e) {} },
+    clear: function (key) { try { localStorage.removeItem(this.k(key)); } catch (e) {} },
+  };
+
   /* ============================ boot ============================ */
 
   async function boot() {
@@ -1781,10 +1791,12 @@
       }
     };
 
-    textArea.addEventListener('input', () => {
-      textArea.style.height = 'auto';
-      textArea.style.height = Math.min(textArea.scrollHeight, 220) + 'px';
-    });
+    // Restore an unsent draft, and keep it saved as you type.
+    const savedDraft = Draft.get('post');
+    if (savedDraft) textArea.value = savedDraft;
+    function autoGrow() { textArea.style.height = 'auto'; textArea.style.height = Math.min(textArea.scrollHeight, 220) + 'px'; }
+    textArea.addEventListener('input', () => { autoGrow(); Draft.set('post', textArea.value); });
+    if (savedDraft) autoGrow();
 
     document.getElementById('composerPost').onclick = async () => {
       const content = textArea.value.trim();
@@ -1807,6 +1819,7 @@
         container.prepend(node);
         if (window.anime) anime({ targets: node, opacity: [0, 1], translateY: [-10, 0], duration: 300, easing: 'easeOutCubic' });
         // reset the whole composer
+        Draft.clear('post');
         textArea.value = ''; textArea.style.height = 'auto'; clearBg();
         clearImage();
         selectedDoc = null; docInput.value = ''; fileChip.classList.add('hidden'); fileChip.innerHTML = '';
@@ -2073,16 +2086,50 @@
     }
   }
 
+  // Inline-edit a comment's text in place: ctextEl holds the rendered content; on a
+  // successful save it is replaced with the new text and the caller's onSaved() shows the
+  // "edited" mark. Used by both the feed comment (commentNode) and the post comment tree.
+  function inlineEditComment(c, ctextEl, onSaved) {
+    if (!ctextEl || ctextEl._editing) return;
+    ctextEl._editing = true;
+    const prevHtml = ctextEl.innerHTML;
+    const original = c.content;
+    const ed = el('<div class="cedit"><textarea class="input cedit-area" rows="2"></textarea>' +
+      '<div class="cedit-actions"><button class="btn btn-primary btn-sm cedit-save">Save</button> <button class="btn btn-sm cedit-cancel">Cancel</button></div></div>');
+    const ta = ed.querySelector('textarea');
+    ta.value = original;
+    ctextEl.innerHTML = '';
+    ctextEl.appendChild(ed);
+    ta.focus(); try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
+    function restore(html) { ctextEl._editing = false; ctextEl.innerHTML = html; }
+    ed.querySelector('.cedit-cancel').onclick = () => restore(prevHtml);
+    ed.querySelector('.cedit-save').onclick = async () => {
+      const val = ta.value.trim();
+      if (!val) { toast('Comment cannot be empty'); return; }
+      if (val === original) { restore(prevHtml); return; }
+      const save = ed.querySelector('.cedit-save'); save.disabled = true;
+      try {
+        const r = await API.editComment(c.id, val);
+        c.content = r.content; c.edited = true;
+        restore(richText(c.content));
+        if (onSaved) onSaved();
+      } catch (e) { save.disabled = false; toast(e.message); }
+    };
+  }
+
   function commentNode(c) {
     const mine = c.author.id === ME.id;
     const node = el('<div class="comment"></div>');
     node.innerHTML =
       '<span class="avatar-link" data-profile="' + c.author.id + '">' + avatar(c.author, 32) + '</span>' +
-      '<div style="flex:1;min-width:0"><div class="bubble"><div class="name" data-profile="' + c.author.id + '">' + esc(c.author.name) + verifTick(c.author) + '</div>' +
-      richText(c.content) + '</div>' +
-      '<div class="cmeta"><span data-cvote></span><span data-react></span><span class="time">' + timeAgo(c.created_at) + '</span>' +
+      // The name is an inline span (only the name text navigates to the profile), so
+      // clicking elsewhere in the bubble no longer jumps to the author's page.
+      '<div style="flex:1;min-width:0"><div class="bubble"><span class="name" data-profile="' + c.author.id + '">' + esc(c.author.name) + verifTick(c.author) + '</span>' +
+      '<div class="ctext">' + richText(c.content) + '</div></div>' +
+      '<div class="cmeta"><span data-cvote></span><span data-react></span><span class="time">' + timeAgo(c.created_at) +
+      '<span class="cedited"' + (c.edited ? '' : ' style="display:none"') + '> &#183; edited</span></span>' +
       '<span data-sum></span>' +
-      (mine ? ' <button data-delc="' + c.id + '" class="clink">Delete</button>' : '') +
+      (mine ? ' <button data-editc class="clink">Edit</button> <button data-delc class="clink">Delete</button>' : '') +
       '</div></div>';
     node.querySelectorAll('[data-profile]').forEach((x) => (x.onclick = () => go('profile', c.author.id)));
     const cvote = node.querySelector('[data-cvote]');
@@ -2095,6 +2142,10 @@
     if (delc) delc.onclick = async () => {
       try { await API.deleteComment(c.id); node.remove(); } catch (e) { toast(e.message); }
     };
+    const editc = node.querySelector('[data-editc]');
+    if (editc) editc.onclick = () => inlineEditComment(c, node.querySelector('.ctext'), function () {
+      const m = node.querySelector('.cedited'); if (m) m.style.display = '';
+    });
     return node;
   }
 
@@ -2104,6 +2155,8 @@
       '<input type="text" placeholder="Write a comment..."><button class="btn btn-soft btn-sm">Send</button></div>'
     );
     const input = form.querySelector('input');
+    input.value = Draft.get('comment_' + postId); // restore an unsent comment
+    input.addEventListener('input', () => Draft.set('comment_' + postId, input.value));
     const send = async () => {
       const content = input.value.trim();
       if (!content) return;
@@ -2111,7 +2164,7 @@
       try {
         const r = await API.addComment(postId, content);
         form.parentNode.insertBefore(commentNode(r.comment), form);
-        input.value = '';
+        input.value = ''; Draft.clear('comment_' + postId);
         postNode._post.commentCount += 1;
         renderStats(postNode);
       } catch (e) {
@@ -4157,7 +4210,9 @@
     const rcf = document.getElementById('rootCommentForm');
     rcf.innerHTML = avatar(ME, 32) + '<input type="text" placeholder="Add a comment..."><button class="btn btn-soft btn-sm">Comment</button>';
     const rin = rcf.querySelector('input');
-    const rsend = async () => { const content = rin.value.trim(); if (!content) return; rin.disabled = true; try { await API.addComment(p.id, content); rin.value = ''; loadCommentTree(p.id); } catch (e) { toast(e.message); } rin.disabled = false; };
+    rin.value = Draft.get('comment_' + p.id); // restore an unsent comment
+    rin.addEventListener('input', () => Draft.set('comment_' + p.id, rin.value));
+    const rsend = async () => { const content = rin.value.trim(); if (!content) return; rin.disabled = true; try { await API.addComment(p.id, content); rin.value = ''; Draft.clear('comment_' + p.id); loadCommentTree(p.id); } catch (e) { toast(e.message); } rin.disabled = false; };
     rcf.querySelector('button').onclick = rsend;
     rin.addEventListener('keydown', (e) => { if (e.key === 'Enter') rsend(); });
 
@@ -4203,10 +4258,11 @@
     const mine = c.author.id === ME.id;
     const canModC = (postMod || postOwner) && !mine;
     main.innerHTML =
-      '<div class="cbubble' + (c.removed ? ' cremoved' : '') + '"><span class="cname link" data-profile="' + c.author.id + '">' + esc(c.author.name) + verifTick(c.author) + '</span> <span class="ctime">' + timeAgo(c.created_at) + '</span>' +
-      '<div>' + richText(c.content) + '</div></div>' +
+      '<div class="cbubble' + (c.removed ? ' cremoved' : '') + '"><span class="cname link" data-profile="' + c.author.id + '">' + esc(c.author.name) + verifTick(c.author) + '</span> <span class="ctime">' + timeAgo(c.created_at) +
+      '<span class="cedited"' + (c.edited ? '' : ' style="display:none"') + '> &#183; edited</span></span>' +
+      '<div class="ctext">' + richText(c.content) + '</div></div>' +
       '<div class="cactions"><button class="clink" data-reply>Reply</button>' +
-      (mine ? ' <button class="clink" data-delc>Delete</button>' : ' <button class="clink" data-report="comment" data-report-id="' + c.id + '">Report</button>') +
+      (mine ? ' <button class="clink" data-editc>Edit</button> <button class="clink" data-delc>Delete</button>' : ' <button class="clink" data-report="comment" data-report-id="' + c.id + '">Report</button>') +
       (canModC ? (c.removed ? ' <button class="clink" data-modrestorec>Restore</button>' : ' <button class="clink" data-modrmc>Remove</button>') : '') +
       '</div>' +
       '<div class="creply hidden"></div>';
@@ -4232,6 +4288,10 @@
       inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
       inp.focus();
     };
+    const editc = main.querySelector('[data-editc]');
+    if (editc) editc.onclick = () => inlineEditComment(c, main.querySelector('.ctext'), function () {
+      const m = main.querySelector('.cedited'); if (m) m.style.display = '';
+    });
     const delc = main.querySelector('[data-delc]');
     if (delc) delc.onclick = async () => { try { await API.deleteComment(c.id); loadCommentTree(postId); } catch (e) { toast(e.message); } };
     const mrmc = main.querySelector('[data-modrmc]');

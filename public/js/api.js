@@ -131,6 +131,7 @@ const API = {
   comments(postId) { return this.get('/api/posts/' + postId + '/comments'); },
   addComment(postId, content, parentId) { return this.post('/api/posts/' + postId + '/comments', { content, parentId }); },
   deleteComment(id) { return this.del('/api/comments/' + id); },
+  editComment(id, content) { return this.put('/api/comments/' + id, { content }); },
 
   // Friends
   friends() { return this.get('/api/friends'); },
