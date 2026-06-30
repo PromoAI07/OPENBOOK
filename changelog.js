@@ -41,6 +41,8 @@ const CHANGELOG = [
     body: 'FIX: We made blocking complete and instant. When you block someone you now disappear from each other everywhere, not just the main feed: community and group feeds and their member lists, search results, and even notifications from before the block. A block also can never touch anyone karma now, so you can no longer vote on or react to a blocked person comment. We also added a limit so a flood of brand-new accounts cannot spam your mentions. Blocking still only changes who can reach you, never anyone standing or reach.' },
   { slug: '2026-07-01-saves-reposts-search',
     body: 'UPDATE: Five new things to make OpenBook nicer to use. Save any post to a private bookmarks list that only you can see. Repost to share a post with your own followers, with an optional comment. Search across people, communities, and posts from the top bar. Link previews turn a bare link into a titled card. And content warnings let you blur a sensitive post behind a short label, so hard topics can exist without being forced on anyone. None of these touch karma, standing, or reach.' },
+  { slug: '2026-07-01-profile-actions-layout',
+    body: 'FIX: On a profile, the action buttons (Message, Friends, Follow, and the rest) now sit in a tidy two-up grid instead of one long row, so the name and stats get their space back and no longer get squeezed. A small polish for a cleaner profile header on desktop and mobile.' },
 ];
 
 async function publishChangelog() {

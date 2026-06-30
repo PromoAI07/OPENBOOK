@@ -873,7 +873,19 @@ html[data-theme="dark"] .profile-head .pname { color: var(--text); }
    buttons never squeeze the bio). */
 .profile-head .phead-row { display: flex; align-items: flex-start; gap: 12px; }
 .profile-head .phead-id { flex: 1 1 auto; min-width: 0; }
-.profile-head .pactions { flex: none; display: flex; gap: 8px; align-items: center; }
+/* Actions sit in a compact 2-up grid (two buttons per row, wrapping) with a capped
+   width, so a long action set (Message / Friends / Follow / Share / More) never eats
+   the space the name + stats need. Grid items stretch to equal-width columns. */
+.profile-head .pactions {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
+  width: 220px;
+  max-width: 46%;
+}
+.profile-head .pactions .btn { white-space: nowrap; }
 .btn-icon { padding: 8px 11px; font-size: 16px; line-height: 1; }
 
 /* ---------- Lists / people ---------- */
@@ -1405,7 +1417,9 @@ html[data-theme="dark"] .profile-head .pname { color: var(--text); }
      not also lift on its own, or it would ride too far up. */
   .profile-head .av-wrap { margin-top: 0; }
   .profile-head .phead-row { flex-direction: column; align-items: center; width: 100%; }
-  .profile-head .pactions { justify-content: center; flex-wrap: wrap; }
+  /* On mobile the name is centered above; the 2-up action grid sits centered below it
+     at a comfortable width (the desktop 46% cap does not apply here). */
+  .profile-head .pactions { width: 100%; max-width: 320px; justify-self: center; }
 }
 @media (max-width: 520px) {
   .topbar .search { max-width: none; }

@@ -2627,9 +2627,9 @@
     let main;
     switch (data.friendStatus) {
       case 'self': main = '<button class="btn btn-soft btn-sm" id="editProfileBtn">Edit profile</button>' + visibilityBtn(u); break;
-      case 'friends': main = '<button class="btn btn-primary btn-sm" data-msg="' + u.id + '">Message</button>&nbsp;<button class="btn btn-sm" data-unfriend="' + u.id + '">Friends &#10003;</button>'; break;
+      case 'friends': main = '<button class="btn btn-primary btn-sm" data-msg="' + u.id + '">Message</button><button class="btn btn-sm" data-unfriend="' + u.id + '">Friends &#10003;</button>'; break;
       case 'requested': main = '<button class="btn btn-sm" data-unfriend="' + u.id + '">Cancel request</button>'; break;
-      case 'incoming': main = '<button class="btn btn-primary btn-sm" data-accept="' + u.id + '">Confirm request</button>&nbsp;<button class="btn btn-sm" data-decline="' + u.id + '">Delete</button>'; break;
+      case 'incoming': main = '<button class="btn btn-primary btn-sm" data-accept="' + u.id + '">Confirm request</button><button class="btn btn-sm" data-decline="' + u.id + '">Delete</button>'; break;
       default: main = '<button class="btn btn-primary btn-sm" data-addfriend="' + u.id + '">Add friend</button>';
     }
     // A "More" menu (Mute / Block) on everyone else's profile.
