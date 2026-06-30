@@ -46,6 +46,7 @@ router.get('/suggestions', requireAuth, async (req, res) => {
     .prepare(
       `SELECT * FROM users
        WHERE id != ?
+         AND email NOT IN ('ghost@deleted.openbook.local', 'system@openbook.local')
          AND id NOT IN (
            SELECT CASE WHEN requester_id = ? THEN addressee_id ELSE requester_id END
            FROM friendships
@@ -62,8 +63,14 @@ router.post('/request/:id', requireAuth, async (req, res) => {
   const target = Number(req.params.id);
   if (target === req.user.id) return res.status(400).json({ error: 'You cannot add yourself' });
 
-  const targetUser = await db.prepare('SELECT id FROM users WHERE id = ?').get(target);
+  const targetUser = await db.prepare('SELECT id, email FROM users WHERE id = ?').get(target);
   if (!targetUser) return res.status(404).json({ error: 'User not found' });
+  // The automated OpenBook account and the [deleted] ghost are not people: you follow
+  // OpenBook, you do not friend it, and the ghost is internal. Block the request so it
+  // never sits pending forever.
+  if (targetUser.email === 'ghost@deleted.openbook.local' || targetUser.email === 'system@openbook.local') {
+    return res.status(400).json({ error: 'This is an automated OpenBook account, not a person. You can follow it instead.' });
+  }
 
   const existing = await db
     .prepare(

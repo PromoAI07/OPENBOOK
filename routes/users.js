@@ -127,14 +127,17 @@ async function nextNameChangeAt(userId, createdAt) {
 router.get('/', requireAuth, async (req, res) => {
   const q = (req.query.q || '').trim();
   let rows;
+  // The internal "[deleted]" ghost (the tombstone placeholder for erased accounts)
+  // is never a real person, so it must never surface in search or the browse list.
+  const GHOST = 'ghost@deleted.openbook.local';
   if (q) {
     rows = await db
-      .prepare('SELECT * FROM users WHERE name LIKE ? AND id != ? ORDER BY name LIMIT 30')
-      .all('%' + q + '%', req.user.id);
+      .prepare("SELECT * FROM users WHERE name LIKE ? AND id != ? AND email != ? ORDER BY name LIMIT 30")
+      .all('%' + q + '%', req.user.id, GHOST);
   } else {
     rows = await db
-      .prepare('SELECT * FROM users WHERE id != ? ORDER BY created_at DESC LIMIT 30')
-      .all(req.user.id);
+      .prepare("SELECT * FROM users WHERE id != ? AND email != ? ORDER BY created_at DESC LIMIT 30")
+      .all(req.user.id, GHOST);
   }
   res.json({ users: rows.map(publicUser) });
 });
