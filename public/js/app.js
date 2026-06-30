@@ -2118,6 +2118,11 @@
   }
 
   function commentNode(c) {
+    // A comment by someone you blocked or muted is tombstoned (no name, no content).
+    if (c.hidden) {
+      return el('<div class="comment"><span class="avatar-fallback" style="width:32px;height:32px;flex:none;font-size:15px">&#128683;</span>' +
+        '<div style="flex:1;min-width:0"><div class="bubble"><span class="shint">Hidden because you blocked or muted this person.</span></div></div></div>');
+    }
     const mine = c.author.id === ME.id;
     const node = el('<div class="comment"></div>');
     node.innerHTML =
@@ -2469,7 +2474,10 @@
       case 'incoming': main = '<button class="btn btn-primary btn-sm" data-accept="' + u.id + '">Confirm request</button>&nbsp;<button class="btn btn-sm" data-decline="' + u.id + '">Delete</button>'; break;
       default: main = '<button class="btn btn-primary btn-sm" data-addfriend="' + u.id + '">Add friend</button>';
     }
-    return main + followBtn(data) + share;
+    // A "More" menu (Mute / Block) on everyone else's profile.
+    const more = data.friendStatus === 'self' ? '' :
+      ' <button class="btn btn-icon" data-more="' + u.id + '" title="More options" aria-label="More options">&#8943;</button>';
+    return main + followBtn(data) + share + more;
   }
 
   // Follow / Following toggle, shown on everyone's profile except your own.
@@ -2504,16 +2512,25 @@
   // private and the viewer is not allowed in: name + photo + an explanation (and an
   // Add friend action for the friends-only case).
   function renderLockedProfile(u, data) {
+    const isBlockedView = data.locked === 'blocked';
     const isPrivate = data.locked === 'private';
-    const msg = isPrivate
-      ? esc(u.name) + ' keeps this profile private. Only they can see it.'
-      : esc(u.name) + ' shares this profile with friends only. Add them as a friend to see their profile and posts.';
-    let act = '';
-    if (!isPrivate) {
+    let msg = '', act = '';
+    if (isBlockedView) {
+      if (data.iBlocked) {
+        msg = 'You blocked ' + esc(u.name) + '. While blocked, you will not see each other and cannot message, mention, or follow one another.';
+        act = '<button class="btn btn-primary" data-unblock="' + u.id + '">Unblock</button>';
+      } else {
+        msg = 'This profile is not available.';
+      }
+    } else if (isPrivate) {
+      msg = esc(u.name) + ' keeps this profile private. Only they can see it.';
+    } else {
+      msg = esc(u.name) + ' shares this profile with friends only. Add them as a friend to see their profile and posts.';
       if (data.friendStatus === 'none') act = '<button class="btn btn-primary" data-addfriend="' + u.id + '">Add friend</button>';
       else if (data.friendStatus === 'requested') act = '<span class="shint">Friend request sent.</span>';
       else if (data.friendStatus === 'incoming') act = '<button class="btn btn-primary" data-accept="' + u.id + '">Confirm friend request</button>';
     }
+    const lockIcon = isBlockedView ? '&#128683;' : (isPrivate ? '&#128274;' : '&#128101;');
     view.innerHTML =
       '<div class="card card-pad-0">' +
       '<div class="profile-cover"></div>' +
@@ -2527,7 +2544,7 @@
       '</div><div class="pactions"><button class="btn btn-icon" data-share-profile="' + esc((u.username || u.id) + '') + '" title="Share profile" aria-label="Share profile">&#128279;</button></div></div></div>' +
       '</div></div>' +
       '<div class="card"><div class="empty" style="padding:40px 20px">' +
-      '<div style="font-size:34px;margin-bottom:10px">' + (isPrivate ? '&#128274;' : '&#128101;') + '</div>' +
+      '<div style="font-size:34px;margin-bottom:10px">' + lockIcon + '</div>' +
       '<div style="max-width:380px;margin:0 auto;line-height:1.5">' + msg + '</div>' +
       (act ? '<div style="margin-top:16px">' + act + '</div>' : '') +
       '</div></div>';
@@ -2643,10 +2660,67 @@
     root.querySelectorAll('[data-decline]').forEach((b) => (b.onclick = async () => {
       try { await API.declineRequest(u.id); renderProfile(u.id); refreshBadges(); } catch (e) { toast(e.message); }
     }));
+    root.querySelectorAll('[data-unblock]').forEach((b) => (b.onclick = async () => {
+      b.disabled = true;
+      try { await API.unblockUser(u.id); toast('Unblocked'); renderProfile(u.id); } catch (e) { toast(e.message); b.disabled = false; }
+    }));
+    root.querySelectorAll('[data-more]').forEach((b) => (b.onclick = () => openProfileMore(data)));
     const edit = root.querySelector('#editProfileBtn');
     if (edit) edit.onclick = openEditProfile;
     const vis = root.querySelector('#visBtn');
     if (vis) vis.onclick = () => openVisibilityModal(data.user.visibility);
+  }
+
+  // The "More" menu on another person's profile: Mute (soft hide) or Block (full cutoff).
+  function openProfileMore(data) {
+    const u = data.user;
+    const muted = !!data.mutedByMe;
+    const m = modal(
+      '<div class="mh"><h3>' + esc(u.name) + '</h3></div><div class="mc">' +
+      '<button class="btn btn-soft btn-block" id="pmMute">' + (muted ? 'Unmute' : 'Mute') + '</button>' +
+      '<div class="shint" style="font-size:12px;margin:4px 0 14px;line-height:1.5">' +
+        (muted ? 'Show their posts in your feed again.' : 'Hide their posts from your feed. They are not notified and can still see you.') + '</div>' +
+      '<button class="btn btn-soft btn-block" id="pmBlock" style="color:#e5484d">Block</button>' +
+      '<div class="shint" style="font-size:12px;margin-top:4px;line-height:1.5">Blocking removes any friendship and follows, and stops messages, mentions, and their posts in your feed, both ways. They are not told.</div>' +
+      '</div>'
+    );
+    m.q('#pmMute').onclick = async () => {
+      try {
+        if (muted) { await API.unmuteUser(u.id); toast('Unmuted'); } else { await API.muteUser(u.id); toast('Muted'); }
+        m.close(); renderProfile(u.id);
+      } catch (e) { toast(e.message); }
+    };
+    m.q('#pmBlock').onclick = async () => {
+      if (!window.confirm('Block ' + u.name + '? This removes any friendship and follows and cuts off contact both ways.')) return;
+      try { await API.blockUser(u.id); toast('Blocked'); m.close(); renderProfile(u.id); } catch (e) { toast(e.message); }
+    };
+  }
+
+  // Populate the Settings "Blocked accounts" / "Muted accounts" list, each row with an
+  // Unblock / Unmute button.
+  async function loadRelList(m, sel, kind) {
+    const host = m.q(sel); if (!host) return;
+    const empty = kind === 'block' ? 'You have not blocked anyone.' : 'You have not muted anyone.';
+    try {
+      const r = kind === 'block' ? await API.listBlocks() : await API.listMutes();
+      const users = r.users || [];
+      if (!users.length) { host.innerHTML = '<div class="shint" style="font-size:12px">' + empty + '</div>'; return; }
+      host.innerHTML = '';
+      users.forEach((u) => {
+        const row = el('<div class="rel-row">' + avatar(u, 30) +
+          '<span class="rel-name">' + esc(u.name) + (u.username ? ' <span class="shint">@' + esc(u.username) + '</span>' : '') + '</span>' +
+          '<button class="btn btn-sm">' + (kind === 'block' ? 'Unblock' : 'Unmute') + '</button></div>');
+        row.querySelector('button').onclick = async (e) => {
+          const btn = e.currentTarget; btn.disabled = true;
+          try {
+            if (kind === 'block') await API.unblockUser(u.id); else await API.unmuteUser(u.id);
+            row.remove();
+            if (!host.querySelector('.rel-row')) host.innerHTML = '<div class="shint" style="font-size:12px">' + empty + '</div>';
+          } catch (err) { btn.disabled = false; toast(err.message); }
+        };
+        host.appendChild(row);
+      });
+    } catch (e) { host.innerHTML = ''; }
   }
 
   function wireProfilePhotoEdits() {
@@ -2762,6 +2836,16 @@
          '</div>')
         : '') +
       '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +
+      '<div class="shint" style="font-size:12px;margin-bottom:8px">Safety</div>' +
+      '<label class="shint" style="font-size:13px;display:block;margin-bottom:4px">Who can @mention you</label>' +
+      '<select class="input" id="epMentionPref" style="margin-bottom:14px">' +
+        '<option value="all">Everyone</option><option value="friends">Friends only</option><option value="none">No one</option></select>' +
+      '<div class="shint" style="font-size:12px;margin-bottom:6px">Blocked accounts</div>' +
+      '<div id="epBlockedList" class="rel-list"><div class="shint" style="font-size:12px">Loading...</div></div>' +
+      '<div class="shint" style="font-size:12px;margin:12px 0 6px">Muted accounts</div>' +
+      '<div id="epMutedList" class="rel-list"><div class="shint" style="font-size:12px">Loading...</div></div>' +
+      '</div>' +
+      '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#2a2a2a)">' +
       '<div class="shint" style="font-size:12px;margin-bottom:6px">Your data</div>' +
       '<p class="shint" style="font-size:12px;line-height:1.5;margin:0 0 8px">Download everything OpenBook holds about you. Your data is yours, and it is never sold.</p>' +
       '<button class="btn btn-soft btn-block" id="epExportJson" style="margin-bottom:8px">Download my data (JSON)</button>' +
@@ -2866,6 +2950,15 @@
       };
       loadPasskeys();
     }
+    // Safety: who can @mention you, plus your blocked + muted lists.
+    var _mp = m.q('#epMentionPref');
+    if (_mp) {
+      _mp.value = ME.mentionPref || 'all';
+      _mp.onchange = async () => { try { const r = await API.setMentionPref(_mp.value); ME.mentionPref = r.mentionPref; toast('Saved'); } catch (e) { toast(e.message); } };
+    }
+    loadRelList(m, '#epBlockedList', 'block');
+    loadRelList(m, '#epMutedList', 'mute');
+
     // Your data: instant JSON download, or a background ZIP (data + media).
     m.q('#epExportJson').onclick = () => { window.location.href = '/api/users/me/export.json'; };
     m.q('#epExportZip').onclick = async () => {
@@ -4252,6 +4345,13 @@
 
   function commentTreeNode(c, postId, depth, render) {
     const node = el('<div class="ctree"></div>');
+    // Tombstone a comment by someone you blocked or muted, but keep its replies.
+    if (c.hidden) {
+      node.appendChild(el('<div class="cmain"><div class="cbubble cremoved"><span class="shint">Hidden because you blocked or muted this person.</span></div></div>'));
+      const kids = render(c.id, depth + 1);
+      if (kids.childNodes.length) { const w = el('<div class="cchildren"></div>'); w.appendChild(kids); node.appendChild(w); }
+      return node;
+    }
     const row = el('<div class="crow"></div>');
     row.appendChild(voteControl('comment', c.id, c.score, c.myVote));
     const main = el('<div class="cmain"></div>');

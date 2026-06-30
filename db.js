@@ -957,6 +957,36 @@ db.init = async function init() {
     CREATE INDEX IF NOT EXISTS idx_follows_followee ON follows(followee_id);
   `);
 
+  // --- Block + mute (safety) ---
+  // blocks: a FULL two-way cutoff. When A blocks B, neither can DM, friend-request,
+  // follow, or mention-notify the other, each other's posts are hidden from both feeds,
+  // and any existing friendship + follows between them are severed (done in relations.js).
+  // mutes: a SOFT one-way hide. When A mutes B, B's posts drop out of A's feeds only; B is
+  // not cut off and is not told. mention_pref controls who may @mention-notify you.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS blocks (
+      blocker_id INTEGER NOT NULL,
+      blocked_id INTEGER NOT NULL,
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (blocker_id, blocked_id),
+      FOREIGN KEY (blocker_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (blocked_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_blocks_blocked ON blocks(blocked_id);
+
+    CREATE TABLE IF NOT EXISTS mutes (
+      muter_id   INTEGER NOT NULL,
+      muted_id   INTEGER NOT NULL,
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (muter_id, muted_id),
+      FOREIGN KEY (muter_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (muted_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_mutes_muter ON mutes(muter_id);
+  `);
+  // Who may send you a @mention notification: 'all' (default), 'friends', or 'none'.
+  await addColumn('users', "mention_pref TEXT NOT NULL DEFAULT 'all'", 'mention_pref');
+
   // --- Illegal-content blocklist (SPEC 12): SHA-256 hashes of media confirmed
   // illegal. Every upload is checked against this BEFORE it is stored, and the
   // list grows when a platform admin confirms an 'illegal' report. algo lets a

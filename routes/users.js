@@ -505,6 +505,19 @@ router.get('/:id', requireAuth, async (req, res) => {
     }
   }
 
+  // A block (either direction) hides the whole profile. Distinguish "I blocked them"
+  // (the UI offers Unblock) from "they blocked me" (a neutral "not available").
+  const rel = require('../relations');
+  if (friendStatus !== 'self' && await rel.isBlocked(req.user.id, id)) {
+    return res.json({
+      user: Object.assign(publicUser(user), { bio: '', cover: '' }),
+      locked: 'blocked', iBlocked: await rel.iBlocked(req.user.id, id),
+      friendStatus: 'none', friendsCount: 0, postsCount: 0, followersCount: 0, followingCount: 0,
+      isFollowing: false, nameHistory: [], nextNameChange: null,
+    });
+  }
+  const mutedByMe = friendStatus !== 'self' && await rel.iMuted(req.user.id, id);
+
   // Profile visibility gate: the owner always sees their own profile; others see
   // it only if it is public, or friends-only and they are friends. Otherwise they
   // get a minimal locked stub (name + avatar, no bio, no cover) and no posts.
@@ -526,12 +539,15 @@ router.get('/:id', requireAuth, async (req, res) => {
   // Only the owner is told when they may next change their name.
   const nextNameChange = id === req.user.id ? await nextNameChangeAt(id, user.created_at) : null;
 
-  res.json({ user: publicUser(user), postsCount, friendsCount, followersCount, followingCount, friendStatus, isFollowing, nameHistory, nextNameChange });
+  res.json({ user: publicUser(user), postsCount, friendsCount, followersCount, followingCount, friendStatus, isFollowing, mutedByMe, nameHistory, nextNameChange });
 });
 
-// A user's accepted friends.
+// A user's accepted friends. Gated like the profile: a block, or a private / friends-only
+// profile, hides the social graph from anyone who is not the owner (this list used to
+// leak it regardless of profile visibility).
 router.get('/:id/friends', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
+  if (id !== req.user.id && !(await require('../relations').canSeeSocialGraph(req.user.id, id))) return res.json({ users: [], locked: true });
   const rows = await db
     .prepare(
       `SELECT u.* FROM friendships f

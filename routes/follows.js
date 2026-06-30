@@ -17,6 +17,10 @@ router.post('/:id', requireAuth, async (req, res) => {
   if (!(await db.prepare('SELECT 1 FROM users WHERE id = ?').get(target))) {
     return res.status(404).json({ error: 'User not found' });
   }
+  // A block (in either direction) refuses the follow.
+  if (await require('../relations').isBlocked(req.user.id, target)) {
+    return res.status(403).json({ error: 'You cannot follow this person.' });
+  }
   // INSERT OR IGNORE makes a repeat follow a no-op (the PK is the pair), so we
   // only notify when a NEW edge is actually created.
   const info = await db
@@ -33,9 +37,11 @@ router.delete('/:id', requireAuth, async (req, res) => {
   res.json({ ok: true, following: false });
 });
 
-// Who follows this user.
+// Who follows this user. Gated like the profile (block / private / friends-only) so the
+// follower graph is not exposed past the profile-visibility rules.
 router.get('/:id/followers', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
+  if (id !== req.user.id && !(await require('../relations').canSeeSocialGraph(req.user.id, id))) return res.json({ users: [], locked: true });
   const rows = await db
     .prepare('SELECT u.* FROM follows f JOIN users u ON u.id = f.follower_id WHERE f.followee_id = ? ORDER BY f.created_at DESC LIMIT 200')
     .all(id);
@@ -45,6 +51,7 @@ router.get('/:id/followers', requireAuth, async (req, res) => {
 // Who this user follows.
 router.get('/:id/following', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
+  if (id !== req.user.id && !(await require('../relations').canSeeSocialGraph(req.user.id, id))) return res.json({ users: [], locked: true });
   const rows = await db
     .prepare('SELECT u.* FROM follows f JOIN users u ON u.id = f.followee_id WHERE f.follower_id = ? ORDER BY f.created_at DESC LIMIT 200')
     .all(id);

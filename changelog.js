@@ -35,6 +35,8 @@ const CHANGELOG = [
     body: 'UPDATE: You can now @mention people. Type @username in a post or comment and it turns into a clickable link to their profile, and they get notified. Use @friends to ping your friends, or @everyone to reach your friends and followers. Your privacy is respected: a friends-only post never notifies people who cannot see it. Two more: adding a friend now follows them automatically once they accept, and the Add friend and Follow buttons are the same size now.' },
   { slug: '2026-06-30-comments-and-drafts',
     body: 'FIX: Comments got some love. You can now edit your own comments (an edited mark then shows), clicking a comment no longer jumps you to the author profile by accident (only their name does), and we now remember an unsent post or comment for you, so if you navigate away by mistake and come back, what you were typing is still there.' },
+  { slug: '2026-06-30-block-mute',
+    body: 'UPDATE: You are in control of who can reach you. Open the More menu on anyone profile to Block them (a full two-way cutoff: no messages, mentions, follows, comments, or seeing each other anywhere, and any friendship is removed) or Mute them (quietly hide their posts from your feed without blocking). In Settings you can also choose who can @mention you: everyone, friends only, or no one, and manage your blocked and muted lists. Blocking and muting are private and never affect anyone karma, standing, or reach.' },
 ];
 
 async function publishChangelog() {

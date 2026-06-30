@@ -68,10 +68,12 @@ async function processMentions(authorId, text, postId, opts) {
     if (!parsed.names.length && !parsed.friends && !parsed.everyone) return 0;
     const isPublic = !opts || opts.audience === undefined || opts.audience === 'public';
 
-    // The author's accepted friends: needed for @friends/@everyone, and to restrict
-    // recipients on a non-public post to people who can actually see it.
+    // The author's accepted friends: used for @friends/@everyone, to restrict recipients
+    // on a non-public post to people who can see it, and to honor a recipient's
+    // "friends only" mention preference (friendship is mutual, so author-is-my-friend
+    // equals recipient-is-author's-friend).
     const friendIds = new Set();
-    if (parsed.friends || parsed.everyone || !isPublic) {
+    {
       const friends = await db.prepare(
         "SELECT CASE WHEN requester_id = ? THEN addressee_id ELSE requester_id END AS uid " +
         "FROM friendships WHERE status = 'accepted' AND (requester_id = ? OR addressee_id = ?)"
@@ -100,6 +102,25 @@ async function processMentions(authorId, text, postId, opts) {
     }
 
     recipients.delete(authorId); // never notify yourself
+
+    // Safety: never notify across a block (either direction).
+    if (recipients.size) {
+      const blocked = await db.prepare(
+        'SELECT blocked_id AS id FROM blocks WHERE blocker_id = ? UNION SELECT blocker_id AS id FROM blocks WHERE blocked_id = ?'
+      ).all(authorId, authorId);
+      blocked.forEach((r) => recipients.delete(r.id));
+    }
+    // Honor each recipient's "who can @mention me" preference (all / friends / none).
+    if (recipients.size) {
+      const rids = [...recipients];
+      const ph = rids.map(() => '?').join(',');
+      const prefs = await db.prepare('SELECT id, mention_pref FROM users WHERE id IN (' + ph + ')').all(...rids);
+      prefs.forEach((u) => {
+        const pref = u.mention_pref || 'all';
+        if (pref === 'none' || (pref === 'friends' && !friendIds.has(u.id))) recipients.delete(u.id);
+      });
+    }
+
     if (!recipients.size) return 0;
 
     const budget = budgetRemaining(authorId);

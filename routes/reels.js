@@ -64,6 +64,9 @@ router.post('/:id/like', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   const reel = await db.prepare('SELECT * FROM reels WHERE id = ?').get(id);
   if (!reel) return res.status(404).json({ error: 'Reel not found' });
+  if (reel.user_id !== req.user.id && await require('../relations').isBlocked(req.user.id, reel.user_id)) {
+    return res.status(403).json({ error: 'You cannot react to this.' });
+  }
   const existing = await db
     .prepare("SELECT 1 FROM reactions WHERE user_id = ? AND target_type = 'reel' AND target_id = ?")
     .get(req.user.id, id);
@@ -108,6 +111,9 @@ router.post('/:id/comments', requireAuth, trustRateLimit('comment'), async (req,
   if (!content) return res.status(400).json({ error: 'Comment cannot be empty' });
   const reel = await db.prepare('SELECT * FROM reels WHERE id = ?').get(id);
   if (!reel) return res.status(404).json({ error: 'Reel not found' });
+  if (reel.user_id !== req.user.id && await require('../relations').isBlocked(req.user.id, reel.user_id)) {
+    return res.status(403).json({ error: 'You cannot comment on this.' });
+  }
   const info = await db
     .prepare('INSERT INTO reel_comments (reel_id, user_id, content) VALUES (?, ?, ?)')
     .run(id, req.user.id, content);

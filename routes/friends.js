@@ -52,9 +52,11 @@ router.get('/suggestions', requireAuth, async (req, res) => {
            FROM friendships
            WHERE requester_id = ? OR addressee_id = ?
          )
+         AND id NOT IN (SELECT blocked_id FROM blocks WHERE blocker_id = ?)
+         AND id NOT IN (SELECT blocker_id FROM blocks WHERE blocked_id = ?)
        ORDER BY RANDOM() LIMIT 12`
     )
-    .all(uid, uid, uid, uid);
+    .all(uid, uid, uid, uid, uid, uid);
   res.json({ users: rows.map(publicUser) });
 });
 
@@ -70,6 +72,10 @@ router.post('/request/:id', requireAuth, async (req, res) => {
   // never sits pending forever.
   if (targetUser.email === 'ghost@deleted.openbook.local' || targetUser.email === 'system@openbook.local') {
     return res.status(400).json({ error: 'This is an automated OpenBook account, not a person. You can follow it instead.' });
+  }
+  // A block (in either direction) refuses the friend request.
+  if (await require('../relations').isBlocked(req.user.id, target)) {
+    return res.status(403).json({ error: 'You cannot add this person.' });
   }
 
   const existing = await db

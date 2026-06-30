@@ -78,6 +78,14 @@ const API = {
   // Users
   searchUsers(q) { return this.get('/api/users?q=' + encodeURIComponent(q || '')); },
   officialAccount() { return this.get('/api/users/official'); },
+  // Safety: block (full cutoff), mute (soft hide), and the @mention preference.
+  blockUser(id) { return this.post('/api/relations/block/' + id); },
+  unblockUser(id) { return this.del('/api/relations/block/' + id); },
+  listBlocks() { return this.get('/api/relations/blocks'); },
+  muteUser(id) { return this.post('/api/relations/mute/' + id); },
+  unmuteUser(id) { return this.del('/api/relations/mute/' + id); },
+  listMutes() { return this.get('/api/relations/mutes'); },
+  setMentionPref(pref) { return this.put('/api/relations/mention-pref', { pref }); },
   getProfile(id) { return this.get('/api/users/' + id); },
   updateProfile(name, bio, accentColor, username, profileTheme) { return this.put('/api/users/me', { name, bio, accentColor, username, profileTheme }); },
   setVisibility(visibility) { return this.put('/api/users/me/visibility', { visibility }); },

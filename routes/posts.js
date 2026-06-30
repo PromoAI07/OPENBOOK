@@ -93,7 +93,8 @@ router.get('/feed', requireAuth, async (req, res) => {
        LIMIT 100`
     )
     .all(uid, uid, uid, uid);
-  res.json({ posts: await decoratePosts(rows, uid) });
+  const hidden = await require('../relations').feedHiddenIds(uid);
+  res.json({ posts: (await decoratePosts(rows, uid)).filter((p) => p.author.id === uid || !hidden.has(p.author.id)) });
 });
 
 // Combined home feed (SPEC section 8): blends your network's personal posts
@@ -164,7 +165,9 @@ router.get('/feed/home', requireAuth, async (req, res) => {
   // posts (no obvious tell). Quarantined authors stay but are downranked in
   // rankPosts. SHADOW_FLOOR mirrors trust.js reachFromStanding's floor (0.05).
   const SHADOW_FLOOR = 0.05;
-  const visible = decorated.filter((p) => p.author.id === uid || reachOf(p) > SHADOW_FLOOR);
+  // Hide posts from anyone the viewer blocked (or who blocked them) or muted.
+  const hidden = await require('../relations').feedHiddenIds(uid);
+  const visible = decorated.filter((p) => p.author.id === uid || (reachOf(p) > SHADOW_FLOOR && !hidden.has(p.author.id)));
 
   const sort = ['hot', 'new', 'top'].indexOf(req.query.sort) >= 0 ? req.query.sort : 'hot';
   const window = req.query.t || 'all';
@@ -207,7 +210,9 @@ router.get('/feed/discover', requireAuth, async (req, res) => {
   const reachOf = await buildReachOf(decorated);
 
   const SHADOW_FLOOR = 0.05;
-  const visible = decorated.filter((p) => p.author.id === uid || reachOf(p) > SHADOW_FLOOR);
+  // Hide posts from anyone the viewer blocked (or who blocked them) or muted.
+  const hidden = await require('../relations').feedHiddenIds(uid);
+  const visible = decorated.filter((p) => p.author.id === uid || (reachOf(p) > SHADOW_FLOOR && !hidden.has(p.author.id)));
 
   const sort = ['hot', 'new', 'top'].indexOf(req.query.sort) >= 0 ? req.query.sort : 'hot';
   const window = req.query.t || 'all';
@@ -220,6 +225,10 @@ router.get('/feed/discover', requireAuth, async (req, res) => {
 // stranger can see public posts on a profile, matching the public Discover feed.)
 router.get('/user/:id', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
+  // A block (either direction) hides the wall entirely.
+  if (id !== req.user.id && await require('../relations').isBlocked(req.user.id, id)) {
+    return res.json({ posts: [], locked: true });
+  }
   const friend = await areFriends(req.user.id, id); // also true when viewing yourself
   // Profile visibility gate (mirrors the profile route): a private profile shows
   // no wall to anyone but the owner; a friends-only profile shows none to non-friends.
@@ -402,7 +411,18 @@ router.get('/:id/comments', requireAuth, async (req, res) => {
   const rows = await db
     .prepare('SELECT * FROM comments WHERE post_id = ? ORDER BY created_at ASC, id ASC')
     .all(postId);
-  res.json({ comments: await Promise.all(rows.map((c) => decorateComment(c, req.user.id))) });
+  // Tombstone comments by anyone the viewer blocked or muted (keep the node so reply
+  // chains stay intact, but never show that person's name or content to the viewer).
+  const hidden = await require('../relations').feedHiddenIds(req.user.id);
+  const comments = await Promise.all(rows.map(async (c) => {
+    const dc = await decorateComment(c, req.user.id);
+    if (c.user_id !== req.user.id && hidden.has(c.user_id)) {
+      dc.hidden = true; dc.content = '';
+      dc.author = { id: 0, name: '', username: '' }; // do not leak the blocked person's identity
+    }
+    return dc;
+  }));
+  res.json({ comments });
 });
 
 // Add a comment (optionally a reply to another comment via parent_id).

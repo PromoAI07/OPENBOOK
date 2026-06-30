@@ -87,6 +87,11 @@ function initSockets(io) {
           if (typeof ack === 'function') ack({ error: 'User not found' });
           return;
         }
+        // A block (in either direction) cuts off direct messages.
+        if (await require('./relations').isBlocked(user.id, to)) {
+          if (typeof ack === 'function') ack({ error: 'You cannot message this person.' });
+          return;
+        }
 
         const info = await db
           .prepare('INSERT INTO messages (sender_id, recipient_id, content) VALUES (?, ?, ?)')
@@ -168,11 +173,13 @@ function initSockets(io) {
       }
     });
 
-    // Lightweight typing indicator.
-    socket.on('typing', (data) => {
+    // Lightweight typing indicator (suppressed across a block).
+    socket.on('typing', async (data) => {
       try {
         const to = Number(data && data.to);
-        if (to) io.to('user:' + to).emit('typing', { from: user.id });
+        if (!to) return;
+        if (await require('./relations').isBlocked(user.id, to)) return;
+        io.to('user:' + to).emit('typing', { from: user.id });
       } catch (e) {
         console.error('[socket typing]', e.message);
       }

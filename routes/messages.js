@@ -11,13 +11,17 @@ const router = express.Router();
 // One row per person you have chatted with, newest conversation first.
 router.get('/conversations', requireAuth, async (req, res) => {
   const uid = req.user.id;
-  const partners = await db
+  const allPartners = await db
     .prepare(
       `SELECT DISTINCT CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END AS pid
        FROM messages
        WHERE sender_id = ? OR recipient_id = ?`
     )
     .all(uid, uid, uid);
+  // Hide anyone in a block relationship with you from the conversation list.
+  const rel = require('../relations');
+  const partners = [];
+  for (const p of allPartners) { if (!(await rel.isBlocked(uid, p.pid))) partners.push(p); }
 
   const conversations = await Promise.all(partners.map(async (p) => {
     const last = await db
@@ -62,6 +66,10 @@ router.get('/:userId', requireAuth, async (req, res) => {
   const other = Number(req.params.userId);
   const partner = await db.prepare('SELECT * FROM users WHERE id = ?').get(other);
   if (!partner) return res.status(404).json({ error: 'User not found' });
+  // A block (either direction) closes the conversation entirely.
+  if (await require('../relations').isBlocked(uid, other)) {
+    return res.status(403).json({ error: 'You cannot view this conversation.' });
+  }
 
   const rows = await db
     .prepare(

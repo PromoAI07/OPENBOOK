@@ -21,6 +21,10 @@ function setIO(io) {
 async function notify(userId, actorId, type, postId = null) {
   if (userId === actorId) return; // never notify yourself
   try {
+    // Never ring a bell across a block (either direction). This single guard covers
+    // EVERY notify caller (comments, reactions, votes, replies, mentions, follows...),
+    // so a blocked person can never reach the blocker's notification tray.
+    if (await require('./relations').isBlocked(userId, actorId)) return;
     await db.prepare(
       'INSERT INTO notifications (user_id, actor_id, type, post_id) VALUES (?, ?, ?, ?)'
     ).run(userId, actorId, type, postId);

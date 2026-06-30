@@ -34,7 +34,15 @@ async function isCommunityBanned(viewerId, communityId) {
   return !!(await db.prepare('SELECT 1 FROM community_bans WHERE community_id = ? AND user_id = ?').get(communityId, viewerId));
 }
 
+// A block (either direction) hides the author's content from the viewer and refuses
+// interaction with it. Lives here so every post view + interaction surface inherits it.
+async function blockedFromAuthor(viewerId, post) {
+  if (!post || post.user_id === viewerId) return false;
+  return require('./relations').isBlocked(viewerId, post.user_id);
+}
+
 async function canViewPost(viewerId, post) {
+  if (await blockedFromAuthor(viewerId, post)) return false;
   if (post.community_id) {
     const c = await db.prepare('SELECT privacy FROM communities WHERE id = ?').get(post.community_id);
     if (!c) return false;
@@ -55,6 +63,7 @@ async function canInteractPost(viewerId, post) {
   // Removed posts take no new interaction at all. (Locks block new COMMENTS only,
   // not votes/reactions, so the lock check lives in the comment route, not here.)
   if (post.visibility && post.visibility !== 'visible') return false;
+  if (await blockedFromAuthor(viewerId, post)) return false; // block: no comment/react/vote
   if (post.community_id) {
     const c = await db.prepare('SELECT privacy FROM communities WHERE id = ?').get(post.community_id);
     if (!c) return false;

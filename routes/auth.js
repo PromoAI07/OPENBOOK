@@ -117,6 +117,7 @@ function selfUser(u) {
     emailVerified: !!u.email_verified,
     isAdmin: !!u.is_admin,
     googleLinked: !!u.google_id, // whether a Google account is connected
+    mentionPref: u.mention_pref || 'all', // who can @mention-notify you
   });
 }
 
