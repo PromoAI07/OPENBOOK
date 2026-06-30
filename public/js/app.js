@@ -6,6 +6,7 @@
 (function () {
   let ME = null;
   let CONFIG = {}; // public server config (/api/config): turnstile key, unverified-delete state
+  let composerMenuCloserAdded = false; // the composer "Add" menu outside-click closer is global, added once
   let currentView = 'feed';
   // SPA history: each forward go() pushes a real browser history entry so Back and
   // Forward walk the views you actually visited. These flags coordinate that
@@ -93,6 +94,11 @@
     size = size || 40;
     const dim = 'width:' + size + 'px;height:' + size + 'px;';
     const gold = (user && user.founder) ? ' av-gold' : ''; // golden ring for the founder
+    // The official OpenBook account always shows the brand "O" mark, so it reads as
+    // genuinely official everywhere it appears (feed, profile, messages, comments).
+    if (user && user.official) {
+      return '<span class="avatar avatar-official" style="' + dim + 'font-size:' + Math.round(size * 0.5) + 'px">O</span>';
+    }
     if (user && user.avatar) {
       const pos = user.avatarPos ? 'object-position:' + esc(user.avatarPos) + ';' : '';
       return '<img class="avatar' + gold + '" style="' + dim + pos + '" src="' + esc(user.avatar) + '" alt="">';
@@ -156,9 +162,16 @@
         '</title><path d="M12 1.5l2.4 1.8 3 .1 .9 2.8 2.4 1.7-.9 2.8.9 2.8-2.4 1.7-.9 2.8-3 .1L12 22.5l-2.4-1.8-3-.1-.9-2.8L3.3 16l.9-2.8L3.3 10.4l2.4-1.7.9-2.8 3-.1L12 1.5z"/>' +
         '<path class="vtick-check" d="M8.2 12.2l2.4 2.4 5-5"/></svg>';
     }
+    out += officialBadge(user);
     out += founderBadge(user);
     out += pioneerBadge(user);
     return out;
+  }
+  // Marks the automated OpenBook account so it clearly reads as official, not a
+  // copycat. Never reputation; purely an identity marker.
+  function officialBadge(user) {
+    if (!user || !user.official) return '';
+    return ' <span class="official-badge" title="The official OpenBook account">&#10003; Official</span>';
   }
   // Small colored supporter badge (bronze/silver/gold). Shown on profiles.
   // For a Pioneer we SUPPRESS this chip: their support tier is shown by coloring
@@ -482,6 +495,7 @@
       '<div class="card" style="padding:8px">' +
       '<div class="side-link" data-go="profile">' + avatar(ME, 32) + '<span>' + esc(ME.name) + '</span></div>' +
       (ME.isAdmin ? '<a class="side-link" href="/admin" style="text-decoration:none"><span class="ic">&#128202;</span><span>Owner dashboard</span></a>' : '') +
+      '<div class="side-link" id="getStartedLink"><span class="ic">&#128640;</span><span>Get started</span></div>' +
       '<div class="side-link" data-go="friends"><span class="ic">&#128101;</span><span>Friends</span><span class="badge side-badge hidden" id="friendsBadge">0</span></div>' +
       '<div class="side-link" data-go="groups"><span class="ic">&#127760;</span><span>Groups</span></div>' +
       '<div class="side-link" data-go="reels"><span class="ic">&#127909;</span><span>Reels</span></div>' +
@@ -511,8 +525,39 @@
     );
     document.getElementById('themeToggle').addEventListener('click', toggleTheme);
     document.getElementById('leftLogout').addEventListener('click', doLogout);
+    const gsl = document.getElementById('getStartedLink');
+    if (gsl) gsl.addEventListener('click', openGetStartedGuide);
     refreshBadges();
     refreshJuryBadge();
+  }
+
+  // A quick tour of OpenBook: what each section is, with a one-tap link to it. Opened
+  // from the "Get started" rail entry and reusable anywhere.
+  function openGetStartedGuide() {
+    const sections = [
+      { ic: '&#129534;', name: 'Claim your @username', desc: 'Lock in your handle before someone else takes it.', act: () => { go('profile', ME.id); whenReady('editProfileBtn', (b) => b.click()); } },
+      { ic: '&#128221;', name: 'Make your first post', desc: 'Share something. People vote it up and you start earning karma.', act: () => { go('feed'); whenReady('composerText', (t) => { t.focus(); t.scrollIntoView({ block: 'center' }); }); } },
+      { ic: '&#127968;', name: 'Home feed', desc: 'Posts from friends, people you follow, and the communities you join.', act: () => go('feed') },
+      { ic: '&#128227;', name: 'Communities', desc: 'Topic spaces you can join, post in, and vote on, a bit like subreddits.', act: () => go('communities') },
+      { ic: '&#128722;', name: 'Marketplace', desc: 'Buy and sell with other members.', act: () => go('marketplace') },
+      { ic: '&#128172;', name: 'Messages', desc: 'Private one to one chats. You can edit or delete anything you send.', act: () => go('messages') },
+      { ic: '&#128161;', name: 'Suggestions', desc: 'Propose ideas and vote. The most-wanted get built first, in the open.', act: () => go('suggestions') },
+      { ic: '&#127881;', name: 'Invite friends', desc: 'Every 5 friends who join unlock Premium for you.', act: () => go('invite') },
+      { ic: '&#128202;', name: 'Dashboard', desc: 'Your karma, account standing, and post analytics, fully transparent.', act: () => go('dashboard') },
+      { ic: '&#10084;&#65039;', name: 'Support OpenBook', desc: 'Optional. Keeps us ad-free and independent. Money never buys reach.', act: () => go('support') },
+    ];
+    const rows = sections.map((s, i) =>
+      '<button class="gs-row" data-i="' + i + '"><span class="gs-ic">' + s.ic + '</span>' +
+      '<span class="gs-tx"><span class="gs-name">' + esc(s.name) + '</span><span class="gs-desc">' + esc(s.desc) + '</span></span>' +
+      '<span class="gs-go">&#8250;</span></button>').join('');
+    const m = modal(
+      '<div class="mh"><h3>&#128640; Get started on OpenBook</h3></div>' +
+      '<div class="mc"><div class="shint" style="font-size:13px;margin-bottom:10px;line-height:1.5">Here is what each part of OpenBook is for. Tap any row to jump straight there.</div>' +
+      '<div class="gs-list">' + rows + '</div></div>'
+    );
+    m.node.querySelectorAll('.gs-row').forEach((b) => {
+      b.onclick = () => { const s = sections[Number(b.getAttribute('data-i'))]; m.close(); s.act(); };
+    });
   }
 
   // Light fetch to show a count on the "Jury duty" rail entry when the user has
@@ -1513,10 +1558,21 @@
       '<div class="cfile-chip hidden" id="composerFileChip"></div>' +
       '<div class="preview hidden" id="composerPreview"></div>' +
       '<div class="actions">' +
-      '<button class="icon-action" id="composerPhotoBtn" title="Photo">&#128247;</button>' +
-      '<button class="icon-action" id="composerFileBtn" title="Attach a file">&#128206;</button>' +
-      '<button class="icon-action" id="composerPollBtn" title="Create a poll">&#128202;</button>' +
-      '<button class="icon-action" id="composerBgBtn" title="Background color">&#127912;</button>' +
+      // Mobile: one compact "Add" button opens a menu, so the Post button never gets
+      // pushed out of the card. Desktop: the icons are spread out as before.
+      '<div class="composer-add-wrap">' +
+        '<button class="icon-action composer-add-btn" id="composerAddBtn" title="Add to your post">&#10133; Add</button>' +
+        '<div class="composer-add-menu hidden" id="composerAddMenu">' +
+          '<button type="button" data-add="composerPhotoBtn">&#128247; Photo</button>' +
+          '<button type="button" data-add="composerFileBtn">&#128206; File</button>' +
+          '<button type="button" data-add="composerPollBtn">&#128202; Poll</button>' +
+          '<button type="button" data-add="composerBgBtn">&#127912; Background</button>' +
+        '</div>' +
+      '</div>' +
+      '<button class="icon-action composer-spread" id="composerPhotoBtn" title="Photo">&#128247;</button>' +
+      '<button class="icon-action composer-spread" id="composerFileBtn" title="Attach a file">&#128206;</button>' +
+      '<button class="icon-action composer-spread" id="composerPollBtn" title="Create a poll">&#128202;</button>' +
+      '<button class="icon-action composer-spread" id="composerBgBtn" title="Background color">&#127912;</button>' +
       '<span class="spacer"></span>' +
       '<select class="composer-audience" id="composerAudience" title="Who can see this post">' +
         '<option value="public">&#127758; Public</option>' +
@@ -1543,6 +1599,35 @@
     let selectedDoc = null;  // generic file attachment
     let bgValue = '';
     let pollOn = false;
+
+    // Mobile "Add" menu: its items just trigger the same (CSS-hidden on mobile) icon
+    // buttons, so all the existing handlers below keep working unchanged.
+    const addBtn = document.getElementById('composerAddBtn');
+    const addMenu = document.getElementById('composerAddMenu');
+    if (addBtn && addMenu) {
+      addBtn.onclick = (e) => { e.stopPropagation(); addMenu.classList.toggle('hidden'); };
+      addMenu.querySelectorAll('[data-add]').forEach((b) => {
+        b.onclick = (e) => {
+          e.stopPropagation();
+          addMenu.classList.add('hidden');
+          const t = document.getElementById(b.getAttribute('data-add'));
+          if (t) t.click();
+        };
+      });
+      // Outside-click closer: added ONCE for the app's lifetime (wireComposer runs on
+      // every feed/profile render, so a per-call listener would leak). It resolves the
+      // live menu by id at click time, since the composer DOM is rebuilt each render.
+      if (!composerMenuCloserAdded) {
+        composerMenuCloserAdded = true;
+        document.addEventListener('click', (e) => {
+          const menu = document.getElementById('composerAddMenu');
+          const btn = document.getElementById('composerAddBtn');
+          if (menu && !menu.classList.contains('hidden') && !menu.contains(e.target) && (!btn || !btn.contains(e.target))) {
+            menu.classList.add('hidden');
+          }
+        });
+      }
+    }
 
     function clearBg() {
       bgValue = '';
@@ -2247,6 +2332,8 @@
       '<div class="phead-main"><div class="phead-row"><div class="phead-id">' +
       '<div class="pname">' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
       (u.username ? '<div class="pmeta" style="color:var(--text-soft);font-weight:600">@' + esc(u.username) + '</div>' : '') +
+      // Karma is public for every member regardless of profile visibility.
+      '<div class="pmeta" style="color:var(--text-soft);font-weight:600;margin-top:3px">&#9650; ' + (u.karma || 0) + ' karma</div>' +
       '</div><div class="pactions"><button class="btn btn-icon" data-share-profile="' + esc((u.username || u.id) + '') + '" title="Share profile" aria-label="Share profile">&#128279;</button></div></div></div>' +
       '</div></div>' +
       '<div class="card"><div class="empty" style="padding:40px 20px">' +
@@ -2308,7 +2395,7 @@
       '<div class="phead-row">' +
       '<div class="phead-id"><div class="pname"' + (_nameAccent ? ' style="--name-accent:' + esc(_nameAccent) + '"' : '') + '>' + esc(u.name) + verifTick(u) + ' ' + badgeChip(u) + '</div>' +
       (u.username ? '<div class="pmeta" style="color:var(--text-soft);font-weight:600">@' + esc(u.username) + '</div>' : '') +
-      '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + (data.followersCount || 0) + ' followers &#183; ' + data.postsCount + ' posts</div>' +
+      '<div class="pmeta">' + data.friendsCount + ' friends &#183; ' + (data.followersCount || 0) + ' followers &#183; ' + data.postsCount + ' posts &#183; &#9650; ' + (u.karma || 0) + ' karma</div>' +
       (data.nameHistory && data.nameHistory.length
         ? '<div class="pmeta" style="font-size:12px">Previously known as: ' + data.nameHistory.map((h) => esc(h.name)).join(', ') + '</div>'
         : '') +

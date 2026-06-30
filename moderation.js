@@ -59,9 +59,10 @@ async function systemUserId() {
   // sites in sync. The INSERT can lose a race with a concurrent first signup (the
   // email column is UNIQUE), so on a constraint error we just re-read the row.
   try {
+    const SYS_BIO = 'The official OpenBook account. Follow for new features, fixes, and announcements, posted in the open. This is an automated account and does not read replies.';
     const info = await db.prepare(
-      "INSERT INTO users (name, email, password_hash, email_verified, bio, is_official, welcomed) VALUES ('OpenBook', ?, ?, 1, 'Automated platform actions.', 1, 1)"
-    ).run(SYS_EMAIL, 'x' + crypto.randomBytes(24).toString('hex'));
+      "INSERT INTO users (name, email, password_hash, email_verified, bio, username, is_official, welcomed) VALUES ('OpenBook', ?, ?, 1, ?, 'openbook', 1, 1)"
+    ).run(SYS_EMAIL, 'x' + crypto.randomBytes(24).toString('hex'), SYS_BIO);
     _systemId = info.lastInsertRowid;
   } catch (e) {
     u = await db.prepare('SELECT id FROM users WHERE email = ?').get(SYS_EMAIL);

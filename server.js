@@ -432,6 +432,9 @@ require('./db').init()
       // Cleanup: permanently remove accounts that never verified their email within
       // the grace window (only runs while email verification is enforced).
       try { require('./unverified-cleanup').startUnverifiedCleanupJob(); } catch (e) { logger.error({ err: e }, 'failed to start unverified cleanup job'); }
+      // Publish any new OpenBook changelog posts (idempotent), so followers see what
+      // shipped on the official account's public feed.
+      try { require('./changelog').publishChangelog().catch((e) => logger.warn({ err: e }, 'changelog publish failed')); } catch (e) { logger.error({ err: e }, 'failed to publish changelog'); }
       // Roadmap: reconcile linked GitHub issues (no-op unless GITHUB_TOKEN is set).
       try { require('./roadmap-sync').startRoadmapJobs(); } catch (e) { logger.error({ err: e }, 'failed to start roadmap sync job'); }
       // Jury: settle any community juries past their deadline (Phase 4).

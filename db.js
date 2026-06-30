@@ -490,7 +490,13 @@ db.init = async function init() {
   // Mark the OpenBook system actor as the official account, and make sure neither it
   // nor the [deleted] ghost ever receives a welcome message (welcomed = 1 excludes
   // them from the backfill). No-ops cleanly if those sentinel rows do not exist yet.
-  try { await db.prepare("UPDATE users SET is_official = 1, welcomed = 1 WHERE email = 'system@openbook.local'").run(); } catch (e) {}
+  try {
+    await db.prepare(
+      "UPDATE users SET is_official = 1, welcomed = 1, username = 'openbook', " +
+      "bio = 'The official OpenBook account. Follow for new features, fixes, and announcements, posted in the open. This is an automated account and does not read replies.' " +
+      "WHERE email = 'system@openbook.local'"
+    ).run();
+  } catch (e) {}
   try { await db.prepare("UPDATE users SET welcomed = 1 WHERE email = 'ghost@deleted.openbook.local'").run(); } catch (e) {}
   // Focal point (object-position) for the avatar + cover, so users can drag-position
   // their photos like Facebook. Stored as a CSS position string, e.g. "50% 30%".
