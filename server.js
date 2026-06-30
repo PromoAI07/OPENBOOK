@@ -192,7 +192,16 @@ app.get('/download/:key', (req, res) => {
 
 // Public landing page, with versioned asset URLs (served before the static
 // handler so '/' uses this, not the raw index.html).
-app.get('/', (req, res) => sendPage(res, path.join(__dirname, 'public', 'index.html')));
+app.get('/', (req, res) => {
+  // The response depends on the per-user session cookie, so it must never be
+  // shared-cached (Cloudflare sits in front). An already-authenticated visitor is
+  // sent straight to the app, so the login page never paints for them and there is
+  // no "login screen flashes then bounces to the feed" moment.
+  res.set('Vary', 'Cookie');
+  res.set('Cache-Control', 'private, no-store');
+  if (req.user) return res.redirect(302, '/app');
+  sendPage(res, path.join(__dirname, 'public', 'index.html'));
+});
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 // Throttle auth attempts to slow brute force and signup abuse. Only the mutating

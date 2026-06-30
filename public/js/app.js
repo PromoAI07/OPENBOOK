@@ -6,6 +6,13 @@
 (function () {
   let ME = null;
   let currentView = 'feed';
+  // SPA history: each forward go() pushes a real browser history entry so Back and
+  // Forward walk the views you actually visited. These flags coordinate that
+  // without creating loops or double entries.
+  let isPopNavigating = false; // true only during the synchronous part of a Back/Forward-driven go()
+  let bootNav = true;          // the first go() of the session replaces history entry #1 instead of pushing
+  let navSeq = 0;              // bumped on every go(); async renderers bail if a newer navigation started
+  let popInProgress = false;   // set during a popstate so the hashchange it can trigger is ignored
   let activeChatUser = null;
   const view = document.getElementById('view');
 
@@ -329,10 +336,37 @@
       if (ap) { e.preventDefault(); e.stopPropagation(); appealModal(ap.getAttribute('data-appeal-type'), Number(ap.getAttribute('data-appeal-id')) || null); }
     });
 
-    // A shared reel link can also be opened while the app is already running.
+    // A shared reel link can also be opened while the app is already running. The
+    // browser already added a history entry for the hash change, so we attach the
+    // reels state to THAT entry (replace) instead of letting go() push a second one,
+    // and we keep the #reel= hash so the URL stays shareable.
     window.addEventListener('hashchange', () => {
+      if (popInProgress) return; // this hashchange is a side effect of Back/Forward; popstate handled it
       const m = /(?:^|#)reel=(\d+)/.exec(window.location.hash);
-      if (m) { pendingReel = Number(m[1]); go('reels'); }
+      if (!m) return;
+      pendingReel = Number(m[1]);
+      isPopNavigating = true;
+      try { go('reels'); } finally { isPopNavigating = false; }
+      try { window.history.replaceState({ v: 'reels', p: pendingReel }, '', '/app#reel=' + pendingReel); } catch (e) {}
+    });
+
+    // Back / Forward: re-render the view stored on the history entry we landed on.
+    // Re-entering go() restores the active-nav highlight, the messages-view layout,
+    // and the content for free; isPopNavigating stops it from pushing a new entry.
+    window.addEventListener('popstate', (e) => {
+      popInProgress = true;
+      Promise.resolve().then(() => { popInProgress = false; });
+      const st = e.state;
+      isPopNavigating = true;
+      try {
+        if (st && st.v) {
+          if (st.v === 'reels' && st.p != null) pendingReel = st.p;
+          go(st.v, st.p == null ? undefined : st.p);
+        } else {
+          // Stateless entry (e.g. the initial /app load): fall back to the feed.
+          go('feed');
+        }
+      } finally { isPopNavigating = false; }
     });
   }
 
@@ -355,6 +389,8 @@
   }
 
   function go(name, param) {
+    const prevView = currentView;
+    navSeq++;
     currentView = name;
     setActiveNav(name);
     document.getElementById('notifDropdown').classList.add('hidden');
@@ -392,10 +428,24 @@
     else if (name === 'invite') renderInvite();
     else if (name === 'suggestions') renderSuggestions();
     else if (name === 'jury') renderJury();
-    // Keep the address bar in sync so a profile or post can be copied straight from
-    // the URL. profile/post set their own /u/<username> or /p/<id> once their data
-    // loads; every other view resets the URL to /app.
-    if (name !== 'profile' && name !== 'post') { try { window.history.replaceState({}, '', '/app'); } catch (e) {} }
+    // History: give each view its own browser entry so Back/Forward move between
+    // the views you visited. profile and post create their own entry inside their
+    // renderer (once the pretty /u/<username> or /p/<id> URL is known); reels deep
+    // links keep their #reel= hash. Everything else shares the /app URL but still
+    // gets a distinct entry via pushState.
+    if (!isPopNavigating && name !== 'profile' && name !== 'post') {
+      try {
+        const reelId = (name === 'reels') ? pendingReel : null;
+        const navState = { v: name, p: reelId != null ? reelId : (param === undefined ? null : param) };
+        const url = reelId != null ? '/app#reel=' + reelId : '/app';
+        // Replace (no new entry) for the first view after load, a re-click of the
+        // view you are already on, and live search typing (one entry per keystroke
+        // would flood the history). Otherwise push so Back can return here.
+        if (bootNav || name === prevView || name === 'search') window.history.replaceState(navState, '', url);
+        else window.history.pushState(navState, '', url);
+      } catch (e) {}
+    }
+    bootNav = false;
     try { AN.page(name); } catch (e) {}
     window.scrollTo(0, 0);
   }
@@ -2187,15 +2237,27 @@
   }
 
   async function renderProfile(id) {
+    const mySeq = navSeq;
     view.innerHTML = '<div class="card card-pad-0"><div class="empty" style="padding:40px">Loading profile...</div></div>';
     let data;
     try { data = await API.getProfile(id); }
-    catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+    catch (e) { if (mySeq === navSeq) view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+    // A newer navigation started while we were loading: drop this stale render so it
+    // cannot overwrite the current view or hijack its history entry.
+    if (mySeq !== navSeq) return;
 
     const u = data.user;
-    // Reflect this profile's shareable link in the address bar so it can be copied
-    // straight from there: /u/<username> (or /u/<id> if no username is set).
-    try { window.history.replaceState({}, '', '/u/' + encodeURIComponent(u.username || u.id)); } catch (e) {}
+    // Reflect this profile in the address bar (/u/<username>, or /u/<id>). This is
+    // where the profile's own history entry is created: push when we resolved to a
+    // DIFFERENT profile than the current entry (a real forward navigation), else
+    // replace in place (same profile reached by id then username, or a Back/Forward
+    // restore where the browser already put us on this URL).
+    try {
+      const prettyUrl = '/u/' + encodeURIComponent(u.username || u.id);
+      const navState = { v: 'profile', p: (u.username || u.id) };
+      if (window.location.pathname === prettyUrl) window.history.replaceState(navState, '', prettyUrl);
+      else window.history.pushState(navState, '', prettyUrl);
+    } catch (e) {}
     // The owner set this profile to friends-only or private and the viewer is not
     // allowed: show a minimal locked view instead of the full profile.
     if (data.locked) { renderLockedProfile(u, data); return; }
@@ -3535,16 +3597,25 @@
   }
 
   async function renderPost(id) {
+    const mySeq = navSeq;
     // Reset mod state up front so a previous post's permissions can never leak
     // into this render (including the load-failure early return below).
     postMod = false;
     postOwner = false;
     view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading post...</div></div>';
     let data;
-    try { data = await API.getPost(id); } catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+    try { data = await API.getPost(id); } catch (e) { if (mySeq === navSeq) view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+    if (mySeq !== navSeq) return; // a newer navigation superseded this load
     const p = data.post;
-    // Reflect this post's shareable link in the address bar (/p/<id>).
-    try { window.history.replaceState({}, '', '/p/' + p.id); } catch (e) {}
+    // Reflect this post in the address bar (/p/<id>) and create its history entry:
+    // push for a newly opened post, replace when we are already on it (a Back/Forward
+    // restore where the browser already put us on /p/<id>).
+    try {
+      const postUrl = '/p/' + p.id;
+      const navState = { v: 'post', p: p.id };
+      if (window.location.pathname === postUrl) window.history.replaceState(navState, '', postUrl);
+      else window.history.pushState(navState, '', postUrl);
+    } catch (e) {}
 
     // Work out whether the viewer can moderate this thread (admin, or a mod of
     // its community). postOwner/postMod are also read by the comment tree.

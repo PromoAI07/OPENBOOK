@@ -2,8 +2,11 @@
 // Handles the login and signup forms on the landing page.
 
 (function () {
-  // If already logged in, go straight to the app.
-  API.me().then(() => { window.location.href = '/app'; }).catch(() => {});
+  // If already logged in, go straight to the app. Use replace (not href) so this
+  // landing page is not left in history; Back from the app then never bounces back
+  // through here. (The server also 302s an authenticated GET / to /app, so this is
+  // a belt-and-suspenders fallback for a cached page or a just-became-valid session.)
+  API.me().then(() => { window.location.replace('/app'); }).catch(() => {});
 
   const loginView = document.getElementById('loginView');
   const signupView = document.getElementById('signupView');
@@ -214,7 +217,7 @@
         hp_token: document.getElementById('loginHp').value,
         turnstileToken: captchaToken('login'),
       });
-      window.location.href = '/app';
+      window.location.replace('/app');
     } catch (err) {
       captchaReset('login');
       showAlert(document.getElementById('loginAlert'), err.message);
@@ -239,7 +242,7 @@
         hp_token: document.getElementById('signupHp').value,
         turnstileToken: captchaToken('signup'),
       }, proof));
-      window.location.href = '/app';
+      window.location.replace('/app');
     } catch (err) {
       captchaReset('signup');
       showAlert(document.getElementById('signupAlert'), err.message);
