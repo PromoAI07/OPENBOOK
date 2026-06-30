@@ -479,6 +479,19 @@ db.init = async function init() {
   await addColumn('users', 'is_admin INTEGER NOT NULL DEFAULT 0', 'is_admin');
   // Founder badge flag (cosmetic). Synced from FOUNDER_EMAILS at boot (see below).
   await addColumn('users', 'is_founder INTEGER NOT NULL DEFAULT 0', 'is_founder');
+  // The official OpenBook account flag (the automated "OpenBook" actor that sends
+  // the welcome message and posts official notices). Marker only; never affects
+  // reputation. Set on the system user below.
+  await addColumn('users', 'is_official INTEGER NOT NULL DEFAULT 0', 'is_official');
+  // One-time onboarding: has this account received the OpenBook welcome message
+  // yet? Drives the idempotent welcome send (welcome.js) for new signups and the
+  // backfill of existing members. 0 = not yet welcomed.
+  await addColumn('users', 'welcomed INTEGER NOT NULL DEFAULT 0', 'welcomed');
+  // Mark the OpenBook system actor as the official account, and make sure neither it
+  // nor the [deleted] ghost ever receives a welcome message (welcomed = 1 excludes
+  // them from the backfill). No-ops cleanly if those sentinel rows do not exist yet.
+  try { await db.prepare("UPDATE users SET is_official = 1, welcomed = 1 WHERE email = 'system@openbook.local'").run(); } catch (e) {}
+  try { await db.prepare("UPDATE users SET welcomed = 1 WHERE email = 'ghost@deleted.openbook.local'").run(); } catch (e) {}
   // Focal point (object-position) for the avatar + cover, so users can drag-position
   // their photos like Facebook. Stored as a CSS position string, e.g. "50% 30%".
   await addColumn('users', "avatar_pos TEXT NOT NULL DEFAULT '50% 50%'", 'avatar_pos');

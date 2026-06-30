@@ -2728,13 +2728,18 @@
     thread.innerHTML =
       '<div class="thead"><button class="btn btn-ghost btn-sm" id="backToList">&#8592;</button>' +
       '<span class="link" data-headprofile="' + u.id + '">' + avatar(u, 40) + '</span>' +
-      '<div class="link" style="font-weight:700;flex:1" data-headprofile="' + u.id + '">' + esc(u.name) + verifTick(u) + '</div></div>' +
+      '<div class="link" style="font-weight:700;flex:1" data-headprofile="' + u.id + '">' + esc(u.name) + verifTick(u) +
+        (u.official ? ' <span class="pill official-pill">Official</span>' : '') + '</div></div>' +
       '<div class="mbody" id="mbody"></div>' +
-      '<div class="mfoot"><input id="msgInput" placeholder="Type a message..." autocomplete="off"><button class="btn btn-primary" id="msgSend">Send</button></div>';
+      (u.official
+        ? '<div class="mfoot mfoot-note">This is an automated account, so replies here are not read. Use the Get started buttons above, or the Support and Suggestions pages, to reach the team.</div>'
+        : '<div class="mfoot"><input id="msgInput" placeholder="Type a message..." autocomplete="off"><button class="btn btn-primary" id="msgSend">Send</button></div>');
 
     const body = document.getElementById('mbody');
+    // The official OpenBook thread leads with the tap-to-go onboarding checklist.
+    if (u.official) body.appendChild(onboardingCard());
     data.messages.forEach((m) => body.appendChild(msgBubble(m)));
-    scrollBottom(body);
+    if (u.official) body.scrollTop = 0; else scrollBottom(body);
 
     // Jump to the other person's profile from the chat header (photo or name).
     thread.querySelectorAll('[data-headprofile]').forEach((x) => (x.onclick = () => go('profile', u.id)));
@@ -2743,21 +2748,61 @@
     back.style.display = window.innerWidth <= 980 ? 'inline-flex' : 'none';
     back.onclick = () => messenger.classList.remove('show-thread');
 
+    // The official OpenBook thread has no composer (it is a read-only automated
+    // account), so wire the input only when it is actually present.
     const input = document.getElementById('msgInput');
-    const send = async () => {
-      const content = input.value.trim();
-      if (!content) return;
-      input.value = '';
-      try { await Chat.send(userId, content); } catch (e) { toast(e.message); }
-    };
-    document.getElementById('msgSend').onclick = send;
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
-    input.focus();
+    if (input) {
+      const send = async () => {
+        const content = input.value.trim();
+        if (!content) return;
+        input.value = '';
+        try { await Chat.send(userId, content); } catch (e) { toast(e.message); }
+      };
+      document.getElementById('msgSend').onclick = send;
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+      input.focus();
+    }
     refreshBadges();
   }
 
   function msgBubble(m) {
     return el('<div class="bubble-msg' + (m.mine ? ' mine' : '') + '">' + linkify(esc(m.content)) + '<div class="bt">' + timeAgo(m.created_at) + '</div></div>');
+  }
+
+  // Wait for an element to appear (an async view may still be loading), then run cb.
+  // Used by the onboarding buttons so a slow render never makes a tap do nothing.
+  function whenReady(id, cb, maxMs) {
+    const deadline = Date.now() + (maxMs || 3000);
+    (function tick() {
+      const node = document.getElementById(id);
+      if (node) { cb(node); return; }
+      if (Date.now() < deadline) setTimeout(tick, 70);
+    })();
+  }
+
+  // The interactive onboarding checklist shown at the top of the official OpenBook
+  // conversation: one tap on each row jumps straight to that part of the platform.
+  function onboardingCard() {
+    const steps = [
+      { ic: '&#129534;', t: 'Claim your @username', s: 'Lock it in before someone else takes it.',
+        act: () => { go('profile', ME.id); whenReady('editProfileBtn', (b) => b.click()); } },
+      { ic: '&#128221;', t: 'Write your first post', s: 'People vote it up, so you start earning karma and account standing.',
+        act: () => { go('feed'); whenReady('composerText', (t) => { t.focus(); t.scrollIntoView({ block: 'center' }); }); } },
+      { ic: '&#127881;', t: 'Invite friends', s: 'Every 5 friends who join unlock Premium for you.', act: () => go('invite') },
+      { ic: '&#128161;', t: 'Share a suggestion', s: 'The most upvoted ideas get built first, in the open.', act: () => go('suggestions') },
+      { ic: '&#127760;', t: 'Start or join a community', s: 'Gather people around something you love.', act: () => go('communities') },
+      { ic: '&#10084;&#65039;', t: 'Support OpenBook', s: 'Keep us ad-free and independent. Totally optional.', act: () => go('support') },
+    ];
+    const card = el('<div class="onboard-card"><div class="onboard-h">&#128640; Get started on OpenBook</div><div class="onboard-steps"></div></div>');
+    const wrap = card.querySelector('.onboard-steps');
+    steps.forEach((st) => {
+      const row = el('<button class="onboard-step"><span class="oi">' + st.ic + '</span>' +
+        '<span class="ot"><span class="o1">' + esc(st.t) + '</span><span class="o2">' + esc(st.s) + '</span></span>' +
+        '<span class="oc">&#8250;</span></button>');
+      row.onclick = st.act;
+      wrap.appendChild(row);
+    });
+    return card;
   }
 
   /* ============================ notifications ============================ */
@@ -2774,6 +2819,7 @@
       case 'mod_removed': return ' (a moderator) removed your content';
       case 'mod_restored': return ' (a moderator) restored your content';
       case 'jury_duty': return ': you were picked for a community jury';
+      case 'welcome': return ' sent you a welcome message';
       default: return ' interacted with you';
     }
   }
@@ -2787,6 +2833,7 @@
     row.onclick = () => {
       document.getElementById('notifDropdown').classList.add('hidden');
       if (n.type === 'escrow_update') openMyOrders();
+      else if (n.type === 'welcome') go('messages', n.actor.id);
       else if (n.type === 'friend_request' || n.type === 'friend_accept' || n.type === 'follow') go('profile', n.actor.id);
       else go('profile', ME.id);
     };

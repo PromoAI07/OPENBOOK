@@ -30,6 +30,7 @@ const io = new Server(server);
 // Let the notification helper and chat handlers use the live io instance.
 setIO(io);
 initSockets(io);
+require('./welcome').setIO(io);
 
 // Log every HTTP request once it completes: method, path, status, duration (ms).
 // Runs first so the timing covers the whole pipeline. Obvious static assets log
@@ -411,6 +412,9 @@ require('./db').init()
       try { require('./media/cleanup').startStoryCleanupJob(); } catch (e) { logger.error({ err: e }, 'failed to start story cleanup job'); }
       // Data export: sweep expired export artifacts so they never accumulate.
       try { require('./export').startExportCleanupJob(); } catch (e) { logger.error({ err: e }, 'failed to start export cleanup job'); }
+      // Onboarding: send the OpenBook welcome message to any existing member who has
+      // not received it yet (idempotent, runs in the background, never re-sends).
+      try { require('./welcome').backfillWelcomes().catch((e) => logger.warn({ err: e }, 'welcome backfill failed')); } catch (e) { logger.error({ err: e }, 'failed to start welcome backfill'); }
       // Roadmap: reconcile linked GitHub issues (no-op unless GITHUB_TOKEN is set).
       try { require('./roadmap-sync').startRoadmapJobs(); } catch (e) { logger.error({ err: e }, 'failed to start roadmap sync job'); }
       // Jury: settle any community juries past their deadline (Phase 4).

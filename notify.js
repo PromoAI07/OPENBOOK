@@ -15,7 +15,8 @@ function setIO(io) {
   ioRef = io;
 }
 
-// type is one of: 'like', 'comment', 'friend_request', 'friend_accept'
+// type is one of: 'like', 'reaction', 'comment', 'friend_request', 'friend_accept',
+// 'follow', 'welcome', 'escrow_update', 'mod_removed', 'mod_restored', 'jury_duty'
 async function notify(userId, actorId, type, postId = null) {
   if (userId === actorId) return; // never notify yourself
   try {

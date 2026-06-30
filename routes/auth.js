@@ -158,6 +158,11 @@ router.post('/signup', async (req, res, next) => {
     if (cnt && cnt.c <= 5000) await db.prepare('UPDATE users SET is_pioneer = 1 WHERE id = ?').run(info.lastInsertRowid);
   } catch (e) { /* non-fatal */ }
 
+  // Drop the OpenBook welcome message (and its bell notification) into the new
+  // member's inbox so it is waiting the moment they open the app. Awaited so it is
+  // present on first load, but wrapped so a hiccup here never blocks signup.
+  try { await require('../welcome').sendWelcome(info.lastInsertRowid); } catch (e) { /* non-fatal */ }
+
   const out = { user: selfUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid)) };
   if (EMAIL_CONFIGURED && REQUIRE_EMAIL_VERIFICATION) {
     const link = verifyLink(req, token);

@@ -53,12 +53,21 @@ let _systemId = null;
 async function systemUserId() {
   if (_systemId) return _systemId;
   const SYS_EMAIL = 'system@openbook.local';
-  const u = await db.prepare('SELECT id FROM users WHERE email = ?').get(SYS_EMAIL);
+  let u = await db.prepare('SELECT id FROM users WHERE email = ?').get(SYS_EMAIL);
   if (u) { _systemId = u.id; return u.id; }
-  const info = await db.prepare(
-    "INSERT INTO users (name, email, password_hash, email_verified, bio) VALUES ('OpenBook', ?, ?, 1, 'Automated platform actions.')"
-  ).run(SYS_EMAIL, 'x' + crypto.randomBytes(24).toString('hex'));
-  _systemId = info.lastInsertRowid;
+  // is_official + welcomed are also set defensively at boot in db.js; keep the two
+  // sites in sync. The INSERT can lose a race with a concurrent first signup (the
+  // email column is UNIQUE), so on a constraint error we just re-read the row.
+  try {
+    const info = await db.prepare(
+      "INSERT INTO users (name, email, password_hash, email_verified, bio, is_official, welcomed) VALUES ('OpenBook', ?, ?, 1, 'Automated platform actions.', 1, 1)"
+    ).run(SYS_EMAIL, 'x' + crypto.randomBytes(24).toString('hex'));
+    _systemId = info.lastInsertRowid;
+  } catch (e) {
+    u = await db.prepare('SELECT id FROM users WHERE email = ?').get(SYS_EMAIL);
+    if (!u) throw e;
+    _systemId = u.id;
+  }
   return _systemId;
 }
 

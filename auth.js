@@ -78,6 +78,7 @@ function publicUser(u) {
     created_at: u.created_at,
     founder: !!u.is_founder, // cosmetic Founder badge (never affects reputation)
     pioneer: !!u.is_pioneer, // cosmetic Pioneer badge for the first 5000 members
+    official: !!u.is_official, // the automated OpenBook account (welcome message, notices)
     avatarPos: u.avatar_pos || '50% 50%', // drag-to-position focal points
     coverPos: u.cover_pos || '50% 50%',
     // Links in the bio are made clickable only for paying supporters (Plus tier
