@@ -123,7 +123,7 @@ async function nextNameChangeAt(userId, createdAt) {
   return tms(anchor) + waitDays * 86400000;
 }
 
-// Search people by name (or list recent users when no query).
+// Search people by name OR @username (or list recent users when no query).
 router.get('/', requireAuth, async (req, res) => {
   const q = (req.query.q || '').trim();
   let rows;
@@ -131,15 +131,30 @@ router.get('/', requireAuth, async (req, res) => {
   // is never a real person, so it must never surface in search or the browse list.
   const GHOST = 'ghost@deleted.openbook.local';
   if (q) {
+    // Allow searching by handle: "@netanel" and "netanel" both match the username, and
+    // a plain term also matches the display name. An exact handle match floats to the top.
+    const term = q.replace(/^@/, '');
+    const like = '%' + term + '%';
     rows = await db
-      .prepare("SELECT * FROM users WHERE name LIKE ? AND id != ? AND email != ? ORDER BY name LIMIT 30")
-      .all('%' + q + '%', req.user.id, GHOST);
+      .prepare("SELECT * FROM users WHERE (name LIKE ? OR username LIKE ?) AND id != ? AND email != ? ORDER BY (lower(username) = lower(?)) DESC, name LIMIT 30")
+      .all(like, like, req.user.id, GHOST, term);
   } else {
     rows = await db
       .prepare("SELECT * FROM users WHERE id != ? AND email != ? ORDER BY created_at DESC LIMIT 30")
       .all(req.user.id, GHOST);
   }
   res.json({ users: rows.map(publicUser) });
+});
+
+// The official OpenBook account, for the "Follow OpenBook" discovery card. Returns
+// its public profile plus whether the current user already follows it (so the card can
+// hide once followed). user is null when there is no official account yet. Declared
+// before "/:id" so the literal path is not captured as an id.
+router.get('/official', requireAuth, async (req, res) => {
+  const u = await db.prepare('SELECT * FROM users WHERE is_official = 1 ORDER BY id LIMIT 1').get();
+  if (!u) return res.json({ user: null });
+  const f = await db.prepare('SELECT 1 AS x FROM follows WHERE follower_id = ? AND followee_id = ?').get(req.user.id, u.id);
+  res.json({ user: publicUser(u), isFollowing: !!f, isSelf: u.id === req.user.id });
 });
 
 // --- Unique @username (handle) ---

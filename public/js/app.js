@@ -1922,7 +1922,7 @@
       : '';
     node.innerHTML =
       '<div class="post-head">' +
-      avatar(p.author, 44) +
+      '<span class="avatar-link" data-profile="' + p.author.id + '">' + avatar(p.author, 44) + '</span>' +
       '<div class="meta"><div class="name" data-profile="' + p.author.id + '">' + esc(p.author.name) + verifTick(p.author) + '</div>' +
       '<div class="time">' + timeAgo(p.created_at) + editedMark + '</div></div>' +
       (mineP ? '<button class="menu-btn" data-edit="' + p.id + '" title="Edit post">&#9998;</button>' +
@@ -1954,8 +1954,13 @@
     const p = node._post;
     const stats = node.querySelector('.post-stats');
     const left = reactionSummaryHtml(p.reactions);
-    const right = p.commentCount ? p.commentCount + ' comment' + (p.commentCount > 1 ? 's' : '') : '';
+    // The comment count is a real button that opens the comments, like the Comment action.
+    const right = p.commentCount
+      ? '<button type="button" class="stat-link" data-open-comments>' + p.commentCount + ' comment' + (p.commentCount > 1 ? 's' : '') + '</button>'
+      : '';
     stats.innerHTML = left + '<span style="flex:1"></span>' + right;
+    const oc = stats.querySelector('[data-open-comments]');
+    if (oc) oc.onclick = () => toggleComments(p.id, node);
   }
 
   function wirePost(node, p) {
@@ -2046,14 +2051,14 @@
     const mine = c.author.id === ME.id;
     const node = el('<div class="comment"></div>');
     node.innerHTML =
-      avatar(c.author, 32) +
+      '<span class="avatar-link" data-profile="' + c.author.id + '">' + avatar(c.author, 32) + '</span>' +
       '<div style="flex:1;min-width:0"><div class="bubble"><div class="name" data-profile="' + c.author.id + '">' + esc(c.author.name) + verifTick(c.author) + '</div>' +
       linkify(esc(c.content)) + '</div>' +
       '<div class="cmeta"><span data-cvote></span><span data-react></span><span class="time">' + timeAgo(c.created_at) + '</span>' +
       '<span data-sum></span>' +
       (mine ? ' <button data-delc="' + c.id + '" class="clink">Delete</button>' : '') +
       '</div></div>';
-    node.querySelector('[data-profile]').onclick = () => go('profile', c.author.id);
+    node.querySelectorAll('[data-profile]').forEach((x) => (x.onclick = () => go('profile', c.author.id)));
     const cvote = node.querySelector('[data-cvote]');
     if (cvote) cvote.appendChild(voteControl('comment', c.id, c.score || 0, c.myVote || 0, true));
     const sumEl = node.querySelector('[data-sum]');
@@ -2182,7 +2187,10 @@
 
   async function renderRightRail() {
     const rail = document.getElementById('rightRail');
-    rail.innerHTML = '<div class="card"><div class="section-title">Contacts</div><div id="contactsList"><div class="empty" style="padding:8px">Loading...</div></div></div>';
+    rail.innerHTML =
+      '<div id="obFollowCard"></div>' +
+      '<div class="card"><div class="section-title">Contacts</div><div id="contactsList"><div class="empty" style="padding:8px">Loading...</div></div></div>';
+    renderOfficialFollowCard();
     try {
       const r = await API.friends();
       const list = document.getElementById('contactsList');
@@ -2198,6 +2206,39 @@
         list.appendChild(c);
       });
     } catch (e) {}
+  }
+
+  // "Follow OpenBook" discovery card in the right rail, so the official account is easy
+  // to find. It links to the account's profile and disappears once you follow it (after
+  // that, its posts arrive in your feed). Never shown to the account itself.
+  async function renderOfficialFollowCard() {
+    const host = document.getElementById('obFollowCard');
+    if (!host) return;
+    try {
+      const r = await API.officialAccount();
+      if (!r || !r.user || r.isFollowing || r.isSelf) { host.innerHTML = ''; return; }
+      const u = r.user;
+      host.innerHTML =
+        '<div class="card ob-follow">' +
+        '<div class="section-title">Follow OpenBook</div>' +
+        '<div class="ob-follow-row">' +
+        '<span class="ob-follow-id" data-go-official>' +
+        '<span class="avatar-link">' + avatar(u, 40) + '</span>' +
+        '<span class="ob-follow-meta"><span class="nm">' + esc(u.name) + officialBadge(u) + '</span>' +
+        '<span class="shint" style="font-size:12px">New features, fixes, and announcements, in the open.</span></span>' +
+        '</span>' +
+        '<button class="btn btn-primary btn-sm" id="obFollowBtn">Follow</button>' +
+        '</div></div>';
+      const idEl = host.querySelector('[data-go-official]');
+      if (idEl) idEl.onclick = () => go('profile', u.id);
+      const btn = host.querySelector('#obFollowBtn');
+      if (btn) btn.onclick = async (e) => {
+        e.stopPropagation();
+        btn.disabled = true;
+        try { await API.follow(u.id); toast('You are now following OpenBook'); host.innerHTML = ''; }
+        catch (err) { btn.disabled = false; toast(err.message); }
+      };
+    } catch (e) { host.innerHTML = ''; }
   }
 
   /* ============================ friends ============================ */
@@ -2251,10 +2292,12 @@
 
   function personCard(u, mode) {
     const card = el(
-      '<div class="person"><div class="ph">' + avatar(u, 80) + '</div>' +
-      '<div class="pn" data-profile="' + u.id + '">' + esc(u.name) + '</div><div class="pb"></div></div>'
+      '<div class="person"><div class="ph"><span class="avatar-link" data-profile="' + u.id + '">' + avatar(u, 80) + '</span></div>' +
+      '<div class="pn" data-profile="' + u.id + '">' + esc(u.name) + verifTick(u) + '</div>' +
+      (u.username ? '<div class="phandle">@' + esc(u.username) + '</div>' : '') +
+      '<div class="pb"></div></div>'
     );
-    card.querySelector('[data-profile]').onclick = () => go('profile', u.id);
+    card.querySelectorAll('[data-profile]').forEach((x) => (x.onclick = () => go('profile', u.id)));
     const pb = card.querySelector('.pb');
     if (mode === 'add') {
       const b = el('<button class="btn btn-primary btn-sm btn-block">Add friend</button>');
@@ -2335,6 +2378,10 @@
   function profileActions(data) {
     const u = data.user;
     const share = ' <button class="btn btn-icon" data-share-profile="' + esc((u.username || u.id) + '') + '" title="Share profile" aria-label="Share profile">&#128279;</button>';
+    // The official OpenBook account is an automated account: you follow it, you do not
+    // send it a friend request or message it. Show only Follow (and Share), never the
+    // friend actions. (Friend requests to it are also blocked server-side.)
+    if (u.official && data.friendStatus !== 'self') return followBtn(data).trim() + share;
     let main;
     switch (data.friendStatus) {
       case 'self': main = '<button class="btn btn-soft btn-sm" id="editProfileBtn">Edit profile</button>' + visibilityBtn(u); break;

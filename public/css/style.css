@@ -770,6 +770,11 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
 .post-head .name { font-weight: 700; cursor: pointer; }
 .post-head .name:hover { text-decoration: underline; }
 .post-head .time { font-size: 12px; color: var(--text-soft); }
+/* A clickable avatar that opens the author's profile (feed posts, comments, people cards). */
+.avatar-link { display: inline-flex; flex: none; cursor: pointer; line-height: 0; border-radius: 50%; }
+/* The "N comments" count is a real button that opens the comments. */
+.stat-link { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: var(--text-soft); cursor: pointer; }
+.stat-link:hover { text-decoration: underline; }
 .post-body { margin: 10px 0; white-space: pre-wrap; word-wrap: break-word; }
 .post-image { margin: 0 -14px; }
 .post-image img { width: 100%; max-height: 560px; object-fit: cover; }
@@ -861,8 +866,15 @@ html[data-theme="dark"] .profile-head .pname { color: var(--text); }
   overflow: hidden; text-align: center; padding-bottom: 12px;
 }
 .person .ph { height: 120px; background: var(--brand-soft); display: flex; align-items: center; justify-content: center; }
-.person .pn { font-weight: 700; margin: 10px 8px 8px; cursor: pointer; }
+.person .pn { font-weight: 700; margin: 10px 8px 2px; cursor: pointer; }
+.person .phandle { color: var(--text-soft); font-size: 12.5px; margin: 0 8px 8px; }
 .person .pb { padding: 0 10px; display: flex; flex-direction: column; gap: 6px; }
+/* "Follow OpenBook" discovery card in the right rail. */
+.ob-follow .ob-follow-row { display: flex; align-items: center; gap: 10px; }
+.ob-follow .ob-follow-id { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; cursor: pointer; }
+.ob-follow .ob-follow-meta { display: flex; flex-direction: column; min-width: 0; }
+.ob-follow .ob-follow-meta .nm { font-weight: 700; }
+.ob-follow #obFollowBtn { flex: none; }
 .contact { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 10px; cursor: pointer; }
 .contact:hover { background: var(--hover); }
 .contact .nm { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

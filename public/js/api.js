@@ -77,6 +77,7 @@ const API = {
 
   // Users
   searchUsers(q) { return this.get('/api/users?q=' + encodeURIComponent(q || '')); },
+  officialAccount() { return this.get('/api/users/official'); },
   getProfile(id) { return this.get('/api/users/' + id); },
   updateProfile(name, bio, accentColor, username, profileTheme) { return this.put('/api/users/me', { name, bio, accentColor, username, profileTheme }); },
   setVisibility(visibility) { return this.put('/api/users/me/visibility', { visibility }); },
