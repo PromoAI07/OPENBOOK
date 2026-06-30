@@ -1062,15 +1062,20 @@ html[data-theme="dark"] .profile-head .pname { color: var(--text); }
 
 /* ---------- Messages ---------- */
 .messenger { display: grid; grid-template-columns: 300px 1fr; height: calc(100vh - var(--topbar-h) - 32px); }
-.mlist { border-right: 1px solid var(--line); overflow-y: auto; }
+/* min-height:0 lets these grid/flex children shrink to the row height so their inner
+   lists actually scroll instead of overflowing the messenger box (the thread-scroll bug). */
+.mlist { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.msearch { padding: 8px; border-bottom: 1px solid var(--line); flex: none; }
+.msearch input { width: 100%; border: none; background: var(--hover); border-radius: 20px; padding: 9px 14px; outline: none; color: var(--text); font: inherit; }
+.mlist-items { flex: 1; min-height: 0; overflow-y: auto; }
 .mlist .convo { display: flex; gap: 10px; align-items: center; padding: 10px 12px; cursor: pointer; }
 .mlist .convo:hover, .mlist .convo.active { background: var(--hover); }
 .mlist .convo .cm { flex: 1; min-width: 0; }
 .mlist .convo .cm .nm { font-weight: 700; }
 .mlist .convo .cm .lm { font-size: 13px; color: var(--text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mthread { display: flex; flex-direction: column; min-width: 0; }
-.mthread .thead { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-.mbody { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 6px; background: var(--bg); }
+.mthread { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.mthread .thead { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); flex: none; }
+.mbody { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 6px; background: var(--bg); }
 .bubble-msg { max-width: 70%; padding: 9px 13px; border-radius: 16px; background: var(--card); color: var(--text); box-shadow: var(--shadow); word-wrap: break-word; }
 .bubble-msg.mine { align-self: flex-end; background: var(--brand); color: #fff; }
 .bubble-msg .bt { font-size: 11px; opacity: 0.7; margin-top: 3px; }
@@ -1122,9 +1127,18 @@ html[data-theme="dark"] .profile-head .pname { color: var(--text); }
 .modal {
   background: var(--card); border-radius: var(--radius-lg);
   width: 100%; max-width: 500px; box-shadow: var(--shadow-lg);
-  max-height: 90vh; overflow-y: auto;
+  max-height: 90vh; overflow-y: auto; position: relative;
 }
-.modal .mh { display: flex; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+/* Always-present close button at the top-left, so a full-screen modal on mobile is
+   easy to dismiss even when there is no backdrop to tap. */
+.modal-x {
+  position: absolute; top: 8px; left: 8px; z-index: 3;
+  width: 32px; height: 32px; border: none; border-radius: 50%;
+  background: var(--hover); color: var(--text); font-size: 15px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.modal-x:hover { background: var(--line); }
+.modal .mh { display: flex; align-items: center; padding: 14px 44px; border-bottom: 1px solid var(--line); }
 .modal .mh h3 { margin: 0; flex: 1; text-align: center; font-size: 18px; }
 .modal .mc { padding: 18px; }
 
@@ -1191,6 +1205,9 @@ html[data-theme="dark"] .profile-head .pname { color: var(--text); }
 
 .votebox { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 34px; flex: none; }
 .votebox.inline { flex-direction: row; min-width: 0; gap: 4px; padding: 0 4px; }
+/* Small caption so the up/down arrows read clearly as a voting control. */
+.vlabel { font-size: 9.5px; line-height: 1; color: var(--text-soft); font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+.votebox.inline .vlabel { margin-right: 1px; }
 .vote { background: none; border: none; color: var(--text-soft); font-size: 14px; line-height: 1; padding: 2px 4px; border-radius: 6px; }
 .vote:hover { background: var(--hover); }
 .vote.up.on { color: var(--brand); }

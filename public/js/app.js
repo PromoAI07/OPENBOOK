@@ -216,10 +216,16 @@
   }
 
   function modal(innerHtml) {
-    const back = el('<div class="modal-back"><div class="modal">' + innerHtml + '</div></div>');
+    const back = el('<div class="modal-back"><div class="modal"><button class="modal-x" type="button" aria-label="Close" title="Close">&#10005;</button>' + innerHtml + '</div></div>');
     document.getElementById('modalRoot').appendChild(back);
-    function close() { back.remove(); }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    function close() { document.removeEventListener('keydown', onKey); back.remove(); }
     back.addEventListener('click', (e) => { if (e.target === back) close(); });
+    // Visible close button, so a full-screen modal on mobile is always easy to dismiss
+    // (tapping the backdrop is not possible when the modal fills the screen). Escape closes too.
+    const x = back.querySelector('.modal-x');
+    if (x) x.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
     if (window.anime) anime({ targets: back.querySelector('.modal'), scale: [0.95, 1], opacity: [0.5, 1], duration: 200, easing: 'easeOutCubic' });
     return { node: back, close: close, q: (sel) => back.querySelector(sel) };
   }
@@ -2956,28 +2962,55 @@
 
   /* ============================ messages ============================ */
 
+  let _convos = [];
+  let _convoActiveId = null;
+
   async function renderMessages(userId) {
     view.innerHTML =
       '<div class="card card-pad-0"><div class="messenger" id="messenger">' +
-      '<div class="mlist" id="convoList"><div class="empty" style="padding:16px">Loading...</div></div>' +
+      '<div class="mlist" id="mlist">' +
+        '<div class="msearch"><input id="convoSearch" type="search" placeholder="Search messages" autocomplete="off"></div>' +
+        '<div class="mlist-items" id="convoList"><div class="empty" style="padding:16px">Loading...</div></div>' +
+      '</div>' +
       '<div class="mthread" id="thread"><div class="chat-empty">Select a conversation to start chatting</div></div>' +
       '</div></div>';
+    const si = document.getElementById('convoSearch');
+    if (si) si.addEventListener('input', () => renderConvoList(si.value));
     await loadConversations(userId ? Number(userId) : null);
     if (userId) openThread(Number(userId));
   }
 
   async function loadConversations(activeId) {
+    _convoActiveId = activeId || null;
     try {
       const r = await API.conversations();
-      const list = document.getElementById('convoList');
-      if (!list) return;
-      if (!r.conversations.length) {
-        list.innerHTML = '<div class="empty" style="padding:16px">No conversations yet. Open a friend and tap Message to say hi.</div>';
-        return;
-      }
-      list.innerHTML = '';
-      r.conversations.forEach((c) => list.appendChild(convoRow(c, activeId)));
+      // The official OpenBook account is always pinned to the top of the list so its
+      // messages are easy to find without searching. Everyone else keeps recent-first
+      // order (a stable sort preserves it).
+      _convos = (r.conversations || []).slice().sort((a, b) => (b.user.official ? 1 : 0) - (a.user.official ? 1 : 0));
+      const si = document.getElementById('convoSearch');
+      renderConvoList(si ? si.value : '');
     } catch (e) {}
+  }
+
+  // Render the conversation list, optionally filtered by a search term (matches the
+  // other person's name or @username). Pinned OpenBook only filters out when searching.
+  function renderConvoList(filter) {
+    const list = document.getElementById('convoList');
+    if (!list) return;
+    const q = (filter || '').trim().toLowerCase();
+    let convos = _convos;
+    if (q) convos = _convos.filter((c) => {
+      const u = c.user || {};
+      return (u.name && u.name.toLowerCase().indexOf(q) >= 0) || (u.username && u.username.toLowerCase().indexOf(q) >= 0);
+    });
+    if (!convos.length) {
+      list.innerHTML = '<div class="empty" style="padding:16px">' +
+        (q ? 'No conversations match that search.' : 'No conversations yet. Open a friend and tap Message to say hi.') + '</div>';
+      return;
+    }
+    list.innerHTML = '';
+    convos.forEach((c) => list.appendChild(convoRow(c, _convoActiveId)));
   }
 
   function convoRow(c, activeId) {
@@ -2985,7 +3018,7 @@
     const last = c.lastMessage ? (c.lastMessage.mine ? 'You: ' : '') + c.lastMessage.content : 'Say hi';
     const row = el(
       '<div class="convo' + (Number(activeId) === u.id ? ' active' : '') + '" data-uid="' + u.id + '">' +
-      avatar(u, 48) + '<div class="cm"><div class="nm">' + esc(u.name) + '</div><div class="lm">' + esc(last) + '</div></div>' +
+      avatar(u, 48) + '<div class="cm"><div class="nm">' + esc(u.name) + (u.official ? officialBadge(u) : '') + '</div><div class="lm">' + esc(last) + '</div></div>' +
       (c.unreadCount ? '<span class="badge" style="position:static">' + c.unreadCount + '</span>' : '') +
       '</div>'
     );
@@ -3011,8 +3044,7 @@
     thread.innerHTML =
       '<div class="thead"><button class="btn btn-ghost btn-sm" id="backToList">&#8592;</button>' +
       '<span class="link" data-headprofile="' + u.id + '">' + avatar(u, 40) + '</span>' +
-      '<div class="link" style="font-weight:700;flex:1" data-headprofile="' + u.id + '">' + esc(u.name) + verifTick(u) +
-        (u.official ? ' <span class="pill official-pill">Official</span>' : '') + '</div></div>' +
+      '<div class="link" style="font-weight:700;flex:1" data-headprofile="' + u.id + '">' + esc(u.name) + verifTick(u) + '</div></div>' +
       '<div class="mbody" id="mbody"></div>' +
       (u.official
         ? '<div class="mfoot mfoot-note">This is an automated account, so replies here are not read. Use the Get started buttons above, or the Support and Suggestions pages, to reach the team.</div>'
@@ -3755,6 +3787,10 @@
 
   function voteControl(targetType, targetId, score, myVote, inline) {
     const box = el('<div class="votebox' + (inline ? ' inline' : '') + '"><button class="vote up" title="Upvote">&#9650;</button><span class="vscore"></span><button class="vote down" title="Downvote">&#9660;</button></div>');
+    // A small "Vote" caption, so the up/down arrows are obviously a voting control. It
+    // sits before the arrows on an inline row and below them on the vertical control.
+    const lbl = el('<span class="vlabel">Vote</span>');
+    if (inline) box.insertBefore(lbl, box.firstChild); else box.appendChild(lbl);
     const up = box.querySelector('.up');
     const down = box.querySelector('.down');
     const sc = box.querySelector('.vscore');
