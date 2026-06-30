@@ -583,6 +583,7 @@
       '<a href="/mod-log">Transparency Log</a>' +
       '<a href="/rules">Rules</a>' +
       '<a href="/privacy">Privacy Policy</a>' +
+      '<a href="/terms">Terms</a>' +
       '<a href="/cookies">Cookies</a>' +
       '<a href="https://github.com/PromoAI07/OPENBOOK" target="_blank" rel="noopener">Open source</a>' +
       '<div class="rail-foot-copy">OpenBook. Your data is yours, always.</div>' +

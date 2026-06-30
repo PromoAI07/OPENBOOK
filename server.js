@@ -385,9 +385,10 @@ app.get('/reset', (req, res) => sendPage(res, path.join(__dirname, 'public', 're
 // Public "Our Mission" page (open to everyone, logged in or out).
 app.get('/mission', (req, res) => sendPage(res, path.join(__dirname, 'public', 'mission.html')));
 
-// Public Privacy Policy and Cookies pages (open to everyone, logged in or out).
+// Public Privacy Policy, Cookies, and Terms of Service pages (open to everyone).
 app.get('/privacy', (req, res) => sendPage(res, path.join(__dirname, 'public', 'privacy.html')));
 app.get('/cookies', (req, res) => sendPage(res, path.join(__dirname, 'public', 'cookies.html')));
+app.get('/terms', (req, res) => sendPage(res, path.join(__dirname, 'public', 'terms.html')));
 
 // Public community roadmap page (the transparent, voted feature roadmap).
 app.get('/roadmap', (req, res) => sendPage(res, path.join(__dirname, 'public', 'roadmap.html')));

@@ -27,6 +27,8 @@ const CHANGELOG = [
     body: 'Two new ways to sign in. You can now log in with Google, or set up a passkey and sign in with just your fingerprint, face, or device PIN (Face ID, Touch ID, or Windows Hello). Passkeys are passwordless, and your biometric never leaves your device, we only ever store a public key. Add one any time from Settings. As always, how you sign in is only your identity, it never affects your karma, standing, or reach.' },
   { slug: '2026-06-30-messages-and-clarity',
     body: 'UPDATE: Messages now has a search box, and the OpenBook account stays pinned to the top of your chats so you can always find it. We also labeled the up and down arrows as Vote so they are clear, gave the Get started panel a clear close button, made author avatars clickable to their profile, let you find people by their @username in search, and fixed scrolling in the OpenBook chat. Keep the feedback coming, it shapes what we build.' },
+  { slug: '2026-06-30-terms-of-service',
+    body: 'UPDATE: Added a plain-language Terms of Service page, linked in the footer next to the Privacy Policy. Like everything here it is short, readable, and lives in the open: you own what you post, here are the rules of the road, and money never buys influence.' },
 ];
 
 async function publishChangelog() {
