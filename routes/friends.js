@@ -82,6 +82,8 @@ router.post('/request/:id', requireAuth, async (req, res) => {
   await db.prepare(
     "INSERT INTO friendships (requester_id, addressee_id, status) VALUES (?, ?, 'pending')"
   ).run(req.user.id, target);
+  // NOTE: the auto-follow happens on ACCEPT (the consensual moment), not here on send, so
+  // a declined request never leaves behind a follow the other person did not agree to.
   await notify(target, req.user.id, 'friend_request', null);
   res.json({ ok: true });
 });
@@ -97,6 +99,12 @@ router.post('/accept/:id', requireAuth, async (req, res) => {
   if (!f) return res.status(404).json({ error: 'No pending request from this user' });
 
   await db.prepare("UPDATE friendships SET status = 'accepted' WHERE id = ?").run(f.id);
+  // Now that they are friends, make the follow mutual (silent). INSERT OR IGNORE leaves
+  // an existing follow untouched, so this is safe even if either side already follows.
+  try {
+    await db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)').run(req.user.id, requester);
+    await db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)').run(requester, req.user.id);
+  } catch (e) {}
   await notify(requester, req.user.id, 'friend_accept', null);
   res.json({ ok: true });
 });

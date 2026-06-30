@@ -37,6 +37,21 @@
     return escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
   }
 
+  // Turn @username into a clickable link to that profile, and highlight @everyone /
+  // @friends (which broadcast a notification, they are not profile links). Runs on
+  // already-escaped text (so there are no tags to break), and the username charset is
+  // letters/digits/underscore only, so nothing here can inject markup. The leading
+  // boundary stops it firing inside an email (a@b) or a URL path (x.com/@u).
+  function mentionify(escaped) {
+    return escaped.replace(/(^|[^\w/@])@([a-zA-Z]\w{2,19})(?!\w)/g, function (full, pre, name) {
+      var low = name.toLowerCase();
+      if (low === 'friends' || low === 'everyone') return pre + '<span class="mention mention-all">@' + name + '</span>';
+      return pre + '<a class="mention" data-mention="' + name + '" href="/u/' + name + '">@' + name + '</a>';
+    });
+  }
+  // Escape, linkify @mentions, then linkify URLs. Used for post + comment bodies.
+  function richText(content) { return linkify(mentionify(esc(content))); }
+
   // Only let http(s) URLs become a real href. Anything else (javascript:, data:,
   // etc.) collapses to '#', so a hostile link-post URL cannot run script when
   // clicked. The visible link text still shows the raw URL via esc().
@@ -452,6 +467,10 @@
     // Delegated handlers for report and appeal buttons (they appear on many
     // dynamically-rendered surfaces, so one listener covers them all).
     document.addEventListener('click', (e) => {
+      // @mention links open that person's profile in-app (the href="/u/<name>" is the
+      // no-JS / open-in-new-tab fallback). go('profile', name) resolves the username.
+      const mn = e.target.closest('[data-mention]');
+      if (mn) { e.preventDefault(); const u = mn.getAttribute('data-mention'); if (u) go('profile', u); return; }
       const shp = e.target.closest('[data-share-post]');
       if (shp) { e.preventDefault(); e.stopPropagation(); shareLink(postShareUrl(shp.getAttribute('data-share-post')), 'OpenBook post'); return; }
       const shu = e.target.closest('[data-share-profile]');
@@ -1937,7 +1956,7 @@
       '</div>' +
       (p.content ? (p.bg
         ? '<div class="post-bg ' + esc(p.bg) + '">' + esc(p.content) + '</div>'
-        : '<div class="post-body">' + linkify(esc(p.content)) + '</div>') : '') +
+        : '<div class="post-body">' + richText(p.content) + '</div>') : '') +
       (p.image ? '<div class="post-image"><img src="' + esc(p.image) + '" alt=""></div>' : '') +
       (p.poll ? pollHtml(p) : '') +
       (p.file_url ? fileChipHtml(p) : '') +
@@ -2060,7 +2079,7 @@
     node.innerHTML =
       '<span class="avatar-link" data-profile="' + c.author.id + '">' + avatar(c.author, 32) + '</span>' +
       '<div style="flex:1;min-width:0"><div class="bubble"><div class="name" data-profile="' + c.author.id + '">' + esc(c.author.name) + verifTick(c.author) + '</div>' +
-      linkify(esc(c.content)) + '</div>' +
+      richText(c.content) + '</div>' +
       '<div class="cmeta"><span data-cvote></span><span data-react></span><span class="time">' + timeAgo(c.created_at) + '</span>' +
       '<span data-sum></span>' +
       (mine ? ' <button data-delc="' + c.id + '" class="clink">Delete</button>' : '') +
@@ -2392,10 +2411,10 @@
     let main;
     switch (data.friendStatus) {
       case 'self': main = '<button class="btn btn-soft btn-sm" id="editProfileBtn">Edit profile</button>' + visibilityBtn(u); break;
-      case 'friends': main = '<button class="btn btn-primary" data-msg="' + u.id + '">Message</button>&nbsp;<button class="btn" data-unfriend="' + u.id + '">Friends &#10003;</button>'; break;
-      case 'requested': main = '<button class="btn" data-unfriend="' + u.id + '">Cancel request</button>'; break;
-      case 'incoming': main = '<button class="btn btn-primary" data-accept="' + u.id + '">Confirm request</button>&nbsp;<button class="btn" data-decline="' + u.id + '">Delete</button>'; break;
-      default: main = '<button class="btn btn-primary" data-addfriend="' + u.id + '">Add friend</button>';
+      case 'friends': main = '<button class="btn btn-primary btn-sm" data-msg="' + u.id + '">Message</button>&nbsp;<button class="btn btn-sm" data-unfriend="' + u.id + '">Friends &#10003;</button>'; break;
+      case 'requested': main = '<button class="btn btn-sm" data-unfriend="' + u.id + '">Cancel request</button>'; break;
+      case 'incoming': main = '<button class="btn btn-primary btn-sm" data-accept="' + u.id + '">Confirm request</button>&nbsp;<button class="btn btn-sm" data-decline="' + u.id + '">Delete</button>'; break;
+      default: main = '<button class="btn btn-primary btn-sm" data-addfriend="' + u.id + '">Add friend</button>';
     }
     return main + followBtn(data) + share;
   }
@@ -3194,6 +3213,7 @@
       case 'like': return ' liked your post';
       case 'reaction': return ' reacted to your post';
       case 'comment': return ' commented on your post';
+      case 'mention': return ' mentioned you in a post';
       case 'friend_request': return ' sent you a friend request';
       case 'friend_accept': return ' accepted your friend request';
       case 'follow': return ' started following you';
@@ -3217,6 +3237,8 @@
       if (n.type === 'escrow_update') openMyOrders();
       else if (n.type === 'welcome') go('messages', n.actor.id);
       else if (n.type === 'friend_request' || n.type === 'friend_accept' || n.type === 'follow') go('profile', n.actor.id);
+      else if (n.type === 'mention') { if (n.post_id) go('post', n.post_id); else go('profile', n.actor.id); }
+      else if (n.post_id) go('post', n.post_id);
       else go('profile', ME.id);
     };
     return row;
@@ -4072,7 +4094,7 @@
       (p.locked ? '<div class="modbanner modbanner-soft">&#128274; Comments are locked.</div>' : '') +
       (p.title ? '<div class="cpost-title" style="font-size:22px;cursor:default">' + esc(p.title) + '</div>' : '') +
       (p.type === 'link' && p.url ? '<a href="' + esc(safeHref(p.url)) + '" target="_blank" rel="noopener">' + esc(p.url) + '</a>' : '') +
-      (p.content ? '<div class="post-body">' + linkify(esc(p.content)) + '</div>' : '') +
+      (p.content ? '<div class="post-body">' + richText(p.content) + '</div>' : '') +
       (p.image ? '<div class="post-image" style="margin:10px 0"><img src="' + esc(p.image) + '" alt="" style="border-radius:10px"></div>' : '') +
       '<div class="cpost-ops" id="postOps" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"></div>';
     card.appendChild(pbody);
@@ -4182,7 +4204,7 @@
     const canModC = (postMod || postOwner) && !mine;
     main.innerHTML =
       '<div class="cbubble' + (c.removed ? ' cremoved' : '') + '"><span class="cname link" data-profile="' + c.author.id + '">' + esc(c.author.name) + verifTick(c.author) + '</span> <span class="ctime">' + timeAgo(c.created_at) + '</span>' +
-      '<div>' + linkify(esc(c.content)) + '</div></div>' +
+      '<div>' + richText(c.content) + '</div></div>' +
       '<div class="cactions"><button class="clink" data-reply>Reply</button>' +
       (mine ? ' <button class="clink" data-delc>Delete</button>' : ' <button class="clink" data-report="comment" data-report-id="' + c.id + '">Report</button>') +
       (canModC ? (c.removed ? ' <button class="clink" data-modrestorec>Restore</button>' : ' <button class="clink" data-modrmc>Remove</button>') : '') +

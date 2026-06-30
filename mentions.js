@@ -1,0 +1,117 @@
+// mentions.js
+// Parses @mentions in a post or comment and notifies the right people:
+//   @username  -> notifies that specific member (and the text links to their profile)
+//   @friends   -> notifies the author's accepted friends
+//   @everyone  -> notifies the author's accepted friends AND their followers
+//
+// PRIVACY: a mention never reveals a post to someone who cannot see it. On a non-public
+// post (friends-only, or a private community/group) the only people notified are those
+// who can actually view it (the author's accepted friends); followers are NOT fanned out
+// and an @named stranger is skipped, so a hidden post's existence is never advertised.
+//
+// ABUSE: recipients are deduped, the author is never self-notified, a single post is
+// capped (MAX_NOTIFY), and a rolling per-actor hourly budget bounds fan-out across many
+// posts. Best-effort and fire-and-forget: a hiccup never breaks creating the post.
+// NOTE: a proper block/mute system is still the right fix for targeted @-harassment; it
+// does not exist yet (tracked as a follow-up). These limits only bound the volume.
+
+const db = require('./db');
+const { notify } = require('./notify');
+
+// A mention is @ + a valid username (letter then 3..20 letters/digits/underscore),
+// matched only at a word boundary so emails (a@b) and URLs (x.com/@u) do not trigger.
+const MENTION_RE = /(^|[^\w/@])@([a-zA-Z]\w{2,19})(?!\w)/g;
+
+// Cap the people one post/comment can notify (explicit @names + @friends/@everyone
+// fan-out combined). Override with MENTION_NOTIFY_MAX.
+const MAX_NOTIFY = Number(process.env.MENTION_NOTIFY_MAX) > 0 ? Number(process.env.MENTION_NOTIFY_MAX) : 100;
+
+// Rolling per-actor hourly budget so one account cannot mention-blast across many posts.
+// In-memory (single instance), like the login throttle; move to Redis before scaling out.
+const HOURLY_MAX = Number(process.env.MENTION_HOURLY_MAX) > 0 ? Number(process.env.MENTION_HOURLY_MAX) : 300;
+const HOUR_MS = 60 * 60 * 1000;
+const actorBudget = new Map(); // actorId -> { start, count }
+function budgetRemaining(actorId) {
+  const now = Date.now();
+  let b = actorBudget.get(actorId);
+  if (!b || (now - b.start) >= HOUR_MS) { b = { start: now, count: 0 }; actorBudget.set(actorId, b); }
+  return Math.max(0, HOURLY_MAX - b.count);
+}
+function spendBudget(actorId, n) {
+  const b = actorBudget.get(actorId) || { start: Date.now(), count: 0 };
+  b.count += n; actorBudget.set(actorId, b);
+}
+
+// Pull the distinct lowercased @names + the @friends / @everyone flags out of text.
+function parseMentions(text) {
+  const out = { names: [], friends: false, everyone: false };
+  if (!text) return out;
+  const seen = new Set();
+  let m;
+  MENTION_RE.lastIndex = 0;
+  while ((m = MENTION_RE.exec(text))) {
+    const name = m[2].toLowerCase();
+    if (name === 'friends') out.friends = true;
+    else if (name === 'everyone') out.everyone = true;
+    else if (!seen.has(name)) { seen.add(name); out.names.push(name); }
+  }
+  return out;
+}
+
+// Resolve mentions to a deduped, visibility-safe recipient set, then notify each
+// (type 'mention'). opts.audience is the post's audience: 'public' (default) means the
+// post is world-visible; anything else ('friends', or a private community/group) means
+// only people who can see it (the author's friends) may be notified.
+async function processMentions(authorId, text, postId, opts) {
+  try {
+    const parsed = parseMentions(text);
+    if (!parsed.names.length && !parsed.friends && !parsed.everyone) return 0;
+    const isPublic = !opts || opts.audience === undefined || opts.audience === 'public';
+
+    // The author's accepted friends: needed for @friends/@everyone, and to restrict
+    // recipients on a non-public post to people who can actually see it.
+    const friendIds = new Set();
+    if (parsed.friends || parsed.everyone || !isPublic) {
+      const friends = await db.prepare(
+        "SELECT CASE WHEN requester_id = ? THEN addressee_id ELSE requester_id END AS uid " +
+        "FROM friendships WHERE status = 'accepted' AND (requester_id = ? OR addressee_id = ?)"
+      ).all(authorId, authorId, authorId);
+      friends.forEach((r) => friendIds.add(r.uid));
+    }
+
+    const recipients = new Set();
+
+    if (parsed.names.length) {
+      const names = parsed.names.slice(0, MAX_NOTIFY);
+      const ph = names.map(() => '?').join(',');
+      const rows = await db.prepare('SELECT id FROM users WHERE lower(username) IN (' + ph + ')').all(...names);
+      // On a non-public post, only notify a named user who can see it (a friend), so an
+      // @named stranger is never told a hidden post exists.
+      rows.forEach((r) => { if (isPublic || friendIds.has(r.id)) recipients.add(r.id); });
+    }
+
+    if (parsed.friends || parsed.everyone) friendIds.forEach((uid) => recipients.add(uid));
+
+    // @everyone reaches followers ONLY on a public post (a follower may not be able to
+    // see a friends-only post, so notifying them would leak its existence).
+    if (parsed.everyone && isPublic) {
+      const followers = await db.prepare('SELECT follower_id AS uid FROM follows WHERE followee_id = ?').all(authorId);
+      followers.forEach((r) => recipients.add(r.uid));
+    }
+
+    recipients.delete(authorId); // never notify yourself
+    if (!recipients.size) return 0;
+
+    const budget = budgetRemaining(authorId);
+    if (budget <= 0) return 0;
+    let count = 0;
+    for (const uid of recipients) {
+      if (count >= MAX_NOTIFY || count >= budget) break;
+      try { await notify(uid, authorId, 'mention', postId || null); count++; } catch (e) { /* keep going */ }
+    }
+    spendBudget(authorId, count);
+    return count;
+  } catch (e) { return 0; }
+}
+
+module.exports = { parseMentions, processMentions, MAX_NOTIFY };

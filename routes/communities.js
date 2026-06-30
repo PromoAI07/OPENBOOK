@@ -210,6 +210,9 @@ router.post('/:id/posts', requireAuth, trustRateLimit('post'), upload.single('im
   const info = await db
     .prepare('INSERT INTO posts (user_id, community_id, title, type, content, url, image) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(req.user.id, id, title, type, content, url, image);
+  // A post in a public community is world-visible; a private community's posts are not,
+  // so gate the mention fan-out accordingly (private -> friends only, no follower blast).
+  require('../mentions').processMentions(req.user.id, content, info.lastInsertRowid, { audience: c.privacy === 'public' ? 'public' : 'friends' }).catch(() => {});
   const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(info.lastInsertRowid);
   res.json({ post: await decoratePost(post, req.user.id) });
 });

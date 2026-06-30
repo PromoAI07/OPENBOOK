@@ -31,6 +31,8 @@ const CHANGELOG = [
     body: 'UPDATE: Added a plain-language Terms of Service page, linked in the footer next to the Privacy Policy. Like everything here it is short, readable, and lives in the open: you own what you post, here are the rules of the road, and money never buys influence.' },
   { slug: '2026-06-30-vote-control-polish',
     body: 'CHANGE: A small polish to the vote control. The Vote label now sits neatly under the up and down arrows instead of beside them, so the action row under each post stays clean on both desktop and mobile.' },
+  { slug: '2026-06-30-mentions',
+    body: 'UPDATE: You can now @mention people. Type @username in a post or comment and it turns into a clickable link to their profile, and they get notified. Use @friends to ping your friends, or @everyone to reach your friends and followers. Your privacy is respected: a friends-only post never notifies people who cannot see it. Two more: adding a friend now follows them automatically once they accept, and the Add friend and Follow buttons are the same size now.' },
 ];
 
 async function publishChangelog() {

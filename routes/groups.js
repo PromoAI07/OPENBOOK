@@ -158,6 +158,9 @@ router.post('/:id/posts', requireAuth, trustRateLimit('post'), upload.single('im
   const info = await db
     .prepare('INSERT INTO posts (user_id, content, image, group_id) VALUES (?, ?, ?, ?)')
     .run(req.user.id, content, image, id);
+  // Group posts are member-only (never world-visible), so gate the mention fan-out to
+  // friends and never blast the author's followers about a post they cannot see.
+  require('../mentions').processMentions(req.user.id, content, info.lastInsertRowid, { audience: 'friends' }).catch(() => {});
   const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(info.lastInsertRowid);
   res.json({ post: await decoratePost(post, req.user.id) });
 });

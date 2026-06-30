@@ -291,6 +291,10 @@ router.post('/', requireAuth, trustRateLimit('post'), upload.single('image'), as
     for (let i = 0; i < pollOptions.length; i++) await ins.run(postId, pollOptions[i].slice(0, 120), i);
   }
   const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(postId);
+  // Notify anyone @mentioned (and @friends / @everyone). Fire-and-forget so the post
+  // returns immediately; the fan-out is deduped, capped, and visibility-gated by the
+  // post's audience inside processMentions.
+  require('../mentions').processMentions(req.user.id, content, postId, { audience: audience }).catch(() => {});
   res.json({ post: await decoratePost(post, req.user.id) });
 });
 
@@ -426,6 +430,10 @@ router.post('/:id/comments', requireAuth, trustRateLimit('comment'), async (req,
     .prepare('INSERT INTO comments (post_id, user_id, content, parent_id) VALUES (?, ?, ?, ?)')
     .run(postId, req.user.id, content, parentId);
   if (post.user_id !== req.user.id) await notify(post.user_id, req.user.id, 'comment', postId);
+  // Notify anyone @mentioned in the comment (links back to this post). A comment is only
+  // as visible as its post, so pass the post's audience so a friends-only thread never
+  // notifies someone who cannot open it.
+  require('../mentions').processMentions(req.user.id, content, postId, { audience: post.audience }).catch(() => {});
 
   const c = await db.prepare('SELECT * FROM comments WHERE id = ?').get(info.lastInsertRowid);
   res.json({ comment: await decorateComment(c, req.user.id) });
