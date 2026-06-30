@@ -11,6 +11,10 @@ const db = require('./db');
 const { userFromToken, COOKIE_NAME } = require('./auth');
 const presence = require('./presence');
 
+// Cap on a single message's length, applied to both sending and editing so an
+// edited message cannot balloon past what could be sent in the first place.
+const MAX_MSG_LEN = 5000;
+
 // Notify only a user's accepted friends (the people whose contacts list shows
 // their dot) when they come online or go offline, by emitting to each friend's
 // private "user:<id>" room. This replaces a global io.emit broadcast, which sent
@@ -68,6 +72,10 @@ function initSockets(io) {
           if (typeof ack === 'function') ack({ error: 'Invalid message' });
           return;
         }
+        if (content.length > MAX_MSG_LEN) {
+          if (typeof ack === 'function') ack({ error: 'Message is too long.' });
+          return;
+        }
         // Soft email gate also applies to chat (re-checked live, not at connect).
         const sender = await db.prepare('SELECT email_verified FROM users WHERE id = ?').get(user.id);
         if (!sender || !sender.email_verified) {
@@ -91,6 +99,7 @@ function initSockets(io) {
           created_at: m.created_at,
           sender_id: m.sender_id,
           recipient_id: m.recipient_id,
+          edited: !!m.edited,
         };
         // The recipient sees it as not theirs, the sender sees it as theirs.
         io.to('user:' + to).emit('message:new', { ...base, mine: false });
@@ -115,6 +124,48 @@ function initSockets(io) {
         console.error('[socket message:read]', e.message);
       }
       if (typeof ack === 'function') ack({ ok: true });
+    });
+
+    // Edit a message you sent. Only the author can edit it; both sides get the new
+    // text live and an "edited" mark. The content is re-validated and trimmed.
+    socket.on('message:edit', async (data, ack) => {
+      try {
+        const id = Number(data && data.id);
+        const content = ((data && data.content) || '').toString().trim();
+        if (!id || !content) { if (typeof ack === 'function') ack({ error: 'Invalid edit' }); return; }
+        if (content.length > MAX_MSG_LEN) { if (typeof ack === 'function') ack({ error: 'Message is too long.' }); return; }
+        const m = await db.prepare('SELECT * FROM messages WHERE id = ?').get(id);
+        if (!m) { if (typeof ack === 'function') ack({ error: 'That message is no longer available.' }); return; }
+        if (m.sender_id !== user.id) { if (typeof ack === 'function') ack({ error: 'You can only edit your own messages.' }); return; }
+        await db.prepare('UPDATE messages SET content = ?, edited = 1 WHERE id = ?').run(content, id);
+        const payload = { id: id, content: content, edited: true, sender_id: m.sender_id, recipient_id: m.recipient_id };
+        io.to('user:' + m.recipient_id).emit('message:edited', payload);
+        io.to('user:' + m.sender_id).emit('message:edited', payload);
+        if (typeof ack === 'function') ack({ ok: true });
+      } catch (e) {
+        console.error('[socket message:edit]', e.message);
+        if (typeof ack === 'function') ack({ error: 'Could not edit the message' });
+      }
+    });
+
+    // Delete a message you sent, for everyone (Telegram-style). The row is removed
+    // entirely; both sides remove the bubble live. Only the author can delete it.
+    socket.on('message:delete', async (data, ack) => {
+      try {
+        const id = Number(data && data.id);
+        if (!id) { if (typeof ack === 'function') ack({ error: 'Invalid delete' }); return; }
+        const m = await db.prepare('SELECT * FROM messages WHERE id = ?').get(id);
+        if (!m) { if (typeof ack === 'function') ack({ ok: true, alreadyGone: true }); return; } // already deleted: treat as success
+        if (m.sender_id !== user.id) { if (typeof ack === 'function') ack({ error: 'You can only delete your own messages.' }); return; }
+        await db.prepare('DELETE FROM messages WHERE id = ?').run(id);
+        const payload = { id: id, sender_id: m.sender_id, recipient_id: m.recipient_id };
+        io.to('user:' + m.recipient_id).emit('message:deleted', payload);
+        io.to('user:' + m.sender_id).emit('message:deleted', payload);
+        if (typeof ack === 'function') ack({ ok: true });
+      } catch (e) {
+        console.error('[socket message:delete]', e.message);
+        if (typeof ack === 'function') ack({ error: 'Could not delete the message' });
+      }
     });
 
     // Lightweight typing indicator.

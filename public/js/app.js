@@ -5,6 +5,7 @@
 
 (function () {
   let ME = null;
+  let CONFIG = {}; // public server config (/api/config): turnstile key, unverified-delete state
   let currentView = 'feed';
   // SPA history: each forward go() pushes a real browser history entry so Back and
   // Forward walk the views you actually visited. These flags coordinate that
@@ -239,6 +240,9 @@
       window.location.href = '/';
       return;
     }
+    // Public config (drives the verify banner's deletion warning so it only appears
+    // when the server will actually delete, with the real grace window).
+    try { CONFIG = await API.config(); } catch (e) { CONFIG = {}; }
     Chat.init();
     setupChrome();
     wireSocket();
@@ -271,9 +275,27 @@
     const existing = document.getElementById('verifyBanner');
     if (ME.emailVerified) { if (existing) existing.remove(); return; }
     if (existing) return;
+    // Only warn about deletion when the server says it is actually armed
+    // (CONFIG.unverifiedDeletes), using the server's real grace window, so the banner
+    // can never threaten a deletion that will not happen or state the wrong deadline.
+    const deletes = !!(CONFIG && CONFIG.unverifiedDeletes);
+    const graceH = (CONFIG && Number(CONFIG.unverifiedGraceHours)) || 24;
+    let warn = '';
+    if (deletes) {
+      let leftTxt = '';
+      try {
+        const raw = ME.created_at ? (ME.created_at.indexOf('T') >= 0 ? ME.created_at : ME.created_at.replace(' ', 'T') + 'Z') : null;
+        const created = raw ? Date.parse(raw) : Date.now();
+        const hoursLeft = Math.max(0, Math.ceil((created + graceH * 3600000 - Date.now()) / 3600000));
+        leftTxt = hoursLeft > 0
+          ? (' You have about ' + hoursLeft + ' hour' + (hoursLeft === 1 ? '' : 's') + ' left.')
+          : ' It will be removed shortly.';
+      } catch (e) {}
+      warn = ' Unverified accounts are permanently deleted ' + graceH + ' hours after signup.' + leftTxt;
+    }
     const b = el(
       '<div id="verifyBanner" class="verify-banner">' +
-      '<span>&#9993; Verify your email to start posting. We sent a link to <b>' + esc(ME.email || 'your inbox') + '</b>.</span>' +
+      '<span>&#9993; Verify your email to start posting' + (deletes ? ' and <b>keep your account</b>' : '') + '. We sent a link to <b>' + esc(ME.email || 'your inbox') + '</b>.' + warn + '</span>' +
       '<button class="btn btn-sm" id="resendVerify">Resend email</button></div>'
     );
     const layout = document.querySelector('.layout');
@@ -2765,8 +2787,74 @@
     refreshBadges();
   }
 
+  // Paint (or repaint) a message bubble from its message object. Your own bubbles
+  // get a small options button (edit / delete). Shared by the initial render, the
+  // edit save/cancel, and is the single source of a bubble's markup.
+  function paintBubble(node, m) {
+    node.className = 'bubble-msg' + (m.mine ? ' mine' : '');
+    node.dataset.mid = m.id;
+    node.innerHTML =
+      '<div class="bubble-body">' + linkify(esc(m.content)) + '</div>' +
+      '<div class="bt">' + timeAgo(m.created_at) + (m.edited ? ' <span class="msg-edited">edited</span>' : '') + '</div>' +
+      (m.mine ? '<button class="msg-menu-btn" title="Message options" aria-label="Message options">&#8943;</button>' : '');
+    if (m.mine) {
+      node.querySelector('.msg-menu-btn').onclick = (e) => { e.stopPropagation(); openMsgMenu(node, m); };
+    }
+  }
+
   function msgBubble(m) {
-    return el('<div class="bubble-msg' + (m.mine ? ' mine' : '') + '">' + linkify(esc(m.content)) + '<div class="bt">' + timeAgo(m.created_at) + '</div></div>');
+    const node = el('<div></div>');
+    paintBubble(node, m);
+    return node;
+  }
+
+  function closeMsgMenu() { document.querySelectorAll('.msg-menu').forEach((x) => x.remove()); }
+
+  // The little Edit / Delete popover on your own message bubble.
+  function openMsgMenu(node, m) {
+    closeMsgMenu();
+    const menu = el('<div class="msg-menu"><button data-act="edit">&#9998; Edit</button><button data-act="del" class="danger">&#128465; Delete</button></div>');
+    menu.querySelector('[data-act="edit"]').onclick = (e) => { e.stopPropagation(); closeMsgMenu(); startEditBubble(node, m); };
+    menu.querySelector('[data-act="del"]').onclick = async (e) => {
+      e.stopPropagation(); closeMsgMenu();
+      if (!window.confirm('Delete this message for everyone? This cannot be undone.')) return;
+      try { await Chat.deleteMessage(m.id); node.remove(); loadConversations(activeChatUser); }
+      catch (err) { toast(err.message); }
+    };
+    node.appendChild(menu);
+    // Close on the next outside click (deferred so this click does not close it).
+    setTimeout(() => document.addEventListener('click', closeMsgMenu, { once: true }), 0);
+  }
+
+  // Inline edit: swap the bubble for a small editor, save through the socket, then
+  // repaint with the new text plus the "edited" mark.
+  function startEditBubble(node, m) {
+    node.classList.add('editing');
+    node.innerHTML =
+      '<div class="msg-editor"><textarea class="msg-edit-input" rows="2"></textarea>' +
+      '<div class="msg-edit-actions"><button class="btn btn-sm" data-act="cancel">Cancel</button>' +
+      '<button class="btn btn-primary btn-sm" data-act="save">Save</button></div></div>';
+    const ta = node.querySelector('.msg-edit-input');
+    ta.value = m.content;
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    node.querySelector('[data-act="cancel"]').onclick = () => { node.classList.remove('editing'); paintBubble(node, m); };
+    node.querySelector('[data-act="save"]').onclick = async () => {
+      const val = ta.value.trim();
+      if (!val) { toast('A message cannot be empty. Delete it instead.'); return; }
+      if (val === m.content) { node.classList.remove('editing'); paintBubble(node, m); return; }
+      const save = node.querySelector('[data-act="save"]'); save.disabled = true;
+      try {
+        await Chat.editMessage(m.id, val);
+        m.content = val; m.edited = true;
+        node.classList.remove('editing'); paintBubble(node, m);
+        loadConversations(activeChatUser);
+      } catch (e) { toast(e.message); save.disabled = false; }
+    };
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); node.querySelector('[data-act="save"]').click(); }
+      else if (e.key === 'Escape') { node.querySelector('[data-act="cancel"]').click(); }
+    });
   }
 
   // Wait for an element to appear (an async view may still be loading), then run cb.
@@ -4027,6 +4115,24 @@
         refreshBadges();
         if (currentView === 'messages') loadConversations(activeChatUser);
       }
+    });
+    // A message was edited somewhere: update that bubble live (new text + the
+    // "edited" mark) if we are looking at the thread it belongs to.
+    Chat.onMessageEdited((e) => {
+      const node = document.querySelector('#mbody .bubble-msg[data-mid="' + e.id + '"]');
+      if (node && !node.classList.contains('editing')) {
+        const body = node.querySelector('.bubble-body');
+        if (body) body.innerHTML = linkify(esc(e.content));
+        const bt = node.querySelector('.bt');
+        if (bt && !bt.querySelector('.msg-edited')) bt.insertAdjacentHTML('beforeend', ' <span class="msg-edited">edited</span>');
+      }
+      if (currentView === 'messages') loadConversations(activeChatUser);
+    });
+    // A message was deleted for everyone: remove that bubble live.
+    Chat.onMessageDeleted((e) => {
+      const node = document.querySelector('#mbody .bubble-msg[data-mid="' + e.id + '"]');
+      if (node) node.remove();
+      if (currentView === 'messages') loadConversations(activeChatUser);
     });
     // Coming back to the tab while a thread is open clears its unread signal.
     document.addEventListener('visibilitychange', () => {

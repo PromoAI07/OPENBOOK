@@ -516,6 +516,9 @@ db.init = async function init() {
   // clearly-labeled announcement shown at the top of the feed (transparent, NOT
   // a hidden feed boost). Kept out of the ranked feeds so it only appears pinned.
   await addColumn('posts', 'announcement INTEGER NOT NULL DEFAULT 0', 'announcement');
+  // Direct messages can be edited (an "edited" mark then shows) and deleted for
+  // everyone. This flag records that a message was edited at least once.
+  await addColumn('messages', 'edited INTEGER NOT NULL DEFAULT 0', 'edited');
 
   await db.exec(`
     CREATE TABLE IF NOT EXISTS reports (

@@ -83,6 +83,7 @@ router.get('/:userId', requireAuth, async (req, res) => {
     mine: m.sender_id === uid,
     sender_id: m.sender_id,
     recipient_id: m.recipient_id,
+    edited: !!m.edited,
   }));
   res.json({ messages, user: publicUser(partner) });
 });

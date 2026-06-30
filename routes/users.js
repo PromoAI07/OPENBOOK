@@ -50,6 +50,44 @@ async function tombstoneForOthers(userId, ghostId) {
   }
 }
 
+// The full, irreversible account erasure used by BOTH the owner "delete my
+// account" route and the unverified-account cleanup job. Tombstones threads others
+// built on, wipes the user's uploaded media (and purges the CDN), deletes the user
+// row (which cascades posts, comments, messages, friendships, votes, sessions, and
+// the rest), and writes a PII-free line to the public ledger. Best-effort tombstone
+// and ledger steps must never block the actual erasure.
+async function deleteUserCompletely(userId, reasonText) {
+  let ghostId = null;
+  try { ghostId = await ghostUserId(); await tombstoneForOthers(userId, ghostId); } catch (e) { /* erase regardless */ }
+  await cleanup.wipeUserMedia(userId);
+  // Explicitly delete this user's rows from EVERY table that references users, so
+  // the erasure never silently depends on the connection enforcing ON DELETE CASCADE
+  // (a remote libSQL/HTTP connection may not persist PRAGMA foreign_keys across
+  // requests). Read from the live schema so any future table is covered automatically.
+  // The tombstoned rows were reassigned to the ghost above, so this (WHERE col = the
+  // user's id) leaves them intact while removing everything still owned by the user.
+  try {
+    const tables = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all();
+    for (const t of tables) {
+      if (t.name === 'users' || t.name.indexOf('sqlite_') === 0) continue;
+      let fks = [];
+      try { fks = await db.prepare('PRAGMA foreign_key_list(' + t.name + ')').all(); } catch (e) { continue; }
+      const cols = fks.filter((fk) => fk.table === 'users').map((fk) => fk.from);
+      for (const col of cols) {
+        try { await db.prepare('DELETE FROM ' + t.name + ' WHERE "' + col + '" = ?').run(userId); } catch (e) { /* keep going */ }
+      }
+    }
+  } catch (e) { /* fall through to the user-row delete regardless */ }
+  await db.prepare('DELETE FROM users WHERE id = ?').run(userId); // removes the user row (cascade clears any remainder)
+  try {
+    const gid = ghostId || (await ghostUserId());
+    await db.prepare(
+      "INSERT INTO mod_actions (actor_id, action, target_type, target_id, reason, is_public) " +
+      "VALUES (?, 'account_deleted', 'account', 0, ?, 1)"
+    ).run(gid, reasonText || 'An account and all of its personal data were permanently deleted.');
+  } catch (e) { /* logging must never fail the deletion */ }
+}
+
 // The owner-facing view of an export job (never leaks the raw download token
 // except as part of the owner's own download URL).
 function publicJob(j) {
@@ -260,28 +298,9 @@ router.delete('/me', requireAuth, async (req, res, next) => {
     if (!row || !bcrypt.compareSync(password, row.password_hash)) {
       return res.status(403).json({ error: 'That password is not correct.' });
     }
-    // Tombstone threads other people replied to, so erasing you does not destroy
-    // their words. Best-effort: never let this block the actual deletion, because
-    // the erasure promise must always win.
-    let ghostId = null;
-    try {
-      ghostId = await ghostUserId();
-      await tombstoneForOthers(req.user.id, ghostId);
-    } catch (e) { /* fall through to the hard delete regardless */ }
-
-    await cleanup.wipeUserMedia(req.user.id);
-    await db.prepare('DELETE FROM users WHERE id = ?').run(req.user.id); // cascades the rest
-
-    // A public, PII-free ledger line so the transparency promise holds even for
-    // deletions. No name, no email, no id of the removed account.
-    try {
-      if (ghostId) {
-        await db.prepare(
-          "INSERT INTO mod_actions (actor_id, action, target_type, target_id, reason, is_public) " +
-          "VALUES (?, 'account_deleted', 'account', 0, ?, 1)"
-        ).run(ghostId, 'An account and all of its personal data were permanently deleted at the owner request.');
-      }
-    } catch (e) { /* logging must never fail the deletion */ }
+    // Erase the account and everything in it (shared with the unverified-cleanup
+    // job). The public ledger line notes this one was at the owner's request.
+    await deleteUserCompletely(req.user.id, 'An account and all of its personal data were permanently deleted at the owner request.');
 
     res.clearCookie('tb_session');
     res.json({ ok: true });
@@ -506,4 +525,6 @@ router.get('/:id/friends', requireAuth, async (req, res) => {
   res.json({ users: rows.map(publicUser) });
 });
 
+// Exposed so the unverified-account cleanup job can reuse the exact same erasure.
+router.deleteUserCompletely = deleteUserCompletely;
 module.exports = router;

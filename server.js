@@ -279,7 +279,21 @@ app.get('/api/support', (req, res) => {
 // SECRET key stays server-side and is never sent here. When no site key is set,
 // the field is empty and the frontend renders no CAPTCHA (dormant).
 app.get('/api/config', (req, res) => {
-  res.json({ turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '' });
+  // Tell the client whether unverified-account deletion is actually armed (so the
+  // verify banner only threatens deletion when the server will really do it) and
+  // the real grace window, so the warning and the countdown can never drift.
+  let unverifiedDeletes = false;
+  let unverifiedGraceHours = 24;
+  try {
+    const uc = require('./unverified-cleanup');
+    unverifiedGraceHours = uc.graceHours();
+    unverifiedDeletes = uc.enforcementOn() && process.env.UNVERIFIED_CLEANUP !== '0';
+  } catch (e) { /* leave defaults */ }
+  res.json({
+    turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '',
+    unverifiedDeletes: unverifiedDeletes,
+    unverifiedGraceHours: unverifiedGraceHours,
+  });
 });
 
 // The supporter tiers and their perks, for the upgrade page (public).
@@ -415,6 +429,9 @@ require('./db').init()
       // Onboarding: send the OpenBook welcome message to any existing member who has
       // not received it yet (idempotent, runs in the background, never re-sends).
       try { require('./welcome').backfillWelcomes().catch((e) => logger.warn({ err: e }, 'welcome backfill failed')); } catch (e) { logger.error({ err: e }, 'failed to start welcome backfill'); }
+      // Cleanup: permanently remove accounts that never verified their email within
+      // the grace window (only runs while email verification is enforced).
+      try { require('./unverified-cleanup').startUnverifiedCleanupJob(); } catch (e) { logger.error({ err: e }, 'failed to start unverified cleanup job'); }
       // Roadmap: reconcile linked GitHub issues (no-op unless GITHUB_TOKEN is set).
       try { require('./roadmap-sync').startRoadmapJobs(); } catch (e) { logger.error({ err: e }, 'failed to start roadmap sync job'); }
       // Jury: settle any community juries past their deadline (Phase 4).

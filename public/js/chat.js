@@ -5,6 +5,8 @@
 window.Chat = (function () {
   let socket = null;
   const messageHandlers = [];
+  const editedHandlers = [];
+  const deletedHandlers = [];
   const notifHandlers = [];
   const typingHandlers = [];
   const presenceHandlers = [];
@@ -15,6 +17,8 @@ window.Chat = (function () {
     // session cookie is sent automatically with the handshake.
     socket = io({ withCredentials: true });
     socket.on('message:new', (m) => messageHandlers.forEach((h) => h(m)));
+    socket.on('message:edited', (e) => editedHandlers.forEach((h) => h(e)));
+    socket.on('message:deleted', (e) => deletedHandlers.forEach((h) => h(e)));
     socket.on('notification:new', (n) => notifHandlers.forEach((h) => h(n)));
     socket.on('typing', (t) => typingHandlers.forEach((h) => h(t)));
     socket.on('presence', (p) => presenceHandlers.forEach((h) => h(p)));
@@ -26,6 +30,26 @@ window.Chat = (function () {
       socket.emit('message:send', { to: to, content: content }, (res) => {
         if (res && res.ok) resolve(res.message);
         else reject(new Error((res && res.error) || 'Could not send the message'));
+      });
+    });
+  }
+
+  function editMessage(id, content) {
+    return new Promise((resolve, reject) => {
+      if (!socket) return reject(new Error('Not connected to chat'));
+      socket.emit('message:edit', { id: id, content: content }, (res) => {
+        if (res && res.ok) resolve();
+        else reject(new Error((res && res.error) || 'Could not edit the message'));
+      });
+    });
+  }
+
+  function deleteMessage(id) {
+    return new Promise((resolve, reject) => {
+      if (!socket) return reject(new Error('Not connected to chat'));
+      socket.emit('message:delete', { id: id }, (res) => {
+        if (res && res.ok) resolve();
+        else reject(new Error((res && res.error) || 'Could not delete the message'));
       });
     });
   }
@@ -44,9 +68,13 @@ window.Chat = (function () {
   return {
     init: init,
     send: send,
+    editMessage: editMessage,
+    deleteMessage: deleteMessage,
     typing: typing,
     markRead: markRead,
     onMessage: (cb) => messageHandlers.push(cb),
+    onMessageEdited: (cb) => editedHandlers.push(cb),
+    onMessageDeleted: (cb) => deletedHandlers.push(cb),
     onNotif: (cb) => notifHandlers.push(cb),
     onTyping: (cb) => typingHandlers.push(cb),
     onPresence: (cb) => presenceHandlers.push(cb),

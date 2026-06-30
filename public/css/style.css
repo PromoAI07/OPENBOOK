@@ -1006,6 +1006,20 @@ html[data-theme="dark"] .profile-head .pname { color: var(--text); }
 .bubble-msg { max-width: 70%; padding: 9px 13px; border-radius: 16px; background: var(--card); color: var(--text); box-shadow: var(--shadow); word-wrap: break-word; }
 .bubble-msg.mine { align-self: flex-end; background: var(--brand); color: #fff; }
 .bubble-msg .bt { font-size: 11px; opacity: 0.7; margin-top: 3px; }
+/* Message edit / delete (Telegram-style) */
+.bubble-msg { position: relative; }
+.bubble-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg-edited { font-style: italic; opacity: 0.85; margin-left: 4px; }
+.msg-menu-btn { position: absolute; top: 2px; right: 6px; border: none; background: transparent; color: inherit; opacity: 0; cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 5px; border-radius: 6px; }
+.bubble-msg:hover .msg-menu-btn, .msg-menu-btn:focus { opacity: 0.6; }
+.msg-menu-btn:hover { opacity: 1; background: rgba(0, 0, 0, 0.14); }
+.msg-menu { position: absolute; top: 22px; right: 6px; z-index: 30; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px; display: flex; flex-direction: column; min-width: 124px; }
+.msg-menu button { background: transparent; border: none; text-align: left; padding: 7px 10px; border-radius: 7px; cursor: pointer; color: var(--text); font-size: 13.5px; }
+.msg-menu button:hover { background: var(--hover); }
+.msg-menu button.danger { color: var(--like); }
+.msg-editor { display: flex; flex-direction: column; gap: 6px; min-width: 230px; }
+.msg-edit-input { width: 100%; resize: vertical; border-radius: 10px; border: 1px solid var(--line); padding: 7px 9px; font: inherit; background: var(--bg); color: var(--text); }
+.msg-edit-actions { display: flex; gap: 6px; justify-content: flex-end; }
 /* Onboarding checklist card in the official OpenBook conversation */
 .onboard-card { align-self: stretch; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 8px; box-shadow: var(--shadow); }
 .onboard-h { font-weight: 800; font-size: 15px; margin: 2px 2px 10px; }
