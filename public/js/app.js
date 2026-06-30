@@ -16,6 +16,7 @@
   let navSeq = 0;              // bumped on every go(); async renderers bail if a newer navigation started
   let popInProgress = false;   // set during a popstate so the hashchange it can trigger is ignored
   let activeChatUser = null;
+  let deferredInstallPrompt = null; // captured beforeinstallprompt event, for the PWA install banner
   const view = document.getElementById('view');
 
   /* ============================ helpers ============================ */
@@ -268,6 +269,7 @@
     if (params.has('verified')) window.history.replaceState({}, '', '/app');
 
     renderVerifyBanner();
+    renderInstallBanner(); // iOS Safari, or if the install event already fired
 
     // Deep links from a shared URL: /u/<username-or-id> opens a profile, /p/<id>
     // opens a post. The clean path is normalised back to /app once handled so the
@@ -320,6 +322,88 @@
       } catch (e) { toast(e.message); }
       btn.disabled = false;
     };
+  }
+
+  /* ============================ install as an app (PWA) ============================ */
+
+  function pwaStandalone() {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  }
+  // Only iOS Safari supports Add to Home Screen; other iOS browsers do not, so we do
+  // not nag them with an instruction they cannot follow.
+  function pwaIosSafari() {
+    const ua = navigator.userAgent || '';
+    // Modern iPadOS Safari reports a desktop Mac user agent, so also treat a
+    // touch-capable "Macintosh" as iOS. A real Mac has maxTouchPoints 0, so it
+    // never false-positives. Other iOS browsers (Chrome/Firefox/Edge) cannot Add to
+    // Home Screen, so they stay excluded.
+    const isIOS = /iphone|ipad|ipod/i.test(ua) || (/macintosh/i.test(ua) && (navigator.maxTouchPoints || 0) > 1);
+    return isIOS && /safari/i.test(ua) && !/crios|fxios|edgios|opios/i.test(ua);
+  }
+
+  function setupPWA() {
+    // Register the (non-caching) service worker so OpenBook is installable. Failure
+    // is harmless: it just means no install prompt, the app works exactly the same.
+    if ('serviceWorker' in navigator) {
+      try { navigator.serviceWorker.register('/sw.js').catch(() => {}); } catch (e) {}
+    }
+    // Chrome / Edge / Android fire this when the app meets the install criteria. We
+    // stash the event so our own yellow button can trigger the native prompt on tap.
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      renderInstallBanner();
+    });
+    window.addEventListener('appinstalled', () => {
+      deferredInstallPrompt = null;
+      const b = document.getElementById('installBanner'); if (b) b.remove();
+      try { localStorage.setItem('ob_pwa_installed', '1'); } catch (e) {}
+      toast('OpenBook is now on your home screen.');
+    });
+  }
+
+  // A dismissible yellow bar at the top inviting the user to install OpenBook. Shown
+  // when the browser reports the app is installable, or on iOS Safari (Add to Home
+  // Screen, which has no prompt event). Hidden once installed or dismissed.
+  function renderInstallBanner() {
+    if (document.getElementById('installBanner')) return;
+    const layout = document.querySelector('.layout');
+    if (!layout) return;
+    if (pwaStandalone()) return; // already running as the installed app
+    try { if (localStorage.getItem('ob_pwa_installed') === '1' || localStorage.getItem('ob_pwa_dismissed') === '1') return; } catch (e) {}
+    const ios = pwaIosSafari();
+    if (!deferredInstallPrompt && !ios) return; // not installable yet, and not iOS Safari
+    const banner = el(
+      '<div id="installBanner" class="install-banner">' +
+      '<span class="ib-text">&#128241; Install OpenBook on your phone for a faster, full-screen app.</span>' +
+      '<button class="ib-btn" id="ibInstall">Install on your phone now</button>' +
+      '<button class="ib-x" id="ibClose" title="Not now" aria-label="Dismiss">&times;</button>' +
+      '</div>'
+    );
+    layout.parentNode.insertBefore(banner, layout);
+    banner.querySelector('#ibClose').onclick = () => {
+      banner.remove();
+      try { localStorage.setItem('ob_pwa_dismissed', '1'); } catch (e) {}
+    };
+    banner.querySelector('#ibInstall').onclick = async () => {
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        try { await deferredInstallPrompt.userChoice; } catch (e) {}
+        deferredInstallPrompt = null;
+        banner.remove();
+      } else if (ios) {
+        installIosHelp();
+      }
+    };
+  }
+
+  function installIosHelp() {
+    modal('<div class="mh"><h3>&#128241; Add OpenBook to your Home Screen</h3></div><div class="mc">' +
+      '<ol style="line-height:1.85;padding-left:20px;margin:0">' +
+      '<li>Tap the <b>Share</b> button at the bottom of Safari (the square with an up arrow).</li>' +
+      '<li>Scroll down and tap <b>Add to Home Screen</b>.</li>' +
+      '<li>Tap <b>Add</b>, and OpenBook appears as an app on your phone.</li>' +
+      '</ol></div>');
   }
 
   /* ============================ chrome / nav ============================ */
@@ -4049,5 +4133,6 @@
 
   /* ============================ go ============================ */
 
+  setupPWA();
   boot();
 })();

@@ -102,6 +102,9 @@ app.use(helmet({
       frameAncestors: ["'self'"],
       formAction: ["'self'"],
       scriptSrc: ["'self'", 'https://cdn.jsdelivr.net', TURNSTILE_ORIGIN].concat(inlineScriptHashes()),
+      // PWA: the web manifest and the service worker are same-origin.
+      manifestSrc: ["'self'"],
+      workerSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: cspMedia,
       mediaSrc: cspMedia,
@@ -202,6 +205,14 @@ app.get('/', (req, res) => {
   res.set('Cache-Control', 'private, no-store');
   if (req.user) return res.redirect(302, '/app');
   sendPage(res, path.join(__dirname, 'public', 'index.html'));
+});
+// The service worker script must never be cached for long, so a future update or a
+// removal worker reaches already-installed clients quickly (the browser caps SW
+// update checks at 24h anyway, and Cloudflare must not serve a stale copy).
+app.get('/sw.js', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'sw.js'), {
+    headers: { 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' },
+  });
 });
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 

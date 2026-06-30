@@ -500,6 +500,27 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
   font-size: 14px;
 }
 .verify-banner span { flex: 1; }
+/* Yellow "install this as an app" (PWA) banner */
+.install-banner {
+  max-width: 1280px;
+  margin: 12px auto 0;
+  padding: 10px 14px;
+  background: #ffd84d;
+  border: 1px solid #e0b400;
+  color: #4a3a00;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  font-weight: 600;
+}
+.install-banner .ib-text { flex: 1; min-width: 170px; line-height: 1.4; }
+.install-banner .ib-btn { background: #4a3a00; color: #ffd84d; border: none; border-radius: 8px; padding: 8px 14px; font-weight: 700; font-size: 13.5px; cursor: pointer; white-space: nowrap; }
+.install-banner .ib-btn:hover { background: #5e4a00; }
+.install-banner .ib-x { background: transparent; border: none; color: #4a3a00; font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px; opacity: 0.65; }
+.install-banner .ib-x:hover { opacity: 1; }
 
 /* New-user welcome banner: shown on the home feed to accounts under 30 days old,
    dismissible. Brand-tinted and theme-aware so it stays readable in dark mode. */

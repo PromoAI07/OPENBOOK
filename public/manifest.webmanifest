@@ -1,0 +1,15 @@
+{
+  "name": "OpenBook",
+  "short_name": "OpenBook",
+  "description": "A social network where your data is yours. No ads, no surveillance, money never buys reach.",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#5b51e8",
+  "categories": ["social"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
