@@ -23,6 +23,8 @@ const CHANGELOG = [
     body: 'Fixed: the back button now returns you to the last page you were on instead of dropping you out of the app, and logged-in members no longer see a flash of the login screen.' },
   { slug: '2026-06-follow-openbook',
     body: 'This is the official OpenBook account. Follow it to see new features and bug fixes the moment they ship, and tell us what you think. We build in the open.' },
+  { slug: '2026-06-google-passkey-login',
+    body: 'Two new ways to sign in. You can now log in with Google, or set up a passkey and sign in with just your fingerprint, face, or device PIN (Face ID, Touch ID, or Windows Hello). Passkeys are passwordless, and your biometric never leaves your device, we only ever store a public key. Add one any time from Settings. As always, how you sign in is only your identity, it never affects your karma, standing, or reach.' },
 ];
 
 async function publishChangelog() {
