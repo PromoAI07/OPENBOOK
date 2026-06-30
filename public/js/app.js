@@ -2993,7 +2993,7 @@
           (e.note ? '<div style="font-size:13px;margin-top:4px;white-space:pre-wrap">' + esc(e.note) + '</div>' : '') + '</div>').join('')
       : '<div class="shint" style="font-size:13px">No evidence added yet.</div>';
     const canAddEvidence = (o.isBuyer || o.isSeller) && ['funds_held', 'shipped', 'disputed'].includes(o.status);
-    const trail = (o.events || []).map((e) => '<div style="font-size:12px;color:var(--text-soft);padding:2px 0">&#8226; ' + esc(e.event) + (e.detail ? ' — ' + esc(e.detail) : '') + ' <span style="opacity:.7">(' + timeAgo(e.created_at) + ')</span></div>').join('');
+    const trail = (o.events || []).map((e) => '<div style="font-size:12px;color:var(--text-soft);padding:2px 0">&#8226; ' + esc(e.event) + (e.detail ? ' - ' + esc(e.detail) : '') +' <span style="opacity:.7">(' + timeAgo(e.created_at) + ')</span></div>').join('');
 
     const m = modal(
       '<div class="mh"><h3>Protected order</h3></div><div class="mc">' +
