@@ -515,7 +515,66 @@
 
   /* ============================ badges ============================ */
 
+  // --- New-DM signals: a short chime, a pulse on the message icon, a blinking red
+  // favicon dot, and an unread count in the tab title, so a DM is noticed even on
+  // another tab. ---
+  // A short two-note chime, synthesized so there is no audio file to load (and no
+  // CSP concern). Browsers allow it after the first user interaction.
+  function playDing() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = playDing._ctx || (playDing._ctx = new Ctx());
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+      [880, 1320].forEach((freq, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = freq;
+        o.connect(g); g.connect(ctx.destination);
+        const t = now + i * 0.09;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.2, t + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+        o.start(t); o.stop(t + 0.22);
+      });
+    } catch (e) { /* audio not available */ }
+  }
+  // Briefly pulse the messages icon in the top bar to draw the eye.
+  function flashMessagesIcon() {
+    const btn = document.querySelector('.nav-btn[data-nav="messages"]');
+    if (!btn) return;
+    btn.classList.remove('nav-ping');
+    void btn.offsetWidth; // restart the animation if it is already running
+    btn.classList.add('nav-ping');
+    setTimeout(() => btn.classList.remove('nav-ping'), 1600);
+  }
+  // Blinking red dot on the favicon while there are unread DMs.
+  const _FAV_BASE = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%235b51e8'/><text x='16' y='23' font-size='20' fill='white' text-anchor='middle' font-family='Arial' font-weight='bold'>O</text></svg>";
+  const _FAV_DOT = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%235b51e8'/><text x='16' y='23' font-size='20' fill='white' text-anchor='middle' font-family='Arial' font-weight='bold'>O</text><circle cx='25' cy='8' r='7' fill='%23ff3b30' stroke='white' stroke-width='2'/></svg>";
+  let _favTimer = null, _favPhase = false;
+  function faviconLink() {
+    let l = document.querySelector('link[rel="icon"]');
+    if (!l) { l = document.createElement('link'); l.rel = 'icon'; document.head.appendChild(l); }
+    return l;
+  }
+  function setMessageFavicon(hasUnread) {
+    const l = faviconLink();
+    if (hasUnread) {
+      if (_favTimer) return; // already blinking
+      _favPhase = true; l.href = _FAV_DOT;
+      _favTimer = setInterval(() => { _favPhase = !_favPhase; l.href = _favPhase ? _FAV_DOT : _FAV_BASE; }, 750);
+    } else {
+      if (_favTimer) { clearInterval(_favTimer); _favTimer = null; }
+      l.href = _FAV_BASE;
+    }
+  }
+  function setMessageTitle(count) {
+    document.title = count > 0 ? '(' + (count > 99 ? '99+' : count) + ') OpenBook' : 'OpenBook';
+  }
+
   function setBadge(id, count) {
+    // The messages badge also drives the blinking favicon dot + the tab-title count.
+    if (id === 'messagesBadge') { setMessageFavicon(count > 0); setMessageTitle(count || 0); }
     const b = document.getElementById(id);
     if (!b) return;
     if (count && count > 0) {
@@ -3782,19 +3841,33 @@
   function wireSocket() {
     Chat.onMessage((m) => {
       const other = m.mine ? m.recipient_id : m.sender_id;
-      if (currentView === 'messages' && activeChatUser === other) {
+      const onThread = currentView === 'messages' && activeChatUser === other;
+      const focusedHere = onThread && !document.hidden;
+      // Signal a new incoming DM (chime + pulse the message icon) unless we are
+      // actively reading this exact thread with the tab in front.
+      if (!m.mine && !focusedHere) { playDing(); flashMessagesIcon(); }
+      if (onThread) {
         const body = document.getElementById('mbody');
         if (body) { body.appendChild(msgBubble(m)); scrollBottom(body); }
-        if (!m.mine) {
-          // We are looking right at this thread, so mark it read, then refresh counts.
+        if (m.mine) {
+          loadConversations(activeChatUser);
+        } else if (focusedHere) {
+          // Looking right at this thread: mark read, then refresh counts.
           Chat.markRead(other).then(() => { loadConversations(activeChatUser); refreshBadges(); });
         } else {
-          loadConversations(activeChatUser);
+          // Thread open but the tab is hidden: keep the unread badge + favicon dot.
+          loadConversations(activeChatUser); refreshBadges();
         }
       } else if (!m.mine) {
         toast('New message');
         refreshBadges();
         if (currentView === 'messages') loadConversations(activeChatUser);
+      }
+    });
+    // Coming back to the tab while a thread is open clears its unread signal.
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && currentView === 'messages' && activeChatUser) {
+        Chat.markRead(activeChatUser).then(() => { loadConversations(activeChatUser); refreshBadges(); });
       }
     });
     Chat.onNotif((n) => setBadge('notifBadge', n.count));

@@ -447,6 +447,15 @@ html[data-theme="dark"] .vtick-check { stroke: #18191a; }
   justify-content: center;
   border: 2px solid var(--card);
 }
+/* Brief attention pulse on the messages icon when a new DM lands. */
+@keyframes navPing {
+  0%, 100% { transform: scale(1); }
+  25% { transform: scale(1.28); }
+  50% { transform: scale(0.94); }
+  75% { transform: scale(1.14); }
+}
+.nav-btn.nav-ping { animation: navPing 0.55s ease 0s 2; }
+.nav-btn.nav-ping .badge { box-shadow: 0 0 0 4px rgba(255, 59, 48, 0.25); }
 
 /* ---------- App layout ---------- */
 .layout {
