@@ -270,15 +270,13 @@
     renderVerifyBanner();
 
     // Deep links from a shared URL: /u/<username-or-id> opens a profile, /p/<id>
-    // opens a post, /app#reel=<id> opens a reel. The clean path is normalised back
-    // to /app once handled so the running app's URL stays tidy.
+    // opens a post. The clean path is normalised back to /app once handled so the
+    // running app's URL stays tidy.
     const dpath = window.location.pathname;
     const um = /^\/u\/([^\/?#]+)/.exec(dpath);
     const ppm = /^\/p\/(\d+)/.exec(dpath);
-    const reelMatch = /(?:^|#)reel=(\d+)/.exec(window.location.hash);
     if (um) { go('profile', decodeURIComponent(um[1])); }
     else if (ppm) { go('post', Number(ppm[1])); }
-    else if (reelMatch) { pendingReel = Number(reelMatch[1]); go('reels'); }
     else go('feed');
   }
 
@@ -371,20 +369,6 @@
       if (ap) { e.preventDefault(); e.stopPropagation(); appealModal(ap.getAttribute('data-appeal-type'), Number(ap.getAttribute('data-appeal-id')) || null); }
     });
 
-    // A shared reel link can also be opened while the app is already running. The
-    // browser already added a history entry for the hash change, so we attach the
-    // reels state to THAT entry (replace) instead of letting go() push a second one,
-    // and we keep the #reel= hash so the URL stays shareable.
-    window.addEventListener('hashchange', () => {
-      if (popInProgress) return; // this hashchange is a side effect of Back/Forward; popstate handled it
-      const m = /(?:^|#)reel=(\d+)/.exec(window.location.hash);
-      if (!m) return;
-      pendingReel = Number(m[1]);
-      isPopNavigating = true;
-      try { go('reels'); } finally { isPopNavigating = false; }
-      try { window.history.replaceState({ v: 'reels', p: pendingReel }, '', '/app#reel=' + pendingReel); } catch (e) {}
-    });
-
     // Back / Forward: re-render the view stored on the history entry we landed on.
     // Re-entering go() restores the active-nav highlight, the messages-view layout,
     // and the content for free; isPopNavigating stops it from pushing a new entry.
@@ -395,7 +379,6 @@
       isPopNavigating = true;
       try {
         if (st && st.v) {
-          if (st.v === 'reels' && st.p != null) pendingReel = st.p;
           go(st.v, st.p == null ? undefined : st.p);
         } else {
           // Stateless entry (e.g. the initial /app load): fall back to the feed.
@@ -458,26 +441,22 @@
     else if (name === 'community') renderCommunity(param);
     else if (name === 'post') renderPost(param);
     else if (name === 'dashboard') renderDashboard();
-    else if (name === 'reels') renderReels();
     else if (name === 'support') renderSupport();
     else if (name === 'invite') renderInvite();
     else if (name === 'suggestions') renderSuggestions();
     else if (name === 'jury') renderJury();
     // History: give each view its own browser entry so Back/Forward move between
     // the views you visited. profile and post create their own entry inside their
-    // renderer (once the pretty /u/<username> or /p/<id> URL is known); reels deep
-    // links keep their #reel= hash. Everything else shares the /app URL but still
-    // gets a distinct entry via pushState.
+    // renderer (once the pretty /u/<username> or /p/<id> URL is known); everything
+    // else shares the /app URL but still gets a distinct entry via pushState.
     if (!isPopNavigating && name !== 'profile' && name !== 'post') {
       try {
-        const reelId = (name === 'reels') ? pendingReel : null;
-        const navState = { v: name, p: reelId != null ? reelId : (param === undefined ? null : param) };
-        const url = reelId != null ? '/app#reel=' + reelId : '/app';
+        const navState = { v: name, p: (param === undefined ? null : param) };
         // Replace (no new entry) for the first view after load, a re-click of the
         // view you are already on, and live search typing (one entry per keystroke
         // would flood the history). Otherwise push so Back can return here.
-        if (bootNav || name === prevView || name === 'search') window.history.replaceState(navState, '', url);
-        else window.history.pushState(navState, '', url);
+        if (bootNav || name === prevView || name === 'search') window.history.replaceState(navState, '', '/app');
+        else window.history.pushState(navState, '', '/app');
       } catch (e) {}
     }
     bootNav = false;
@@ -488,7 +467,7 @@
   // The side menu holds the destinations that are NOT primary top-bar tabs, so
   // the two menus no longer duplicate each other. Home / Communities /
   // Marketplace / Dashboard live in the top bar; Messages + Notifications live
-  // top-right; everything else (your profile, Friends, Groups, Reels) lives here.
+  // top-right; everything else (your profile, Friends, Groups) lives here.
   function renderLeftRail() {
     const rail = document.getElementById('leftRail');
     rail.innerHTML =
@@ -498,7 +477,6 @@
       '<div class="side-link" id="getStartedLink"><span class="ic">&#128640;</span><span>Get started</span></div>' +
       '<div class="side-link" data-go="friends"><span class="ic">&#128101;</span><span>Friends</span><span class="badge side-badge hidden" id="friendsBadge">0</span></div>' +
       '<div class="side-link" data-go="groups"><span class="ic">&#127760;</span><span>Groups</span></div>' +
-      '<div class="side-link" data-go="reels"><span class="ic">&#127909;</span><span>Reels</span></div>' +
       '<div class="side-link" data-go="suggestions"><span class="ic">&#128161;</span><span>Suggestions</span></div>' +
       '<div class="side-link" data-go="jury"><span class="ic">&#9878;&#65039;</span><span>Jury duty</span><span class="badge side-badge hidden" id="juryBadge">0</span></div>' +
       '<div class="side-link" data-go="invite"><span class="ic">&#127881;</span><span>Invite friends</span></div>' +
@@ -1474,13 +1452,12 @@
       '<div class="shint" style="font-size:13px">Your reputation, activity, and content analytics on OpenBook, fully in the open.</div></div>' +
       '<div class="section-title">Content analytics</div>' +
       '<div class="dash-grid">' +
-        statCard(a.totals.views, 'Views / reach', 'Times your posts and reels were opened by others.') +
-        statCard(a.totals.likesReceived, 'Likes & reactions', 'Across your posts, comments and reels.') +
+        statCard(a.totals.views, 'Views / reach', 'Times your posts were opened by others.') +
+        statCard(a.totals.likesReceived, 'Likes & reactions', 'Across your posts and comments.') +
         statCard(a.totals.commentsReceived, 'Comments received', '') +
         statCard(a.totals.netVotes, 'Net votes', 'Upvotes minus downvotes on your community posts and comments.') +
       '</div>' +
       analyticsTable('Your recent posts', a.topPosts, 'post') +
-      analyticsTable('Your reels', a.reels, 'reel') +
       '<div class="section-title">Your reputation</div>' +
       '<div class="dash-grid">' +
         statCard(t.karma, 'Karma', 'From up and down votes. Affects ranking only, never your reach.') +
@@ -1535,7 +1512,7 @@
         '<div style="height:10px;border-radius:6px;background:var(--line,#2a2a2a);overflow:hidden">' +
           '<div style="height:100%;width:' + pct + '%;background:' + barColor + ';border-radius:6px;transition:width .4s"></div>' +
         '</div>' +
-        '<div class="shint" style="font-size:12px;margin-top:8px">The space your photos and videos take on OpenBook servers. Delete old posts, reels, or photos to free up room' +
+        '<div class="shint" style="font-size:12px;margin-top:8px">The space your photos take on OpenBook servers. Delete old posts or photos to free up room' +
           (atMax ? '.' : ', or upgrade your supporter tier for more space.') + '</div>' +
       '</div>'
     );
@@ -3680,7 +3657,6 @@
   let feedMode = 'latest';
   let postMod = false;   // can the current viewer moderate the open post's thread (mod/admin)
   let postOwner = false; // is the current viewer the owner of the open post
-  let pendingReel = null; // a reel id from a shared deep link (/app#reel=<id>) to scroll to
 
   async function renderCommunity(id) {
     view.innerHTML = '<div class="card card-pad-0"><div class="empty" style="padding:40px">Loading community...</div></div>';
@@ -4007,172 +3983,6 @@
     const mrsc = main.querySelector('[data-modrestorec]');
     if (mrsc) mrsc.onclick = async () => { try { await API.modRestore('comment', c.id); loadCommentTree(postId); } catch (e) { toast(e.message); } };
     return node;
-  }
-
-  /* ============================ reels ============================ */
-
-  async function renderReels() {
-    view.innerHTML = '<div class="card"><div class="empty" style="padding:40px">Loading reels...</div></div>';
-    let data;
-    try { data = await API.reels(); } catch (e) { view.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
-    const reels = data.reels;
-    view.innerHTML =
-      '<div class="card mk-head"><div class="section-title" style="margin:0">Reels</div><span style="flex:1"></span>' +
-      '<button class="btn btn-primary btn-sm" id="newReel">&#10010; New reel</button></div>' +
-      (reels.length ? '<div class="reels-viewer" id="reelsViewer"></div>'
-        : '<div class="card"><div class="empty">No reels yet. Tap "New reel" to post the first one.</div></div>');
-    document.getElementById('newReel').onclick = openReelComposer;
-    if (reels.length) {
-      const viewer = document.getElementById('reelsViewer');
-      reels.forEach((r) => viewer.appendChild(reelStage(r)));
-      wireReelAutoplay(viewer);
-      // If we arrived via a shared reel link, scroll that reel into view.
-      if (pendingReel) {
-        const target = viewer.querySelector('.reel-stage[data-reel="' + pendingReel + '"]');
-        if (target) target.scrollIntoView();
-        pendingReel = null;
-      }
-    }
-    renderRightRail();
-  }
-
-  function reelStage(r) {
-    const stage = el('<div class="reel-stage" data-reel="' + r.id + '"></div>');
-    stage.innerHTML =
-      '<video class="reel-video" src="' + esc(r.video) + '" loop muted playsinline preload="metadata"></video>' +
-      '<div class="reel-overlay">' +
-        '<div class="reel-mute" data-mute>&#128263;</div>' +
-        '<div class="reel-actions">' +
-          '<button class="reel-act" data-like><span class="ra-ic">' + (r.liked ? '❤️' : '🤍') + '</span><span class="ra-n" data-likec>' + r.likeCount + '</span></button>' +
-          '<button class="reel-act" data-comment><span class="ra-ic">&#128172;</span><span class="ra-n" data-commc>' + r.commentCount + '</span></button>' +
-          '<button class="reel-act" data-share><span class="ra-ic">&#8599;</span><span class="ra-n">Share</span></button>' +
-          (r.mine ? '<button class="reel-act" data-del><span class="ra-ic">&#128465;</span></button>'
-                  : '<button class="reel-act" data-report="reel" data-report-id="' + r.id + '"><span class="ra-ic">&#9873;</span><span class="ra-n">Report</span></button>') +
-        '</div>' +
-        '<div class="reel-meta">' + avatar(r.author, 36) +
-          '<div><div class="rname" data-profile="' + r.author.id + '">' + esc(r.author.name) + verifTick(r.author) + '</div>' +
-          (r.caption ? '<div class="rcap">' + linkify(esc(r.caption)) + '</div>' : '') +
-          '<div class="rviews">' + r.views + ' views</div></div>' +
-        '</div>' +
-      '</div>';
-
-    const video = stage.querySelector('video');
-    video.onclick = () => { if (video.paused) video.play().catch(() => {}); else video.pause(); };
-    const mute = stage.querySelector('[data-mute]');
-    mute.onclick = (e) => { e.stopPropagation(); video.muted = !video.muted; mute.innerHTML = video.muted ? '&#128263;' : '&#128266;'; };
-
-    stage.querySelector('[data-like]').onclick = async () => {
-      try {
-        const res = await API.likeReel(r.id);
-        stage.querySelector('[data-like] .ra-ic').innerHTML = res.liked ? '❤️' : '🤍';
-        stage.querySelector('[data-likec]').textContent = res.likeCount;
-      } catch (e) { toast(e.message); }
-    };
-    stage.querySelector('[data-comment]').onclick = () => openReelComments(r);
-    stage.querySelector('[data-share]').onclick = () => {
-      const url = window.location.origin + '/app#reel=' + r.id;
-      if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => toast('Reel link copied')).catch(() => toast('Share: ' + url));
-      else toast('Share: ' + url);
-    };
-    stage.querySelector('[data-profile]').onclick = () => go('profile', r.author.id);
-    const del = stage.querySelector('[data-del]');
-    if (del) del.onclick = async () => { if (!window.confirm('Delete this reel?')) return; try { await API.deleteReel(r.id); toast('Reel deleted'); renderReels(); } catch (e) { toast(e.message); } };
-    return stage;
-  }
-
-  // Play whichever reel is mostly in view, pause the rest, and count one view.
-  function wireReelAutoplay(viewer) {
-    const viewed = new Set();
-    const io = new IntersectionObserver((entries) => {
-      entries.forEach((en) => {
-        const v = en.target.querySelector('video');
-        if (!v) return;
-        if (en.isIntersecting && en.intersectionRatio > 0.6) {
-          v.play().catch(() => {});
-          const id = Number(en.target.getAttribute('data-reel'));
-          if (!viewed.has(id)) {
-            viewed.add(id);
-            API.viewReel(id).then((res) => { const rv = en.target.querySelector('.rviews'); if (rv) rv.textContent = res.views + ' views'; }).catch(() => {});
-          }
-        } else {
-          v.pause();
-        }
-      });
-    }, { threshold: [0, 0.6, 1], root: viewer });
-    viewer.querySelectorAll('.reel-stage').forEach((s) => io.observe(s));
-    // Kick off the first reel right away.
-    const first = viewer.querySelector('.reel-stage video');
-    if (first) first.play().catch(() => {});
-  }
-
-  function openReelComposer() {
-    const m = modal(
-      '<div class="mh"><h3>New reel</h3></div><div class="mc">' +
-      '<div class="field"><label>Video</label><input type="file" id="reelFile" accept="video/*" class="input"></div>' +
-      '<div class="preview hidden" id="reelPrev"></div>' +
-      '<div class="field"><label>Caption (optional)</label><textarea class="input" id="reelCap" rows="2" placeholder="Say something..."></textarea></div>' +
-      '<button class="btn btn-primary btn-block" id="reelPost">Post reel</button></div>'
-    );
-    const fileInput = m.q('#reelFile');
-    const prev = m.q('#reelPrev');
-    fileInput.onchange = () => {
-      const f = fileInput.files[0];
-      if (f) { prev.classList.remove('hidden'); prev.innerHTML = '<video src="' + URL.createObjectURL(f) + '" style="max-height:220px;width:100%;border-radius:10px" muted controls></video>'; }
-    };
-    m.q('#reelPost').onclick = async () => {
-      let f = fileInput.files[0];
-      if (!f) { toast('Choose a video'); return; }
-      const btn = m.q('#reelPost'); btn.disabled = true;
-      try {
-        // Compress in the browser before upload (Option B), so reels land on our
-        // servers small. Falls back to the original if it is not supported or fails.
-        if (window.VidCompress && window.VidCompress.supported() && /^video\//.test(f.type)) {
-          btn.textContent = 'Optimizing video...';
-          try {
-            const c = await window.VidCompress.compress(f, {
-              onProgress: (p) => { btn.textContent = 'Optimizing ' + Math.round(p * 100) + '%'; },
-            });
-            if (c && c.size && c.size < f.size) f = c;
-          } catch (e) { /* keep the original on any compression error */ }
-        }
-        btn.textContent = 'Posting...';
-        await API.createReel(f, m.q('#reelCap').value.trim());
-        m.close(); toast('Reel posted'); renderReels();
-      } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Post reel'; }
-    };
-  }
-
-  function openReelComments(r) {
-    const m = modal('<div class="mh"><h3>Comments</h3></div><div class="mc"><div id="reelCmList"><div class="empty">Loading...</div></div><div class="comment-form" id="reelCmForm"></div></div>');
-    async function load() {
-      try {
-        const d = await API.reelComments(r.id);
-        const list = m.q('#reelCmList');
-        if (!d.comments.length) { list.innerHTML = '<div class="empty" style="padding:8px">No comments yet.</div>'; return; }
-        list.innerHTML = '';
-        d.comments.forEach((c) => {
-          const row = el('<div class="contact" style="align-items:flex-start">' + avatar(c.author, 32) +
-            '<div><b>' + esc(c.author.name) + '</b> <span class="ctime">' + timeAgo(c.created_at) + '</span>' +
-            '<div>' + linkify(esc(c.content)) + '</div></div></div>');
-          list.appendChild(row);
-        });
-      } catch (e) { m.q('#reelCmList').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
-    }
-    const form = m.q('#reelCmForm');
-    form.innerHTML = avatar(ME, 28) + '<input type="text" placeholder="Add a comment..."><button class="btn btn-soft btn-sm">Send</button>';
-    const inp = form.querySelector('input');
-    const send = async () => {
-      const content = inp.value.trim(); if (!content) return;
-      inp.disabled = true;
-      try {
-        await API.addReelComment(r.id, content); inp.value = ''; inp.disabled = false; load();
-        const stage = document.querySelector('.reel-stage[data-reel="' + r.id + '"]');
-        if (stage) { const cn = stage.querySelector('[data-commc]'); if (cn) cn.textContent = (Number(cn.textContent) || 0) + 1; }
-      } catch (e) { toast(e.message); inp.disabled = false; }
-    };
-    form.querySelector('button').onclick = send;
-    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
-    load();
   }
 
   /* ============================ live socket events ============================ */

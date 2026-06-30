@@ -274,20 +274,6 @@ const API = {
   fileAppeal(message, targetType, targetId) { return this.post('/api/moderation/appeals', { message, targetType, targetId }); },
   modAppeals() { return this.get('/api/moderation/appeals'); },
   resolveAppeal(id, decision) { return this.post('/api/moderation/appeals/' + id + '/resolve', { decision }); },
-
-  // Reels
-  reels() { return this.get('/api/reels'); },
-  createReel(file, caption) {
-    const f = new FormData();
-    f.append('video', file);
-    f.append('caption', caption || '');
-    return this.postForm('/api/reels', f);
-  },
-  likeReel(id) { return this.post('/api/reels/' + id + '/like'); },
-  viewReel(id) { return this.post('/api/reels/' + id + '/view'); },
-  reelComments(id) { return this.get('/api/reels/' + id + '/comments'); },
-  addReelComment(id, content) { return this.post('/api/reels/' + id + '/comments', { content }); },
-  deleteReel(id) { return this.del('/api/reels/' + id); },
 };
 
 window.API = API;

@@ -341,7 +341,10 @@ app.use('/api/albums', require('./routes/albums'));
 app.use('/api/communities', require('./routes/communities'));
 app.use('/api/votes', require('./routes/votes'));
 app.use('/api/reactions', require('./routes/reactions'));
-app.use('/api/reels', require('./routes/reels'));
+// Reels are disabled for now (video storage is the fastest way to overload the
+// servers on a young platform). People can share video links in a normal post
+// instead; the route + tables stay dormant so reels can be re-enabled when funded.
+// app.use('/api/reels', require('./routes/reels'));
 app.use('/api/moderation', require('./routes/moderation'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/referrals', require('./routes/referrals'));
